@@ -1,6 +1,6 @@
 # 翔天然網站（翔世界翔自在）
 
-- `index.html.html`：前端網站（部署到 Netlify）
+- `index.html`：前端網站（GitHub Pages）
 - `backend/Code.gs`：Google Apps Script 後台（貼到 Apps Script，修改後要「管理部署 → 新版本」重新部署）
 - `新增資料夾*`：舊版備份，只保留不維護
 
