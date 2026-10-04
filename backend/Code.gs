@@ -97,6 +97,7 @@ function doPost(e){
     if (d.action === "join")  { addMember(d); return json({ ok:true }); }
     if (d.action === "order") { addOrder(d);  return json({ ok:true }); }
     if (d.action === "review"){ addReview(d); return json({ ok:true }); }
+    if (String(d.action || "").indexOf("admin_") === 0) return json(adminHandle(d));
     return json({ ok:false, error:"unknown action" });
   }catch(err){
     return json({ ok:false, error:String(err) });
@@ -342,52 +343,169 @@ function drawWinner(){
   MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】抽獎結果 — 中獎：" + winner, lines.join("\n"));
 }
 
-/* ========================= 訂單處理 → 自動加點（改「狀態」或「包數」時觸發） =========================
- * 你在 orders 分頁的操作：
+/* ========================= 訂單處理 → 自動加點 =========================
+ * 管理者網頁（或你直接在試算表）操作：
  *   1. 狀態選「已完成」          → 依「包數」幫會員加點，「已加點」欄自動記下已加的點數
  *   2. 之後改「包數」             → 自動補差額（例如 4 改 3，會扣回 1 點）
  *   3. 狀態改回「待處理／已取消」 → 已加的點數自動扣回，「已加點」歸零
  * 「已加點」欄是系統記帳用，請勿手動輸入。 */
+
+/* 依該列目前的「狀態」「包數」對帳並調整點數（onEdit 與管理者網頁共用） */
+function syncOrderPoints(ss, sh, row){
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const statusCol  = headers.indexOf("狀態") + 1;
+  const phoneCol   = headers.indexOf("手機") + 1;
+  const bagsCol    = headers.indexOf("包數") + 1;
+  const itemsCol   = headers.indexOf("訂購內容") + 1;
+  const awardedCol = headers.indexOf("已加點") + 1;
+  if (!statusCol || !phoneCol || !awardedCol) return;
+
+  const status = String(sh.getRange(row, statusCol).getValue()).trim();
+  const phone  = String(sh.getRange(row, phoneCol).getValue());
+  let bags = bagsCol ? Number(sh.getRange(row, bagsCol).getValue()) : 0;
+  if (!bags || bags < 0){
+    bags = parseBags(itemsCol ? sh.getRange(row, itemsCol).getValue() : "");
+  }
+  const rawAwarded = sh.getRange(row, awardedCol).getValue();
+  // 舊資料的 TRUE 視為「已照包數加過」；其餘當成數字
+  const awarded = (rawAwarded === true || String(rawAwarded).toLowerCase() === "true") ? bags : (Number(rawAwarded) || 0);
+
+  const target = (status === "已完成") ? bags : 0;
+  const delta = target - awarded;
+  if (delta !== 0 && phone) pointsAdjust(ss, phone, delta);
+  sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
+}
+
 function onEdit(e){
   try{
     if (!e || !e.range) return;
     const sh = e.range.getSheet();
     if (sh.getName() !== ORDERS_TAB) return;
     if (e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;   // 只處理單一儲存格編輯
-
     const row = e.range.getRow();
     if (row === 1) return;
     const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
-    const statusCol  = headers.indexOf("狀態") + 1;
-    const phoneCol   = headers.indexOf("手機") + 1;
-    const bagsCol    = headers.indexOf("包數") + 1;
-    const itemsCol   = headers.indexOf("訂購內容") + 1;
-    const awardedCol = headers.indexOf("已加點") + 1;
-    if (!statusCol || !phoneCol || !awardedCol) return;
     const col = e.range.getColumn();
-    if (col !== statusCol && col !== bagsCol) return;   // 只在改「狀態」或「包數」時處理
+    if (col !== headers.indexOf("狀態") + 1 && col !== headers.indexOf("包數") + 1) return;
 
     const lock = LockService.getScriptLock();
     lock.waitLock(20000);
-    try{
-      const status = String(sh.getRange(row, statusCol).getValue()).trim();
-      const phone  = String(sh.getRange(row, phoneCol).getValue());
-      let bags = bagsCol ? Number(sh.getRange(row, bagsCol).getValue()) : 0;
-      if (!bags || bags < 0){
-        bags = parseBags(itemsCol ? sh.getRange(row, itemsCol).getValue() : "");
-      }
-      const rawAwarded = sh.getRange(row, awardedCol).getValue();
-      // 舊資料的 TRUE 視為「已照包數加過」；其餘當成數字
-      const awarded = (rawAwarded === true || String(rawAwarded).toLowerCase() === "true") ? bags : (Number(rawAwarded) || 0);
-
-      const target = (status === "已完成") ? bags : 0;
-      const delta = target - awarded;
-      if (delta !== 0 && phone){
-        pointsAdjust(e.source, phone, delta);
-      }
-      sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
-    } finally { lock.releaseLock(); }
+    try{ syncOrderPoints(e.source, sh, row); } finally { lock.releaseLock(); }
   }catch(err){ /* 靜默失敗，不影響手動編輯 */ }
+}
+
+
+/* ========================= 管理者 API（管理者網頁 admin.html 使用） =========================
+ * 密碼不寫在程式碼裡：Apps Script →「專案設定」→「指令碼屬性」新增  ADMIN_KEY = 你的密碼。
+ * 全部走 POST：{action:"admin_xxx", key:"密碼", ...} */
+const COST_CATEGORIES = ["生豆","濾紙","包裝袋","運費","其他"];
+const ORDER_STATUSES  = ["待處理","已完成","已取消"];
+
+function adminAuthOk(key){
+  const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
+  return !!real && String(key || "") === real;
+}
+
+function adminHandle(d){
+  if (!adminAuthOk(d.key)) return { ok:false, error:"unauthorized" };
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try{
+    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, statuses:ORDER_STATUSES };
+    if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
+    if (d.action === "admin_update_order") return adminUpdateOrder(ss, d);
+    if (d.action === "admin_costs") return { ok:true, costs:adminListCosts(ss) };
+    if (d.action === "admin_add_cost") return adminAddCost(ss, d);
+    if (d.action === "admin_delete_cost") return adminDeleteCost(ss, d);
+    return { ok:false, error:"unknown admin action" };
+  } finally { lock.releaseLock(); }
+}
+
+function adminListOrders(ss){
+  const sh = ss.getSheetByName(ORDERS_TAB);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const rows = sh.getDataRange().getValues();
+  const head = rows[0].map(h => String(h).trim());
+  const at = n => head.indexOf(n);
+  const out = [];
+  for (let i = 1; i < rows.length; i++){
+    const r = rows[i];
+    if (!r[at("訂購內容")] && !r[at("金額")]) continue;
+    out.push({
+      row: i + 1,
+      time: r[at("建立時間")] ? new Date(r[at("建立時間")]).toISOString() : "",
+      name: String(r[at("姓名")] || ""),
+      phone: String(r[at("手機")] || ""),
+      city: String(r[at(head.indexOf("寄送地址") > -1 ? "寄送地址" : "所在地區")] || ""),
+      items: String(r[at("訂購內容")] || ""),
+      total: Number(r[at("金額")]) || 0,
+      status: String(r[at("狀態")] || "待處理"),
+      bags: Number(r[at("包數")]) || 0,
+      awarded: Number(r[at("已加點")]) || 0
+    });
+  }
+  return out.reverse();   // 新的在前
+}
+
+function adminUpdateOrder(ss, d){
+  const sh = ss.getSheetByName(ORDERS_TAB);
+  const row = Number(d.row);
+  if (!sh || !row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  if (d.status !== undefined){
+    if (ORDER_STATUSES.indexOf(d.status) < 0) return { ok:false, error:"bad status" };
+    sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
+  }
+  if (d.bags !== undefined){
+    const b = Math.floor(Number(d.bags));
+    if (!(b >= 0)) return { ok:false, error:"bad bags" };
+    sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
+  }
+  syncOrderPoints(ss, sh, row);   // 程式改儲存格不會觸發 onEdit，所以這裡主動對帳
+  return { ok:true };
+}
+
+function costsSheet(ss){
+  let c = ss.getSheetByName(COSTS_TAB) || ss.insertSheet(COSTS_TAB);
+  if (c.getLastRow() === 0) c.appendRow(["日期","項目","分類","金額","備註"]);
+  return c;
+}
+
+function adminListCosts(ss){
+  const sh = costsSheet(ss);
+  if (sh.getLastRow() < 2) return [];
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
+  const out = [];
+  rows.forEach((r, i) => {
+    if (!r[1] && !r[3]) return;
+    const dt = r[0] instanceof Date ? r[0] : new Date(r[0]);
+    out.push({
+      row: i + 2,
+      date: isNaN(dt) ? "" : Utilities.formatDate(dt, "Asia/Taipei", "yyyy-MM-dd"),
+      item: String(r[1] || ""), category: String(r[2] || "其他"),
+      amount: Number(r[3]) || 0, note: String(r[4] || "")
+    });
+  });
+  return out.reverse();
+}
+
+function adminAddCost(ss, d){
+  const amount = Number(d.amount);
+  if (!(amount > 0) || !d.item) return { ok:false, error:"item/amount required" };
+  const cat = COST_CATEGORIES.indexOf(d.category) > -1 ? d.category : "其他";
+  const m = String(d.date || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const dt = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date();
+  costsSheet(ss).appendRow([ dt, String(d.item), cat, amount, String(d.note || "") ]);
+  return { ok:true };
+}
+
+function adminDeleteCost(ss, d){
+  const sh = costsSheet(ss);
+  const row = Number(d.row);
+  if (!row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+  sh.deleteRow(row);
+  return { ok:true };
 }
 
 

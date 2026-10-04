@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>翔天然 管理後台</title>
+<style>
+:root{--bg:#f4f1ea;--card:#fff;--ink:#233a2e;--mute:#7a857d;--line:#e3ded2;--green:#294636;--orange:#e08a2c;--red:#b4452f;--ok:#2f7d4f}
+@media (prefers-color-scheme:dark){:root{--bg:#18211c;--card:#212c25;--ink:#e8efe9;--mute:#9aa89f;--line:#33423a;--green:#8fc3a2;--orange:#f0a24d;--red:#e07a63;--ok:#6fcf97}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;background:var(--green);color:#fff}
+@media (prefers-color-scheme:dark){header{background:#10211a;color:var(--ink)}}
+header h1{margin:0;font-size:18px}
+header button{background:transparent;border:1px solid rgba(255,255,255,.5);color:inherit;border-radius:8px;padding:6px 12px;cursor:pointer}
+nav{display:flex;gap:6px;padding:10px 16px 0;max-width:1000px;margin:0 auto}
+nav button{flex:1;padding:10px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:transparent;color:var(--mute);cursor:pointer;font-size:15px}
+nav button.on{background:var(--card);color:var(--ink);font-weight:700}
+main{max-width:1000px;margin:0 auto;padding:0 16px 40px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:0 0 12px 12px;padding:16px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+select,input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+input[type=number]{width:80px}
+button.pri{background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font:inherit}
+@media (prefers-color-scheme:dark){button.pri{color:#10211a}}
+button.sm{background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:4px 9px;cursor:pointer;font:inherit}
+button.del{color:var(--red)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:500;font-size:13px}
+td.num,th.num{text-align:right;white-space:nowrap}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line)}
+.s-待處理{color:var(--orange)}.s-已完成{color:var(--ok)}.s-已取消{color:var(--mute);text-decoration:line-through}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.card{border:1px solid var(--line);border-radius:12px;padding:12px}
+.card .k{color:var(--mute);font-size:13px}.card .v{font-size:22px;font-weight:700}
+.pos{color:var(--ok)}.neg{color:var(--red)}
+h3{margin:18px 0 8px;font-size:16px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;align-items:end}
+.form label{display:flex;flex-direction:column;font-size:13px;color:var(--mute);gap:3px}
+.form input,.form select{width:100%}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:60px}
+.bar span{display:block;height:100%;background:var(--orange)}
+.empty{color:var(--mute);padding:20px 0;text-align:center}
+.wrap{overflow-x:auto}
+#login{max-width:340px;margin:18vh auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+#login h2{margin:0 0 12px}#login input{width:100%;margin-bottom:10px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--green);color:#fff;padding:9px 16px;border-radius:99px;opacity:0;transition:.25s;pointer-events:none}
+.toast.show{opacity:1}
+@media (prefers-color-scheme:dark){.toast{color:#10211a}}
+.sub{color:var(--mute);font-size:13px}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h2>翔天然 管理後台</h2>
+  <input id="pw" type="password" placeholder="管理密碼" autocomplete="current-password">
+  <button class="pri" style="width:100%" onclick="doLogin()">登入</button>
+  <div id="loginMsg" class="sub" style="margin-top:8px"></div>
+</div>
+
+<div id="app" hidden>
+<header><h1>翔天然 管理後台</h1><button onclick="logout()">登出</button></header>
+<nav>
+  <button data-t="orders" class="on">訂單</button>
+  <button data-t="costs">成本</button>
+  <button data-t="report">盈餘報表</button>
+</nav>
+<main>
+  <section class="panel" id="t-orders">
+    <div class="tools">
+      <select id="fStatus" onchange="renderOrders()"><option value="">全部狀態</option></select>
+      <input id="fSearch" placeholder="搜尋姓名／手機／內容" oninput="renderOrders()">
+      <button class="sm" onclick="loadAll()">重新整理</button>
+      <span class="sub" id="ordersSum"></span>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr><th>時間</th><th>顧客</th><th>訂購內容</th><th class="num">金額</th><th>包數</th><th>狀態</th><th class="num">已加點</th><th></th></tr></thead>
+      <tbody id="ordersBody"></tbody>
+    </table></div>
+    <p class="sub">把狀態改成「已完成」→ 自動依包數幫會員加點；之後改包數會自動補差額；改回待處理／已取消會扣回。</p>
+  </section>
+
+  <section class="panel" id="t-costs" hidden>
+    <h3 style="margin-top:0">登記花費</h3>
+    <div class="form">
+      <label>日期<input id="cDate" type="date"></label>
+      <label>項目<input id="cItem" placeholder="例：阿里山生豆 5kg"></label>
+      <label>分類<select id="cCat"></select></label>
+      <label>金額<input id="cAmt" type="number" min="0" step="1" placeholder="NT$"></label>
+      <label>備註<input id="cNote" placeholder="選填"></label>
+      <button class="pri" onclick="addCost()">新增</button>
+    </div>
+    <div class="tools">
+      <select id="cfMonth" onchange="renderCosts()"></select>
+      <select id="cfCat" onchange="renderCosts()"><option value="">全部分類</option></select>
+      <span class="sub" id="costsSum"></span>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr><th>日期</th><th>項目</th><th>分類</th><th class="num">金額</th><th>備註</th><th></th></tr></thead>
+      <tbody id="costsBody"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel" id="t-report" hidden>
+    <div class="tools">
+      <select id="rYear" onchange="renderReport()"></select>
+      <select id="rMonth" onchange="renderReport()"></select>
+      <span class="sub">營收只計「已完成」訂單，依下單日歸月份。</span>
+    </div>
+    <div class="cards" id="repCards"></div>
+    <h3>各月份（<span id="yLabel"></span> 年）</h3>
+    <div class="wrap"><table>
+      <thead><tr><th>月份</th><th class="num">營收</th><th class="num">成本</th><th class="num">盈餘</th><th class="num">出貨包數</th></tr></thead>
+      <tbody id="monthsBody"></tbody>
+    </table></div>
+    <h3>成本分類（<span id="pLabel"></span>）</h3>
+    <div class="wrap"><table>
+      <thead><tr><th>分類</th><th class="num">金額</th><th>占比</th></tr></thead>
+      <tbody id="catBody"></tbody>
+    </table></div>
+  </section>
+</main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* 與前台同一個 Apps Script 後台 */
+const API_URL="https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec";
+const $=id=>document.getElementById(id);
+let KEY="",ORDERS=[],COSTS=[],CATS=["生豆","濾紙","包裝袋","運費","其他"],STATUSES=["待處理","已完成","已取消"];
+
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money=n=>"NT$ "+Math.round(n).toLocaleString();
+const ym=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
+
+async function api(payload){
+  const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...payload,key:KEY})});
+  const d=await res.json();
+  if(!d.ok)throw new Error(d.error||"失敗");
+  return d;
+}
+
+/* ---------- 登入 ---------- */
+async function doLogin(){
+  KEY=$("pw").value;$("loginMsg").textContent="驗證中…";
+  try{
+    const d=await api({action:"admin_ping"});
+    if(d.categories)CATS=d.categories;if(d.statuses)STATUSES=d.statuses;
+    try{sessionStorage.setItem("xn_admin",KEY);}catch(e){}
+    $("login").hidden=true;$("app").hidden=false;initUi();loadAll();
+  }catch(e){KEY="";$("loginMsg").textContent=e.message==="unauthorized"?"密碼錯誤，或後台尚未設定 ADMIN_KEY":"連線失敗："+e.message;}
+}
+function logout(){try{sessionStorage.removeItem("xn_admin");}catch(e){}location.reload();}
+$("pw").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
+try{const k=sessionStorage.getItem("xn_admin");if(k){$("pw").value=k;doLogin();}}catch(e){}
+
+/* ---------- 分頁 ---------- */
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+  ["orders","costs","report"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+});
+
+function initUi(){
+  $("fStatus").innerHTML='<option value="">全部狀態</option>'+STATUSES.map(s=>`<option>${s}</option>`).join("");
+  $("cCat").innerHTML=CATS.map(c=>`<option>${c}</option>`).join("");
+  $("cfCat").innerHTML='<option value="">全部分類</option>'+CATS.map(c=>`<option>${c}</option>`).join("");
+  const t=new Date();$("cDate").value=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
+}
+
+async function loadAll(){
+  try{
+    const [o,c]=await Promise.all([api({action:"admin_orders"}),api({action:"admin_costs"})]);
+    ORDERS=o.orders;COSTS=c.costs;
+    buildPeriodSelects();renderOrders();renderCosts();renderReport();
+  }catch(e){toast("讀取失敗："+e.message);}
+}
+
+function buildPeriodSelects(){
+  const now=new Date();const years=new Set([now.getFullYear()]);
+  ORDERS.forEach(o=>{if(o.time)years.add(new Date(o.time).getFullYear());});
+  COSTS.forEach(c=>{if(c.date)years.add(Number(c.date.slice(0,4)));});
+  const ys=[...years].sort((a,b)=>b-a);
+  const keepY=$("rYear").value,keepM=$("rMonth").value,keepC=$("cfMonth").value;
+  $("rYear").innerHTML=ys.map(y=>`<option value="${y}">${y} 年</option>`).join("");
+  $("rMonth").innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1} 月</option>`).join("");
+  $("rYear").value=keepY||now.getFullYear();$("rMonth").value=keepM||now.getMonth()+1;
+  const months=new Set([ym(now)]);COSTS.forEach(c=>{if(c.date)months.add(c.date.slice(0,7));});
+  $("cfMonth").innerHTML='<option value="">全部月份</option>'+[...months].sort().reverse().map(m=>`<option>${m}</option>`).join("");
+  $("cfMonth").value=keepC!==""&&[...months].includes(keepC)?keepC:ym(now);
+}
+
+/* ---------- 訂單 ---------- */
+function renderOrders(){
+  const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
+  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
+  $("ordersSum").textContent=`${list.length} 筆`;
+  if(!list.length){$("ordersBody").innerHTML='<tr><td colspan="8" class="empty">沒有訂單</td></tr>';return;}
+  $("ordersBody").innerHTML=list.map(o=>{
+    const d=o.time?new Date(o.time):null;
+    const t=d?`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`:"";
+    return `<tr>
+      <td>${t}</td>
+      <td>${esc(o.name)}<div class="sub">${esc(o.phone)}・${esc(o.city)}</div></td>
+      <td>${esc(o.items)}</td>
+      <td class="num">${money(o.total)}</td>
+      <td><input type="number" min="0" step="1" value="${o.bags}" id="b${o.row}"></td>
+      <td><select id="s${o.row}" class="s-${esc(o.status)}">${STATUSES.map(s=>`<option${s===o.status?" selected":""}>${s}</option>`).join("")}</select></td>
+      <td class="num">${o.awarded}</td>
+      <td><button class="sm" onclick="saveOrder(${o.row},this)">儲存</button></td>
+    </tr>`;}).join("");
+}
+async function saveOrder(row,btn){
+  btn.disabled=true;
+  try{
+    await api({action:"admin_update_order",row,status:$("s"+row).value,bags:$("b"+row).value});
+    toast("已儲存，點數已同步");await loadAll();
+  }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;}
+}
+
+/* ---------- 成本 ---------- */
+function renderCosts(){
+  const m=$("cfMonth").value,c=$("cfCat").value;
+  const list=COSTS.filter(x=>(!m||x.date.startsWith(m))&&(!c||x.category===c));
+  $("costsSum").textContent=`${list.length} 筆，合計 ${money(list.reduce((s,x)=>s+x.amount,0))}`;
+  if(!list.length){$("costsBody").innerHTML='<tr><td colspan="6" class="empty">沒有紀錄</td></tr>';return;}
+  $("costsBody").innerHTML=list.map(x=>`<tr>
+    <td>${esc(x.date)}</td><td>${esc(x.item)}</td><td><span class="tag">${esc(x.category)}</span></td>
+    <td class="num">${money(x.amount)}</td><td>${esc(x.note)}</td>
+    <td><button class="sm del" onclick="delCost(${x.row})">刪除</button></td></tr>`).join("");
+}
+async function addCost(){
+  const item=$("cItem").value.trim(),amount=Number($("cAmt").value);
+  if(!item||!(amount>0)){toast("請填項目與金額");return;}
+  try{
+    await api({action:"admin_add_cost",date:$("cDate").value,item,category:$("cCat").value,amount,note:$("cNote").value.trim()});
+    $("cItem").value="";$("cAmt").value="";$("cNote").value="";
+    toast("已新增");await loadAll();
+  }catch(e){toast("新增失敗："+e.message);}
+}
+async function delCost(row){
+  if(!confirm("確定刪除這筆花費？"))return;
+  try{await api({action:"admin_delete_cost",row});toast("已刪除");await loadAll();}
+  catch(e){toast("刪除失敗："+e.message);}
+}
+
+/* ---------- 報表 ---------- */
+function sumBy(year,month){   // month 省略 = 全年
+  let rev=0,cost=0,bags=0;
+  ORDERS.forEach(o=>{
+    if(o.status!=="已完成"||!o.time)return;
+    const d=new Date(o.time);
+    if(d.getFullYear()!==year||(month&&d.getMonth()+1!==month))return;
+    rev+=o.total;bags+=o.bags;
+  });
+  COSTS.forEach(c=>{
+    if(!c.date)return;
+    const y=Number(c.date.slice(0,4)),m=Number(c.date.slice(5,7));
+    if(y!==year||(month&&m!==month))return;
+    cost+=c.amount;
+  });
+  return{rev,cost,bags,profit:rev-cost};
+}
+const pc=n=>n>=0?"pos":"neg";
+function renderReport(){
+  const y=Number($("rYear").value),m=Number($("rMonth").value);
+  const mo=sumBy(y,m),yr=sumBy(y);
+  $("yLabel").textContent=y;$("pLabel").textContent=`${y} 年 ${m} 月`;
+  const card=(k,v,cls="")=>`<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  const pending=ORDERS.filter(o=>o.status==="待處理").reduce((s,o)=>s+o.total,0);
+  $("repCards").innerHTML=
+    card(`${m} 月營收`,money(mo.rev))+card(`${m} 月成本`,money(mo.cost))+card(`${m} 月盈餘`,money(mo.profit),pc(mo.profit))+
+    card(`${y} 年營收`,money(yr.rev))+card(`${y} 年成本`,money(yr.cost))+card(`${y} 年盈餘`,money(yr.profit),pc(yr.profit))+
+    card("待處理訂單金額",money(pending));
+  $("monthsBody").innerHTML=Array.from({length:12},(_,i)=>{const s=sumBy(y,i+1);
+    return `<tr><td>${i+1} 月</td><td class="num">${money(s.rev)}</td><td class="num">${money(s.cost)}</td><td class="num ${pc(s.profit)}">${money(s.profit)}</td><td class="num">${s.bags}</td></tr>`;}).join("")
+    +`<tr><th>全年</th><th class="num">${money(yr.rev)}</th><th class="num">${money(yr.cost)}</th><th class="num ${pc(yr.profit)}">${money(yr.profit)}</th><th class="num">${yr.bags}</th></tr>`;
+  const cat={};let tot=0;
+  COSTS.forEach(c=>{if(c.date&&Number(c.date.slice(0,4))===y&&Number(c.date.slice(5,7))===m){cat[c.category]=(cat[c.category]||0)+c.amount;tot+=c.amount;}});
+  const keys=Object.keys(cat).sort((a,b)=>cat[b]-cat[a]);
+  $("catBody").innerHTML=keys.length?keys.map(k=>`<tr><td>${esc(k)}</td><td class="num">${money(cat[k])}</td><td><div class="bar"><span style="width:${cat[k]/tot*100}%"></span></div></td></tr>`).join(""):'<tr><td colspan="3" class="empty">這個月沒有花費紀錄</td></tr>';
+}
+</script>
+</body>
+</html>
