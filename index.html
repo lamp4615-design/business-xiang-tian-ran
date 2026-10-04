@@ -350,6 +350,26 @@
   .share-reward{margin:0 0 14px;padding:12px 14px;border-radius:12px;text-align:center;font-size:.92rem;line-height:1.6}
   .share-reward.win{background:rgba(228,137,43,.14);color:#B96E1E;font-weight:700}
   .share-reward.guest{background:var(--paper-2);color:var(--pine-mid)}
+  /* ---------- 新訪客友善提醒 ---------- */
+  .wl-modal{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(36,28,21,.6);opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
+  .wl-modal.open{opacity:1;visibility:visible}
+  .wl-box{position:relative;width:min(440px,100%);max-height:92vh;overflow:auto;background:var(--card);border-radius:22px;padding:26px 22px 20px;box-shadow:0 24px 60px rgba(36,28,21,.35);transform:translateY(14px) scale(.97);transition:transform .3s}
+  .wl-modal.open .wl-box{transform:none}
+  .wl-x{position:absolute;top:10px;right:12px;width:34px;height:34px;border:none;background:var(--paper-2);border-radius:50%;font-size:1.2rem;line-height:1;color:var(--ink-70);cursor:pointer}
+  .wl-hi{font-size:.8rem;letter-spacing:.14em;color:var(--dawn);font-weight:700}
+  .wl-box h2{font-family:var(--serif);font-size:1.5rem;margin:2px 0 4px;color:var(--pine)}
+  .wl-sub{color:var(--ink-70);font-size:.92rem;margin:0 0 14px}
+  .wl-list{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+  .wl-item{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:var(--paper);border:1px solid var(--line)}
+  .wl-item.hot{background:#FFF3E2;border-color:var(--dawn-soft)}
+  .wl-ico{flex:none;width:40px;height:40px;border-radius:12px;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+  .wl-item b{display:block;color:var(--espresso);font-size:1rem;margin-bottom:1px}
+  .wl-item span{color:var(--ink-70);font-size:.88rem;line-height:1.5}
+  .wl-item em{font-style:normal;font-weight:700;color:var(--dawn)}
+  .wl-act{display:flex;gap:10px}
+  .wl-act .btn{flex:1;padding:13px 10px}
+  .wl-skip{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:.85rem;color:var(--ink-45);cursor:pointer;user-select:none}
+  .wl-skip input{width:17px;height:17px;accent-color:var(--pine)}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
@@ -613,6 +633,26 @@
     <div class="share-preview"><div id="shareLoading" class="share-loading">產生分享卡片中…</div><img id="shareImg" alt="風味分享卡片" width="400" height="300" style="display:none"></div>
     <div class="share-actions"><button class="btn btn-primary" id="shareDownload" onclick="downloadShareCard()">下載圖片</button><button class="btn btn-ghost" id="shareShareBtn" onclick="shareShareCard()" style="display:none">分享</button></div>
     <p class="share-hint">下載後上傳到 Instagram 限時動態，和朋友分享你喝到的風味 ☕</p>
+  </div>
+</div>
+
+<!-- ============ 新訪客友善提醒 ============ -->
+<div class="wl-modal" id="welcomeModal" role="dialog" aria-modal="true" aria-labelledby="wlTitle">
+  <div class="wl-box">
+    <button class="wl-x" onclick="closeWelcome()" aria-label="關閉">×</button>
+    <div class="wl-hi">友善提醒</div>
+    <h2 id="wlTitle">第一次來？30 秒看懂怎麼賺好康</h2>
+    <p class="wl-sub">加入會員完全免費，只要手機號碼就能登入。</p>
+    <div class="wl-list">
+      <div class="wl-item hot"><div class="wl-ico">🎁</div><div><b>買 10 包，送 100 元折價券</b><span>加入會員後，<em>一包 1 點</em>，集滿 10 點就折 100 元，點數自動累積，在會員中心隨時看得到。</span></div></div>
+      <div class="wl-item"><div class="wl-ico">⭐</div><div><b>喝過就評分，抽好禮</b><span>會員幫喝過的豆子評分，<em>每評一支不同的豆子 +1 張抽獎券</em>，券越多越有機會換好禮。</span></div></div>
+      <div class="wl-item"><div class="wl-ico">📧</div><div><b>留 Email，新品先知道</b><span>加入時填 Email，新豆子上架會<em>第一時間寄信通知你</em>。</span></div></div>
+    </div>
+    <div class="wl-act">
+      <button class="btn btn-ghost" onclick="closeWelcome()">先逛逛</button>
+      <button class="btn btn-primary" onclick="welcomeJoin()">免費加入會員</button>
+    </div>
+    <label class="wl-skip"><input type="checkbox" id="wlNever"> 不用再提醒我</label>
   </div>
 </div>
 
@@ -880,7 +920,7 @@ async function submitJoin(){
     member={name,phone,city:addr,email};saveSession();afterAuth("歡迎加入，"+name);
   }catch(e){note.textContent="送出失敗，請稍後再試。";if($("joinBtn")){btn.disabled=false;btn.textContent="加入會員";}}
 }
-function afterAuth(msg){updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();}
+function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();}
 function logout(){member=null;try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
   const lbl=$("accountLabel");if(lbl)lbl.textContent=member?member.name:"會員";
@@ -1239,9 +1279,27 @@ function route(){
 }
 window.addEventListener("hashchange",route);
 window.addEventListener("scroll",()=>$("nav").classList.toggle("scrolled",window.scrollY>20));
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeCart();closeMenu();closeShareModal();closeFlavorView();}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeCart();closeMenu();closeShareModal();closeFlavorView();closeWelcome();}});
 
-loadSession();updateAccountUI();renderCart();route();
+
+/* ---------- 新訪客友善提醒（可勾選「不用再提醒我」） ---------- */
+const WELCOME_KEY="xn_welcome_off";
+function closeWelcome(){
+  const m=$("welcomeModal");if(!m)return;
+  m.classList.remove("open");
+  try{
+    if($("wlNever").checked)localStorage.setItem(WELCOME_KEY,"1");
+    sessionStorage.setItem("xn_welcome_seen","1");   // 沒勾選也不會在同一次瀏覽重複跳出
+  }catch(e){}
+}
+function welcomeJoin(){closeWelcome();go("member");}
+function maybeShowWelcome(){
+  if(member)return;   // 已登入的會員不用提醒
+  try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
+  setTimeout(()=>{if(!member)$("welcomeModal").classList.add("open");},700);
+}
+$("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
+loadSession();updateAccountUI();renderCart();route();maybeShowWelcome();
 </script>
 </body>
 </html>
