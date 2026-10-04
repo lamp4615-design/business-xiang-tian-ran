@@ -784,9 +784,8 @@ async function confirmPurchase(){
       await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags})});
     }else{await new Promise(r=>setTimeout(r,600));}
     cart=[];renderCart();
-    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！<br>我們會盡快透過 LINE 或電話與你聯繫。</div>';
+    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！<br>我們會盡快透過 LINE 或電話與你聯繫。<br>訂單處理完成後，點數會自動加到會員中心。</div>';
     showToast("訂單已送出，謝謝你");
-    addPendingPoints(bags);   // 下單即自動加點，立刻顯示，不必等後台
     fetchMyStats();
   }catch(e){showToast("送出失敗，請稍後再試");}
   finally{btn.disabled=false;btn.textContent=member?"確認購買":"登入後購買";}
@@ -1099,34 +1098,8 @@ async function fetchMyStats(){
     if(d&&d.found){member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";}
     else{member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}
-  applyPendingPoints();
   saveSession();renderMember();flavorRefresh();
 }
-
-/* ---------- 下單自動加點（前端即時顯示） ----------
-   記下「下單前的點數 base」與「應有點數 target」。
-   後台若已加好（讀回 >= target）就以後台為準並清除；
-   後台還沒加（或沒加）時，至少顯示 target，避免重複計算也避免點數消失。 */
-function pendingKey(){return "xn_pending_pts_"+(member?member.phone:"");}
-function readPending(){try{return JSON.parse(localStorage.getItem(pendingKey())||"null");}catch(e){return null;}}
-function writePending(p){try{if(p)localStorage.setItem(pendingKey(),JSON.stringify(p));else localStorage.removeItem(pendingKey());}catch(e){}}
-function addPendingPoints(bags){
-  if(!member||!bags)return;
-  const cur=Number(member.points)||0;
-  const p=readPending()||{target:cur};
-  p.target=Math.max(p.target,cur)+bags;
-  writePending(p);
-  member.points=p.target;
-  if(!member.pointsExpiry){const e=new Date();e.setMonth(e.getMonth()+3);member.pointsExpiry=e.toISOString();}
-  saveSession();renderMember();
-}
-function applyPendingPoints(){
-  const p=readPending();if(!p)return;
-  if((Number(member.points)||0)>=p.target){writePending(null);return;}
-  member.points=p.target;
-  if(!member.pointsExpiry){const e=new Date();e.setMonth(e.getMonth()+3);member.pointsExpiry=e.toISOString();}
-}
-
 
 /* ---------- 分享卡片（Instagram 限動用） ---------- */
 let shareCanvas=null;
@@ -1255,7 +1228,7 @@ function route(){
   document.querySelectorAll(".nav-links a").forEach(a=>a.classList.toggle("active",a.dataset.page===h));
   window.scrollTo(0,0);closeMenu();
   if(h==="products")ensureProducts();
-  if(h==="member")renderMember();
+  if(h==="member"){renderMember();if(member)fetchMyStats();}   // 每次進會員中心都重讀點數
   if(h==="flavor")flavorInit();
 }
 window.addEventListener("hashchange",route);

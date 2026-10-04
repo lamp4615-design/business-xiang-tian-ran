@@ -109,24 +109,12 @@ function addMember(d){
   setTextCell(sh, sh.getLastRow(), 3, d.phone);
 }
 
-/* 下單即自動加點：寫入訂單後立刻依包數加點，並把「已加點」標成 true，
-   之後把狀態改成「已完成」時 onEdit 看到已加點就不會重複加。 */
 function addOrder(d){
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const sh = ss.getSheetByName(ORDERS_TAB);
-  const bags = Number(d.bags) || parseBags(d.items);
-  const lock = LockService.getScriptLock();   // 避免同時下單時點數寫亂
-  lock.waitLock(20000);
-  try{
-    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點
-    sh.appendRow([ new Date(), d.name || "", "", d.city || "", d.items || "", Number(d.total) || 0, "待處理", bags, "" ]);
-    const row = sh.getLastRow();
-    setTextCell(sh, row, 3, d.phone);
-    if (bags > 0){
-      pointsAdd(ss, d.phone, bags);       // 下單即自動加點
-      sh.getRange(row, 9).setValue(true);  // 已加點
-    }
-  } finally { lock.releaseLock(); }
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(ORDERS_TAB);
+  // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點
+  // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
+  sh.appendRow([ new Date(), d.name || "", "", d.city || "", d.items || "", Number(d.total) || 0, "待處理", Number(d.bags) || parseBags(d.items), 0 ]);
+  setTextCell(sh, sh.getLastRow(), 3, d.phone);
   notifyOrder(d);   // 寄 Email 通知
 }
 
@@ -284,10 +272,11 @@ function readPoints(phone){
   return { points:0, expiry:"" };
 }
 
-/* 幫某會員加點；過期的舊點數會先歸零，效期從今天起算 POINT_EXPIRE_MONTHS 個月 */
-function pointsAdd(ss, phone, pts){
-  pts = Number(pts) || 0;
-  if (pts <= 0) return;
+/* 調整某會員的點數。delta>0 加點（過期舊點數先歸零，效期從今天起算 POINT_EXPIRE_MONTHS 個月）；
+   delta<0 扣點（最低扣到 0，不動效期）。 */
+function pointsAdjust(ss, phone, delta){
+  delta = Number(delta) || 0;
+  if (delta === 0) return;
   const norm = s => String(s || "").replace(/\D/g, "").replace(/^0+/, "");
   const key = norm(phone);
   if (!key) return;
@@ -300,15 +289,19 @@ function pointsAdd(ss, phone, pts){
     if (norm(rows[i][0]) === key){
       const oldExp = rows[i][2] ? new Date(rows[i][2]) : null;
       const cur = (oldExp && now > oldExp) ? 0 : (Number(rows[i][1]) || 0);
-      sh.getRange(i+1, 2).setValue(cur + pts);
-      sh.getRange(i+1, 3).setValue(expiry);
-      sh.getRange(i+1, 4).setValue(now);
+      sh.getRange(i+1, 2).setValue(Math.max(0, cur + delta));
+      if (delta > 0){
+        sh.getRange(i+1, 3).setValue(expiry);
+        sh.getRange(i+1, 4).setValue(now);
+      }
       return;
     }
   }
-  sh.appendRow(["", pts, expiry, now]);
+  if (delta < 0) return;   // 沒有紀錄的人不用扣
+  sh.appendRow(["", delta, expiry, now]);
   setTextCell(sh, sh.getLastRow(), 1, phone);
 }
+function pointsAdd(ss, phone, pts){ pointsAdjust(ss, phone, Math.max(0, Number(pts) || 0)); }
 
 /* 從訂購內容文字（如「阿里山 x2、緬甸精品 x1」）粗估總包數，作為沒有「包數」欄位時的備援 */
 function parseBags(text){
@@ -349,46 +342,51 @@ function drawWinner(){
   MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】抽獎結果 — 中獎：" + winner, lines.join("\n"));
 }
 
-/* ========================= 訂單完成自動加點（onEdit 觸發，備援） ========================= */
-/* 下單時已自動加點並標記「已加點」；這裡只處理舊訂單或沒被標記的訂單：
-   當你在 orders 分頁把某筆訂單的「狀態」改成「已完成」且「已加點」不是 true 時，補加點。 */
+/* ========================= 訂單處理 → 自動加點（改「狀態」或「包數」時觸發） =========================
+ * 你在 orders 分頁的操作：
+ *   1. 狀態選「已完成」          → 依「包數」幫會員加點，「已加點」欄自動記下已加的點數
+ *   2. 之後改「包數」             → 自動補差額（例如 4 改 3，會扣回 1 點）
+ *   3. 狀態改回「待處理／已取消」 → 已加的點數自動扣回，「已加點」歸零
+ * 「已加點」欄是系統記帳用，請勿手動輸入。 */
 function onEdit(e){
   try{
     if (!e || !e.range) return;
     const sh = e.range.getSheet();
     if (sh.getName() !== ORDERS_TAB) return;
+    if (e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;   // 只處理單一儲存格編輯
 
-    const lastCol = sh.getLastColumn();
-    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(x => String(x).trim());
+    const row = e.range.getRow();
+    if (row === 1) return;
+    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
     const statusCol  = headers.indexOf("狀態") + 1;
     const phoneCol   = headers.indexOf("手機") + 1;
     const bagsCol    = headers.indexOf("包數") + 1;
     const itemsCol   = headers.indexOf("訂購內容") + 1;
     const awardedCol = headers.indexOf("已加點") + 1;
-    if (statusCol === 0) return;
-    if (e.range.getColumn() !== statusCol) return;   // 只在改「狀態」欄時處理
+    if (!statusCol || !phoneCol || !awardedCol) return;
+    const col = e.range.getColumn();
+    if (col !== statusCol && col !== bagsCol) return;   // 只在改「狀態」或「包數」時處理
 
-    const row = e.range.getRow();
-    if (row === 1) return;
-    const val = String(e.range.getValue()).trim();
-    if (val !== "已完成") return;
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try{
+      const status = String(sh.getRange(row, statusCol).getValue()).trim();
+      const phone  = String(sh.getRange(row, phoneCol).getValue());
+      let bags = bagsCol ? Number(sh.getRange(row, bagsCol).getValue()) : 0;
+      if (!bags || bags < 0){
+        bags = parseBags(itemsCol ? sh.getRange(row, itemsCol).getValue() : "");
+      }
+      const rawAwarded = sh.getRange(row, awardedCol).getValue();
+      // 舊資料的 TRUE 視為「已照包數加過」；其餘當成數字
+      const awarded = (rawAwarded === true || String(rawAwarded).toLowerCase() === "true") ? bags : (Number(rawAwarded) || 0);
 
-    // 已經加過點就不再加
-    if (awardedCol > 0){
-      const awarded = sh.getRange(row, awardedCol).getValue();
-      if (awarded === true || String(awarded).toLowerCase() === "true") return;
-    }
-
-    const phone = phoneCol > 0 ? String(sh.getRange(row, phoneCol).getValue()) : "";
-    let bags = bagsCol > 0 ? Number(sh.getRange(row, bagsCol).getValue()) : 0;
-    if (!bags || bags <= 0){   // 沒有包數欄或空白時，改從訂購內容推算
-      const itemsText = itemsCol > 0 ? sh.getRange(row, itemsCol).getValue() : "";
-      bags = parseBags(itemsText);
-    }
-    if (phone && bags > 0){
-      pointsAdd(e.source, phone, bags);
-      if (awardedCol > 0) sh.getRange(row, awardedCol).setValue(true);
-    }
+      const target = (status === "已完成") ? bags : 0;
+      const delta = target - awarded;
+      if (delta !== 0 && phone){
+        pointsAdjust(e.source, phone, delta);
+      }
+      sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
+    } finally { lock.releaseLock(); }
   }catch(err){ /* 靜默失敗，不影響手動編輯 */ }
 }
 
@@ -430,7 +428,7 @@ function setupSheets(){
   let rv = ss.getSheetByName(REVIEWS_TAB) || ss.insertSheet(REVIEWS_TAB);
   if (rv.getLastRow() === 0) rv.appendRow(["建立時間","手機","品項","香氣","酸質","甜感","醇厚度","苦味"]);
 
-  // 集點：每位會員的點數餘額（下單時自動累積）
+  // 集點：每位會員的點數餘額（訂單「已完成」時自動累積）
   let pt = ss.getSheetByName(POINTS_TAB) || ss.insertSheet(POINTS_TAB);
   if (pt.getLastRow() === 0) pt.appendRow(["手機","點數","到期日","最後消費日"]);
 
@@ -459,4 +457,26 @@ function setupSheets(){
 /* 選用：測試 Email 是否能正常寄出（會寄一封測試信到 NOTIFY_EMAIL） */
 function testEmail(){
   MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】測試通知", "這是一封測試信，代表訂單通知設定成功。");
+}
+
+/* 執行一次：把 orders「狀態」欄做成下拉選單（待處理／已完成／已取消），
+   並整理舊資料：狀態不是「已完成」的列，「已加點」一律歸零，避免之後少加點。 */
+function setupOrderDropdown(){
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(ORDERS_TAB);
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const statusCol  = headers.indexOf("狀態") + 1;
+  const awardedCol = headers.indexOf("已加點") + 1;
+  if (!statusCol) return;
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["待處理","已完成","已取消"], true).setAllowInvalid(false).build();
+  sh.getRange(2, statusCol, Math.max(sh.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+  if (awardedCol && sh.getLastRow() > 1){
+    const n = sh.getLastRow() - 1;
+    const st = sh.getRange(2, statusCol, n, 1).getValues();
+    const aw = sh.getRange(2, awardedCol, n, 1).getValues();
+    for (let i = 0; i < n; i++){
+      if (String(st[i][0]).trim() !== "已完成") aw[i][0] = 0;
+    }
+    sh.getRange(2, awardedCol, n, 1).setValues(aw);
+  }
 }
