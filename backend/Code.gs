@@ -34,6 +34,7 @@ function doGet(e){
   if (action === "login")    return json(findMember(p.phone));
   if (action === "reviews")  return json(getReviews());
   if (action === "mystats")  return json(getMyStats(p.phone));
+  if (action === "posts")    return json(getPosts(p.site));
   return json({ ok:false, error:"unknown action" });
 }
 
@@ -418,6 +419,10 @@ function adminHandle(d){
     if (d.action === "admin_costs") return { ok:true, costs:adminListCosts(ss) };
     if (d.action === "admin_add_cost") return adminAddCost(ss, d);
     if (d.action === "admin_delete_cost") return adminDeleteCost(ss, d);
+    if (d.action === "admin_posts") return { ok:true, posts:listPosts(ss, String(d.site || ""), false) };
+    if (d.action === "admin_save_post") return adminSavePost(ss, d);
+    if (d.action === "admin_delete_post") return adminDeletePost(ss, d);
+    if (d.action === "admin_upload_image") return adminUploadImage(d);
     return { ok:false, error:"unknown admin action" };
   } finally { lock.releaseLock(); }
 }
@@ -508,6 +513,92 @@ function adminDeleteCost(ss, d){
   return { ok:true };
 }
 
+
+/* ========================= 行銷推廣站：文章 / 圖片 / 影音 =========================
+ * 多個獨立站共用同一個「posts」分頁，用「站台代號 site」區分（例如 xiang、class）。
+ * 公開讀取：GET ?action=posts&site=xxx（只回傳狀態＝發佈的文章）
+ * 管理：admin.html「內容」分頁（需 ADMIN_KEY）。圖片上傳到你的 Google 雲端硬碟「行銷站圖片」資料夾。 */
+const POSTS_TAB = "posts";
+const POST_HEAD = ["id","site","時間","標題","分類","摘要","內文","封面圖","影音","狀態"];
+const IMAGE_FOLDER = "行銷站圖片";
+
+function postsSheet(ss){
+  let s = ss.getSheetByName(POSTS_TAB) || ss.insertSheet(POSTS_TAB);
+  if (s.getLastRow() === 0) s.appendRow(POST_HEAD);
+  return s;
+}
+function postRowToObj(r, row){
+  return {
+    row: row, id:String(r[0]), site:String(r[1]),
+    time: r[2] ? new Date(r[2]).toISOString() : "",
+    title:String(r[3]||""), category:String(r[4]||""), summary:String(r[5]||""),
+    body:String(r[6]||""), cover:String(r[7]||""), media:String(r[8]||""),
+    status:String(r[9]||"草稿")
+  };
+}
+function listPosts(ss, site, onlyPublished){
+  const sh = postsSheet(ss);
+  if (sh.getLastRow() < 2) return [];
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, POST_HEAD.length).getValues();
+  const out = [];
+  rows.forEach((r, i) => {
+    if (!r[0]) return;
+    if (site && String(r[1]) !== site) return;
+    if (onlyPublished && String(r[9]) !== "發佈") return;
+    const o = postRowToObj(r, i + 2);
+    if (onlyPublished) delete o.row;
+    out.push(o);
+  });
+  out.sort((a, b) => b.time.localeCompare(a.time));
+  return out;
+}
+function getPosts(site){
+  return listPosts(SpreadsheetApp.openById(SHEET_ID), String(site || ""), true);
+}
+
+function adminSavePost(ss, d){
+  const site = String(d.site || "").trim().replace(/[^\w-]/g, "");
+  const title = String(d.title || "").trim();
+  if (!site || !title) return { ok:false, error:"site/title required" };
+  const status = d.status === "發佈" ? "發佈" : "草稿";
+  const sh = postsSheet(ss);
+  const vals = [ site, d.time ? new Date(d.time) : new Date(), title, String(d.category || "").trim(),
+                 String(d.summary || ""), String(d.body || ""), String(d.cover || "").trim(), String(d.media || "").trim(), status ];
+  if (d.id){
+    const rows = sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+    for (let i = 0; i < rows.length; i++){
+      if (String(rows[i][0]) === String(d.id)){
+        sh.getRange(i + 2, 2, 1, vals.length).setValues([vals]);
+        return { ok:true, id:String(d.id) };
+      }
+    }
+  }
+  const id = Utilities.getUuid().slice(0, 8);
+  sh.appendRow([ id ].concat(vals));
+  return { ok:true, id:id };
+}
+function adminDeletePost(ss, d){
+  const sh = postsSheet(ss);
+  if (sh.getLastRow() < 2) return { ok:false, error:"not found" };
+  const ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++){
+    if (String(ids[i][0]) === String(d.id)){ sh.deleteRow(i + 2); return { ok:true }; }
+  }
+  return { ok:false, error:"not found" };
+}
+
+/* 圖片上傳：前端先縮圖成 JPEG 再以 base64 傳來；存進雲端硬碟並設成「知道連結的人可檢視」 */
+function adminUploadImage(d){
+  const data = String(d.data || "");
+  if (!data || data.length > 8 * 1024 * 1024) return { ok:false, error:"image too large" };
+  const type = /^image\/(jpeg|png|webp|gif)$/.test(d.mime) ? d.mime : "image/jpeg";
+  const it = DriveApp.getFoldersByName(IMAGE_FOLDER);
+  const folder = it.hasNext() ? it.next() : DriveApp.createFolder(IMAGE_FOLDER);
+  const ext = type.split("/")[1];
+  const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(data), type, "img-" + Date.now() + "." + ext));
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return { ok:true, url:"https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1600" };
+}
 
 /* ========================= 共用 ========================= */
 function setTextCell(sh, row, col, value){

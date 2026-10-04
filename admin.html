@@ -67,6 +67,7 @@ h3{margin:18px 0 8px;font-size:16px}
   <button data-t="orders" class="on">訂單</button>
   <button data-t="costs">成本</button>
   <button data-t="report">盈餘報表</button>
+  <button data-t="posts">內容</button>
 </nav>
 <main>
   <section class="panel" id="t-orders">
@@ -101,6 +102,33 @@ h3{margin:18px 0 8px;font-size:16px}
     <div class="wrap"><table>
       <thead><tr><th>日期</th><th>項目</th><th>分類</th><th class="num">金額</th><th>備註</th><th></th></tr></thead>
       <tbody id="costsBody"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel" id="t-posts" hidden>
+    <h3 style="margin-top:0" id="pFormTitle">發表新文章</h3>
+    <div class="form">
+      <label>站台代號（英文，例如 xiang）<input id="pSite" list="siteList" placeholder="xiang"><datalist id="siteList"></datalist></label>
+      <label>分類<input id="pCat" placeholder="例：烘豆日記"></label>
+      <label>狀態<select id="pStatus"><option>發佈</option><option>草稿</option></select></label>
+    </div>
+    <div class="form" style="grid-template-columns:1fr">
+      <label>標題<input id="pTitle" placeholder="文章標題"></label>
+      <label>摘要（顯示在文章列表）<input id="pSum" placeholder="一兩句話介紹"></label>
+      <label>封面圖網址（可按右邊上傳）
+        <span style="display:flex;gap:6px"><input id="pCover" placeholder="https://…" style="flex:1"><button class="sm" type="button" onclick="pickImage('cover')">上傳圖片</button></span></label>
+      <label>影音連結（YouTube／Vimeo／mp4 網址，選填）<input id="pMedia" placeholder="https://www.youtube.com/watch?v=…"></label>
+      <label>內文
+        <span style="display:flex;gap:6px;margin-bottom:4px"><button class="sm" type="button" onclick="pickImage('body')">插入圖片</button><button class="sm" type="button" onclick="insertH()">插入小標題</button></span>
+        <textarea id="pBody" rows="12" style="font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px;width:100%" placeholder="直接打字。空一行＝新段落。&#10;「## 小標題」會變標題；&#10;單獨一行貼 YouTube 網址會變成影片；&#10;按「插入圖片」會把圖放在游標位置。"></textarea></label>
+    </div>
+    <input type="file" id="pFile" accept="image/*" hidden>
+    <div class="tools"><button class="pri" onclick="savePost()">儲存文章</button><button class="sm" onclick="resetPost()">清空／新增</button><span class="sub" id="pMsg"></span></div>
+    <h3>已有文章</h3>
+    <div class="tools"><select id="pfSite" onchange="renderPosts()"><option value="">全部站台</option></select></div>
+    <div class="wrap"><table>
+      <thead><tr><th>日期</th><th>站台</th><th>標題</th><th>分類</th><th>狀態</th><th></th></tr></thead>
+      <tbody id="postsBody"></tbody>
     </table></div>
   </section>
 
@@ -162,7 +190,7 @@ try{const k=sessionStorage.getItem("xn_admin");if(k){$("pw").value=k;doLogin();}
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
-  ["orders","costs","report"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  ["orders","costs","report","posts"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
 });
 
 function initUi(){
@@ -176,6 +204,7 @@ async function loadAll(){
   try{
     const [o,c]=await Promise.all([api({action:"admin_orders"}),api({action:"admin_costs"})]);
     ORDERS=o.orders;COSTS=c.costs;
+    loadPosts();
     buildPeriodSelects();renderOrders();renderCosts();renderReport();
   }catch(e){toast("讀取失敗："+e.message);}
 }
@@ -283,6 +312,76 @@ function renderReport(){
   COSTS.forEach(c=>{if(c.date&&Number(c.date.slice(0,4))===y&&Number(c.date.slice(5,7))===m){cat[c.category]=(cat[c.category]||0)+c.amount;tot+=c.amount;}});
   const keys=Object.keys(cat).sort((a,b)=>cat[b]-cat[a]);
   $("catBody").innerHTML=keys.length?keys.map(k=>`<tr><td>${esc(k)}</td><td class="num">${money(cat[k])}</td><td><div class="bar"><span style="width:${cat[k]/tot*100}%"></span></div></td></tr>`).join(""):'<tr><td colspan="3" class="empty">這個月沒有花費紀錄</td></tr>';
+}
+
+/* ---------- 內容（文章／圖片／影音） ---------- */
+let POSTS=[],EDIT_ID="",PICK_MODE="";
+async function loadPosts(){
+  try{const d=await api({action:"admin_posts"});POSTS=d.posts;renderPosts();}catch(e){toast("讀取文章失敗："+e.message);}
+}
+function renderPosts(){
+  const sites=[...new Set(POSTS.map(p=>p.site))].sort();
+  const keep=$("pfSite").value;
+  $("pfSite").innerHTML='<option value="">全部站台</option>'+sites.map(s=>`<option>${esc(s)}</option>`).join("");
+  $("pfSite").value=sites.includes(keep)?keep:"";
+  $("siteList").innerHTML=sites.map(s=>`<option value="${esc(s)}">`).join("");
+  const f=$("pfSite").value,list=POSTS.filter(p=>!f||p.site===f);
+  $("postsBody").innerHTML=list.length?list.map(p=>`<tr>
+    <td>${esc(p.time.slice(0,10))}</td><td><span class="tag">${esc(p.site)}</span></td><td>${esc(p.title)}</td><td>${esc(p.category)}</td>
+    <td class="${p.status==="發佈"?"pos":""}">${esc(p.status)}</td>
+    <td><button class="sm" onclick="editPost('${esc(p.id)}')">編輯</button> <button class="sm del" onclick="delPost('${esc(p.id)}')">刪除</button></td></tr>`).join("")
+    :'<tr><td colspan="6" class="empty">還沒有文章</td></tr>';
+}
+function resetPost(){
+  EDIT_ID="";$("pFormTitle").textContent="發表新文章";
+  ["pCat","pTitle","pSum","pCover","pMedia","pBody"].forEach(i=>$(i).value="");$("pStatus").value="發佈";$("pMsg").textContent="";
+}
+function editPost(id){
+  const p=POSTS.find(x=>x.id===id);if(!p)return;
+  EDIT_ID=id;$("pFormTitle").textContent="編輯文章";
+  $("pSite").value=p.site;$("pCat").value=p.category;$("pStatus").value=p.status;$("pTitle").value=p.title;
+  $("pSum").value=p.summary;$("pCover").value=p.cover;$("pMedia").value=p.media;$("pBody").value=p.body;
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+async function savePost(){
+  const site=$("pSite").value.trim(),title=$("pTitle").value.trim();
+  if(!site||!title){toast("請填站台代號與標題");return;}
+  const old=POSTS.find(x=>x.id===EDIT_ID);
+  try{
+    const d=await api({action:"admin_save_post",id:EDIT_ID,site,title,category:$("pCat").value,summary:$("pSum").value,
+      body:$("pBody").value,cover:$("pCover").value,media:$("pMedia").value,status:$("pStatus").value,time:old?old.time:""});
+    EDIT_ID=d.id;toast($("pStatus").value==="發佈"?"已發佈":"已存成草稿");await loadPosts();
+  }catch(e){toast("儲存失敗："+e.message);}
+}
+async function delPost(id){
+  if(!confirm("確定刪除這篇文章？"))return;
+  try{await api({action:"admin_delete_post",id});if(EDIT_ID===id)resetPost();toast("已刪除");await loadPosts();}
+  catch(e){toast("刪除失敗："+e.message);}
+}
+function insertH(){const t=$("pBody"),p=t.selectionStart;t.value=t.value.slice(0,p)+(p&&t.value[p-1]!=="\n"?"\n":"")+"## 小標題\n"+t.value.slice(p);t.focus();}
+function pickImage(mode){PICK_MODE=mode;$("pFile").value="";$("pFile").click();}
+$("pFile").addEventListener("change",async()=>{
+  const f=$("pFile").files[0];if(!f)return;
+  $("pMsg").textContent="圖片處理上傳中…";
+  try{
+    const data=await shrink(f,1600);
+    const d=await api({action:"admin_upload_image",mime:"image/jpeg",data});
+    if(PICK_MODE==="cover")$("pCover").value=d.url;
+    else{const t=$("pBody"),p=t.selectionStart||t.value.length;t.value=t.value.slice(0,p)+"\n\n![]("+d.url+")\n\n"+t.value.slice(p);}
+    $("pMsg").textContent="圖片已上傳";
+  }catch(e){$("pMsg").textContent="";toast("上傳失敗："+e.message);}
+});
+function shrink(file,max){   // 縮到最長邊 max、轉 JPEG，回傳純 base64
+  return new Promise((res,rej)=>{
+    const img=new Image(),u=URL.createObjectURL(file);
+    img.onload=()=>{
+      const k=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement("canvas");
+      c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+      const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(u);res(c.toDataURL("image/jpeg",.85).split(",")[1]);
+    };
+    img.onerror=()=>rej(new Error("無法讀取這張圖片"));img.src=u;
+  });
 }
 </script>
 </body>
