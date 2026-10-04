@@ -15,7 +15,7 @@
 第一次部署新版後，在 Apps Script 執行一次 `setupOrderDropdown`。
 
 ## 管理者網頁 `admin.html`
-網址：https://lamp4615-design.github.io/xiang-natural/admin.html
+網址：https://lamp4615-design.github.io/business-xiang-tian-ran/admin.html
 - 訂單：看顧客訂單、改包數、改狀態（已完成自動加點）
 - 成本：登記花費（生豆／濾紙／包裝袋／運費／其他，可附備註），可刪除
 - 盈餘報表：本月、本年、各月份，以及成本分類占比
