@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">翔天然，翔自在</title>
+  <desc id="desc">為生活裡的每一樣東西把關，乾淨、無負擔的日常選品。</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#304a38" />
+      <stop offset="1" stop-color="#b68a55" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#background)" />
+  <circle cx="1000" cy="120" r="210" fill="#f7f1e4" opacity=".16" />
+  <path d="M90 475 C300 370 480 490 690 410" fill="none" stroke="#f7f1e4" stroke-width="4" opacity=".5" />
+  <text x="90" y="280" fill="#fffaf0" font-family="Noto Sans TC, Microsoft JhengHei, sans-serif" font-size="92" font-weight="700">翔天然</text>
+  <text x="94" y="370" fill="#fffaf0" font-family="Noto Sans TC, Microsoft JhengHei, sans-serif" font-size="48">翔自在</text>
+  <text x="96" y="530" fill="#fffaf0" font-family="Noto Sans TC, Microsoft JhengHei, sans-serif" font-size="26" letter-spacing="2">CLEAN · UNBURDENED · EVERYDAY</text>
+</svg>

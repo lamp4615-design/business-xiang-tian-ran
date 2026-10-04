@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://lamp4615-design.github.io/xiang-tian-ran-website/sitemap.xml
