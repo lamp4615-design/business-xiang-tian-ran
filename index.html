@@ -350,6 +350,30 @@
   .share-reward{margin:0 0 14px;padding:12px 14px;border-radius:12px;text-align:center;font-size:.92rem;line-height:1.6}
   .share-reward.win{background:rgba(228,137,43,.14);color:#B96E1E;font-weight:700}
   .share-reward.guest{background:var(--paper-2);color:var(--pine-mid)}
+  /* ---------- 分享天地 ---------- */
+  .sh-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:26px}
+  .sh-chip{border:1px solid var(--line);background:var(--card);color:var(--espresso);border-radius:100px;padding:6px 16px;cursor:pointer;font-family:var(--sans);font-size:.9rem}
+  .sh-chip.on{background:var(--pine);border-color:var(--pine);color:#fff;font-weight:700}
+  .sh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:22px}
+  .sh-card{display:block;background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;color:var(--espresso);cursor:pointer;transition:transform .2s,box-shadow .2s}
+  .sh-card:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(36,28,21,.12)}
+  .sh-cover{aspect-ratio:16/10;background:linear-gradient(135deg,var(--pine),var(--dawn-soft));display:flex;align-items:center;justify-content:center;color:#fff;font-size:2.2rem;position:relative}
+  .sh-cover img{width:100%;height:100%;object-fit:cover;display:block}
+  .sh-play{position:absolute;right:10px;bottom:10px;background:rgba(36,28,21,.72);color:#fff;border-radius:100px;padding:2px 10px;font-size:.78rem}
+  .sh-cbody{padding:16px 18px 20px}
+  .sh-meta{font-size:.8rem;color:var(--ink-45)}
+  .sh-meta b{color:var(--dawn);font-weight:700}
+  .sh-card h3{margin:5px 0 6px;font-size:1.12rem;line-height:1.5}
+  .sh-card p{margin:0;font-size:.92rem;color:var(--ink-70);line-height:1.7}
+  .sh-art{max-width:720px;margin:0 auto}
+  .sh-art h1{font-size:clamp(1.6rem,3.4vw,2.3rem);line-height:1.45;margin:8px 0 14px;letter-spacing:.03em}
+  .sh-art h2{font-size:1.3rem;margin:1.9em 0 .5em;padding-left:12px;border-left:4px solid var(--dawn)}
+  .sh-art p{margin:0 0 1.2em;line-height:1.95;color:var(--ink-70)}
+  .sh-art img,.sh-art video{width:100%;border-radius:14px;display:block;margin:1.4em 0}
+  .sh-embed{position:relative;aspect-ratio:16/9;margin:1.4em 0}
+  .sh-embed iframe{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:14px}
+  .sh-back{display:inline-block;margin-bottom:14px;cursor:pointer;color:var(--pine);font-weight:700}
+  .sh-empty{text-align:center;color:var(--ink-45);padding:60px 0}
   /* ---------- 新訪客友善提醒 ---------- */
   .wl-modal{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(36,28,21,.6);opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
   .wl-modal.open{opacity:1;visibility:visible}
@@ -386,6 +410,7 @@
       <a data-page="home" onclick="go('home')">理念</a>
       <a data-page="products" onclick="go('products')">產品</a>
       <a data-page="flavor" onclick="go('flavor')">風味</a>
+      <a data-page="share" onclick="go('share')">分享</a>
       <a data-page="member" onclick="go('member')">會員</a>
     </div>
     <div class="nav-actions">
@@ -405,6 +430,7 @@
     <a onclick="go('home');closeMenu()">理念</a>
     <a onclick="go('products');closeMenu()">產品</a>
     <a onclick="go('flavor');closeMenu()">風味</a>
+    <a onclick="go('share');closeMenu()">分享天地</a>
     <a onclick="go('member');closeMenu()">會員</a>
     <div class="menu-account" id="menuAccount">尚未登入</div>
   </div>
@@ -496,6 +522,15 @@
       <div id="prodContainer">
         <div class="skeleton"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
       </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============ PAGE: 分享天地 ============ -->
+<div class="page" id="page-share">
+  <section>
+    <div class="wrap">
+      <div id="shareContainer"><div class="sh-empty">載入中…</div></div>
     </div>
   </section>
 </div>
@@ -1265,17 +1300,70 @@ async function shareShareCard(){
   },"image/png");
 }
 
+/* ---------- 分享天地（文章／圖片／影音，在管理頁「內容」發佈，站台代號 xiang） ---------- */
+const SHARE_SITE="xiang";
+let SHARE_POSTS=null,SHARE_CAT="";
+function shSafeUrl(u){return /^https?:\/\//i.test(u||"")?u:"";}
+function shEmbed(u){
+  let m=u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/))([\w-]{11})/);
+  if(m)return `<div class="sh-embed"><iframe src="https://www.youtube.com/embed/${m[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  m=u.match(/vimeo\.com\/(\d+)/);
+  if(m)return `<div class="sh-embed"><iframe src="https://player.vimeo.com/video/${m[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  if(/\.(mp4|webm)(\?.*)?$/i.test(u))return `<video controls preload="metadata" src="${esc(u)}"></video>`;
+  return "";
+}
+function shInline(t){return esc(t).replace(/(https?:\/\/[^\s<]+)/g,u=>`<a href="${u}" target="_blank" rel="noopener">${u}</a>`);}
+function shBody(text){
+  return String(text||"").replace(/\r/g,"").split(/\n{2,}/).map(b=>b.trim()).filter(Boolean).map(b=>{
+    let m;
+    if(/^## /.test(b))return `<h2>${esc(b.slice(3).trim())}</h2>`;
+    if((m=b.match(/^!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)$/)))return `<img src="${esc(m[1])}" alt="" loading="lazy">`;
+    if(/^https?:\/\/\S+$/.test(b)){const e=shEmbed(b);if(e)return e;}
+    return `<p>${shInline(b).replace(/\n/g,"<br>")}</p>`;
+  }).join("");
+}
+async function renderShare(id){
+  const box=$("shareContainer");
+  if(SHARE_POSTS===null){
+    if(!API_URL){SHARE_POSTS=[];}
+    else{
+      try{const d=await (await fetch(API_URL+"?action=posts&site="+SHARE_SITE)).json();SHARE_POSTS=Array.isArray(d)?d:[];}
+      catch(e){box.innerHTML='<div class="sh-empty">文章載入失敗，請稍後再試。</div>';return;}
+    }
+  }
+  if(id){
+    const p=SHARE_POSTS.find(x=>x.id===id);
+    if(!p){box.innerHTML='<div class="sh-empty">找不到這篇文章。<br><a class="sh-back" onclick="go(\'share\')">← 回分享天地</a></div>';return;}
+    const lead=p.media?(shEmbed(shSafeUrl(p.media))||`<p><a href="${esc(shSafeUrl(p.media))}" target="_blank" rel="noopener">觀看影片</a></p>`):"";
+    box.innerHTML=`<article class="sh-art"><a class="sh-back" onclick="go('share')">← 回分享天地</a>
+      <div class="sh-meta">${p.category?`<b>${esc(p.category)}</b>・`:""}${esc((p.time||"").slice(0,10))}</div>
+      <h1>${esc(p.title)}</h1>${lead}${shBody(p.body)}</article>`;
+    return;
+  }
+  const cats=[...new Set(SHARE_POSTS.map(p=>p.category).filter(Boolean))];
+  const list=SHARE_POSTS.filter(p=>!SHARE_CAT||p.category===SHARE_CAT);
+  box.innerHTML=`<div class="sec-head"><span class="eyebrow">Sharing Corner</span><h2>分享天地</h2><p>烘豆日記、風味故事、影片與日常，慢慢分享給你。</p></div>`
+    +(cats.length?`<div class="sh-chips"><button class="sh-chip${SHARE_CAT?"":" on"}" data-c="">全部</button>${cats.map(c=>`<button class="sh-chip${SHARE_CAT===c?" on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>`:"")
+    +(list.length?`<div class="sh-grid">${list.map(p=>`<a class="sh-card" onclick="go('share/${esc(p.id)}')"><div class="sh-cover">${p.cover?`<img src="${esc(shSafeUrl(p.cover))}" alt="" loading="lazy">`:"✦"}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
+      <div class="sh-cbody"><div class="sh-meta">${p.category?`<b>${esc(p.category)}</b>・`:""}${esc((p.time||"").slice(0,10))}</div><h3>${esc(p.title)}</h3>${p.summary?`<p>${esc(p.summary)}</p>`:""}</div></a>`).join("")}</div>`
+      :'<div class="sh-empty">還沒有文章，敬請期待。</div>');
+  box.querySelectorAll(".sh-chip").forEach(b=>b.onclick=()=>{SHARE_CAT=b.dataset.c;renderShare("");});
+}
+
 /* ---------- 路由 ---------- */
-const PAGES=["home","products","flavor","member"];
+const PAGES=["home","products","flavor","share","member"];
 function go(p){location.hash=p;}
 function route(){
-  let h=(location.hash||"").replace("#","");if(!PAGES.includes(h))h="home";
+  let h=(location.hash||"").replace("#",""),sharePost="";
+  if(h.indexOf("share/")===0){sharePost=h.slice(6);h="share";}
+  if(!PAGES.includes(h))h="home";
   PAGES.forEach(p=>$("page-"+p).classList.toggle("active",p===h));
   document.querySelectorAll(".nav-links a").forEach(a=>a.classList.toggle("active",a.dataset.page===h));
   window.scrollTo(0,0);closeMenu();
   if(h==="products")ensureProducts();
   if(h==="member"){renderMember();if(member)fetchMyStats();}   // 每次進會員中心都重讀點數
   if(h==="flavor")flavorInit();
+  if(h==="share")renderShare(sharePost);
 }
 window.addEventListener("hashchange",route);
 window.addEventListener("scroll",()=>$("nav").classList.toggle("scrolled",window.scrollY>20));
