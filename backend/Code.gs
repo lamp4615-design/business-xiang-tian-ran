@@ -14,7 +14,7 @@ const SHEET_ID = "13eKgaxdYNDzOiy8GHpje7Ze2wvPrZRXK_zgmvh2idOc";
 const NOTIFY_EMAIL = "lamp4615@gmail.com";
 
 // ── 你的網站網址（新品通知信裡會附上這個連結）─────────────────────
-const SITE_URL = "https://roaring-torrone-4dfb36.netlify.app";
+const SITE_URL = "https://lamp4615-design.github.io/xiang-natural";
 
 const PRODUCTS_TAB  = "products";
 const MEMBERS_TAB   = "members";
