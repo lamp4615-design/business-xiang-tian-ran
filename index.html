@@ -364,7 +364,14 @@
   .sh-cover.d3{background:linear-gradient(135deg,var(--leaf),var(--pine))}
   .sh-cover .sh-deco{filter:drop-shadow(0 6px 14px rgba(0,0,0,.25));opacity:.92}
   .sh-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s}
-  .sh-card:hover .sh-cover img{transform:scale(1.05)}
+  .sh-card:hover .sh-cover img{transform:scale(1.06)}
+  .sh-cover::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.18),transparent 38%,rgba(0,0,0,.2));pointer-events:none}
+  .sh-band{position:relative;overflow:hidden;border-radius:22px;margin:42px 0 8px;padding:clamp(30px,5vw,52px) clamp(24px,5vw,52px);color:#fff;background:linear-gradient(100deg,rgba(28,52,38,.92),rgba(36,28,21,.55)),url(images/band.jpg) center/cover,var(--pine);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px}
+  .sh-band h3{font-family:var(--serif);font-size:clamp(1.2rem,2.6vw,1.6rem);letter-spacing:.05em}
+  .sh-band p{margin-top:6px;color:rgba(255,255,255,.85)}
+  .sh-band a{background:var(--dawn);color:#fff;border-radius:100px;padding:10px 24px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .sh-credit{text-align:center;font-size:.75rem;color:var(--ink-45);margin-top:22px}
+  .sh-credit a{text-decoration:underline}
   .sh-play{position:absolute;right:10px;bottom:10px;background:rgba(36,28,21,.72);color:#fff;border-radius:100px;padding:2px 10px;font-size:.78rem}
   .sh-tag{position:absolute;left:12px;top:12px;background:rgba(255,255,255,.92);color:var(--pine);border-radius:100px;padding:2px 12px;font-size:.78rem;font-weight:700}
   .sh-cbody{padding:16px 18px 20px}
@@ -372,17 +379,19 @@
   .sh-meta b{color:var(--dawn);font-weight:700}
   .sh-card h3{margin:5px 0 6px;font-size:1.12rem;line-height:1.5;font-family:var(--serif)}
   .sh-card p{margin:0;font-size:.92rem;color:var(--ink-70);line-height:1.7}
-  .sh-hero{position:relative;overflow:hidden;border-radius:26px;padding:clamp(34px,6vw,66px) clamp(24px,5vw,58px) clamp(64px,9vw,96px);margin-bottom:34px;color:#fff;background:linear-gradient(120deg,var(--pine) 0%,#3f6249 60%,#a8691f 135%)}
+  .sh-hero{position:relative;overflow:hidden;border-radius:26px;padding:clamp(34px,6vw,66px) clamp(24px,5vw,58px) clamp(64px,9vw,96px);margin-bottom:34px;color:#fff;background:linear-gradient(110deg,rgba(28,52,38,.94) 0%,rgba(41,70,54,.78) 55%,rgba(168,105,31,.5) 130%),url(images/hero-beans.jpg) center/cover,var(--pine)}
   .sh-hero::before{content:"";position:absolute;right:-70px;top:-80px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,var(--dawn-soft),transparent 68%);opacity:.8}
   .sh-hero::after{content:"";position:absolute;left:0;right:0;bottom:0;height:70px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 80' preserveAspectRatio='none'%3E%3Cpath d='M0 80V48L90 22l80 28 100-34 110 40 90-26 130 36 100-30 100 26V80z' fill='rgba(245,243,235,.16)'/%3E%3Cpath d='M0 80V62l120-20 100 22 140-26 120 24 130-20 190 24V80z' fill='%23F5F3EB'/%3E%3C/svg%3E") center bottom/100% 100% no-repeat}
   .sh-hero .eyebrow{color:var(--dawn-soft);display:block;margin-bottom:14px;position:relative}
   .sh-hero h2{font-size:clamp(1.9rem,4.2vw,3rem);letter-spacing:.06em;position:relative}
   .sh-hero p{margin-top:14px;max-width:40ch;color:rgba(255,255,255,.88);font-size:1.05rem;position:relative}
-  .sh-hero .sh-float{position:absolute;right:clamp(18px,6vw,70px);bottom:44px;font-size:clamp(2.4rem,6vw,4.2rem);letter-spacing:.2em;opacity:.9;z-index:1;filter:drop-shadow(0 6px 12px rgba(0,0,0,.25))}
+  .sh-hero .sh-float-off{position:absolute;right:clamp(18px,6vw,70px);bottom:44px;font-size:clamp(2.4rem,6vw,4.2rem);letter-spacing:.2em;opacity:.9;z-index:1;filter:drop-shadow(0 6px 12px rgba(0,0,0,.25))}
   .sh-art{max-width:740px;margin:0 auto;counter-reset:sh}
   .sh-art h1{font-family:var(--serif);font-size:clamp(1.65rem,3.6vw,2.4rem);line-height:1.45;margin:8px 0 14px;letter-spacing:.03em;color:var(--pine)}
   .sh-lead{font-size:1.1rem;line-height:1.9;color:var(--ink-70);padding-left:16px;border-left:3px solid var(--dawn-soft);margin:0 0 22px}
   .sh-art-hero{position:relative;aspect-ratio:16/9;border-radius:22px;overflow:hidden;margin:6px 0 32px;background:linear-gradient(135deg,var(--pine),var(--pine-mid));box-shadow:0 18px 40px rgba(36,28,21,.16)}
+  .sh-art-hero.nat{aspect-ratio:auto;background:none}
+  .sh-art-hero.nat img{position:static;height:auto}
   .sh-art-hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;margin:0;border-radius:0}
   .sh-art h2{counter-increment:sh;display:flex;align-items:center;gap:14px;font-family:var(--serif);font-size:1.38rem;line-height:1.5;margin:2.3em 0 .9em;padding:10px 16px;background:linear-gradient(90deg,rgba(228,137,43,.17),transparent 85%);border-left:5px solid var(--dawn);border-radius:0 12px 12px 0;color:var(--pine)}
   .sh-no{font-style:normal}
@@ -1404,7 +1413,7 @@ function shBody(text){
   }).join("");
 }
 const SH_DECO=["☕","🌿","🌅","🫘"];
-function shDeco(p){let h=0;const s=(p.category||p.title||"");for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return h%4;}
+function shDeco(p){const i=(SHARE_POSTS||[]).indexOf(p);return (i<0?0:i)%4;}
 async function renderShare(id){
   const box=$("shareContainer");
   if(SHARE_POSTS===null){
@@ -1422,17 +1431,18 @@ async function renderShare(id){
     box.innerHTML=`<article class="sh-art"><a class="sh-back" onclick="go('share')">← 回分享天地</a>
       <div class="sh-meta">${p.category?`<b>${esc(p.category)}</b>・`:""}${esc((p.time||"").slice(0,10))}・約 ${mins} 分鐘讀完</div>
       <h1>${esc(p.title)}</h1>${p.summary?`<p class="sh-lead">${esc(p.summary)}</p>`:""}
-      ${cv?`<div class="sh-art-hero">${shImg(cv,p.title,true)}</div>`:""}${lead}${shBody(p.body)}
+      <div class="sh-art-hero${cv?" nat":""}">${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}</div>${lead}${shBody(p.body)}
       <div class="sh-end">✦ 謝謝你讀到這裡 ✦<br><a class="sh-back" onclick="go('share')">← 看更多分享</a></div></article>`;
     return;
   }
   const cats=[...new Set(SHARE_POSTS.map(p=>p.category).filter(Boolean))];
   const list=SHARE_POSTS.filter(p=>!SHARE_CAT||p.category===SHARE_CAT);
-  box.innerHTML=`<div class="sh-hero"><span class="eyebrow">Sharing Corner</span><h2>分享天地</h2><p>烘豆日記、風味故事、影片與日常，慢慢分享給你。</p><span class="sh-float" aria-hidden="true">☕🌿</span></div>`
+  box.innerHTML=`<div class="sh-hero"><span class="eyebrow">Sharing Corner</span><h2>分享天地</h2><p>烘豆日記、風味故事、影片與日常，慢慢分享給你。</p></div>`
     +(cats.length?`<div class="sh-chips"><button class="sh-chip${SHARE_CAT?"":" on"}" data-c="">全部</button>${cats.map(c=>`<button class="sh-chip${SHARE_CAT===c?" on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>`:"")
-    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shImgUrl(p.cover);return `<a class="sh-card" onclick="go('share/${esc(p.id)}')"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${cv?shImg(cv,p.title,true):""}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
+    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shImgUrl(p.cover);return `<a class="sh-card" onclick="go('share/${esc(p.id)}')"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
       <div class="sh-cbody"><div class="sh-meta">${esc((p.time||"").slice(0,10))}</div><h3>${esc(p.title)}</h3>${p.summary?`<p>${esc(p.summary)}</p>`:""}</div></a>`;}).join("")}</div>`
-      :'<div class="sh-empty">還沒有文章，敬請期待。</div>');
+      :'<div class="sh-empty">還沒有文章，敬請期待。</div>')
+    +`<div class="sh-band"><div><h3>一杯咖啡，一段故事</h3><p>讀完分享，也來挑一包適合你的豆子。</p></div><a onclick="go('products')">看看今天的豆子 →</a></div><div class="sh-credit">照片：<a href="https://unsplash.com" target="_blank" rel="noopener">Unsplash</a>（免費授權）</div>`;
   box.querySelectorAll(".sh-chip").forEach(b=>b.onclick=()=>{SHARE_CAT=b.dataset.c;renderShare("");});
 }
 
