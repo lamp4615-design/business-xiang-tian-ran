@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>翔天然 管理後台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500&family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f4f1ea;--card:#fff;--ink:#233a2e;--mute:#7a857d;--line:#e3ded2;--green:#294636;--orange:#e08a2c;--red:#b4452f;--ok:#2f7d4f}
 @media (prefers-color-scheme:dark){:root{--bg:#18211c;--card:#212c25;--ink:#e8efe9;--mute:#9aa89f;--line:#33423a;--green:#8fc3a2;--orange:#f0a24d;--red:#e07a63;--ok:#6fcf97}}
@@ -50,6 +51,52 @@ h3{margin:18px 0 8px;font-size:16px}
 .toast.show{opacity:1}
 @media (prefers-color-scheme:dark){.toast{color:#10211a}}
 .sub{color:var(--mute);font-size:13px}
+
+.row{display:flex;gap:6px;align-items:center}
+#pCoverPrev{max-height:72px;max-width:140px;border-radius:8px;border:1px solid var(--line)}
+.tb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:10px 10px 0 0;border-bottom:none}
+.tb .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+.tb .sw{display:inline-flex;gap:4px;padding:0 2px}
+.tb .sw button{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}
+.editor{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:0 0 10px 10px;overflow:hidden}
+.editor textarea{font:inherit;line-height:1.7;color:var(--ink);background:var(--card);border:none;border-right:1px solid var(--line);padding:12px;width:100%;min-height:380px;resize:vertical;border-radius:0}
+.editor textarea.drag,input.drag{outline:2px dashed var(--orange);outline-offset:-4px}
+.prevbox{position:relative;background:#F5F3EB;color:#241C15;padding:34px 20px 20px;max-height:560px;overflow:auto;--pine:#294636;--pine-mid:#4E6B52;--dawn:#E4892B;--dawn-soft:#F3B85F;--paper-2:#EAE7DC;--ink-45:rgba(36,28,21,.48);--ink-70:rgba(36,28,21,.72);--line:rgba(46,61,48,.16);--serif:"Noto Serif TC",serif;--latin:"Fraunces",serif;font-family:"Noto Sans TC",sans-serif}
+.prevtag{position:absolute;left:12px;top:8px;font-size:12px;color:#7a857d;letter-spacing:.2em}
+@media (max-width:860px){.editor{grid-template-columns:1fr}.editor textarea{border-right:none;border-bottom:1px solid var(--line)}}
+pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font:13px/1.8 inherit;margin:6px 0 0}
+  .sh-art{max-width:740px;margin:0 auto;counter-reset:sh}
+  .sh-art h1{font-family:var(--serif);font-size:clamp(1.65rem,3.6vw,2.4rem);line-height:1.45;margin:8px 0 14px;letter-spacing:.03em;color:var(--pine)}
+  .sh-lead{font-size:1.1rem;line-height:1.9;color:var(--ink-70);padding-left:16px;border-left:3px solid var(--dawn-soft);margin:0 0 22px}
+  .sh-art-hero{position:relative;aspect-ratio:16/9;border-radius:22px;overflow:hidden;margin:6px 0 32px;background:linear-gradient(135deg,var(--pine),var(--pine-mid));box-shadow:0 18px 40px rgba(36,28,21,.16)}
+  .sh-art-hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;margin:0;border-radius:0}
+  .sh-art h2{counter-increment:sh;display:flex;align-items:center;gap:14px;font-family:var(--serif);font-size:1.38rem;line-height:1.5;margin:2.3em 0 .9em;padding:10px 16px;background:linear-gradient(90deg,rgba(228,137,43,.17),transparent 85%);border-left:5px solid var(--dawn);border-radius:0 12px 12px 0;color:var(--pine)}
+  .sh-no{font-style:normal}
+  .sh-no::before{content:counter(sh,decimal-leading-zero);font-family:var(--latin);font-size:1.5rem;font-weight:500;color:var(--dawn);line-height:1}
+  .sh-art h3{font-family:var(--serif);font-size:1.12rem;color:var(--pine);margin:1.7em 0 .5em}
+  .sh-art h3::before{content:"◆";color:var(--dawn);font-size:.65em;margin-right:9px;vertical-align:.15em}
+  .sh-art p{margin:0 0 1.25em;line-height:2;color:rgba(36,28,21,.84);font-size:1.03rem}
+  .sh-art strong{color:var(--pine);font-weight:700}
+  .sh-art mark{color:inherit;background:linear-gradient(transparent 52%,rgba(243,184,95,.8) 52%);padding:0 2px}
+  .sh-art ul,.sh-art ol{margin:0 0 1.3em 1.4em;line-height:2;color:rgba(36,28,21,.84)}
+  .sh-art li::marker{color:var(--dawn);font-weight:700}
+  .sh-art blockquote{position:relative;margin:1.7em 0;padding:20px 24px 20px 54px;background:var(--paper-2);border-radius:16px;font-family:var(--serif);line-height:1.9;color:var(--pine)}
+  .sh-art blockquote::before{content:"\201C";position:absolute;left:16px;top:2px;font-family:var(--latin);font-size:3.6rem;line-height:1;color:var(--dawn)}
+  .sh-note{display:flex;gap:12px;margin:1.6em 0;padding:16px 18px;border-radius:14px;border:1px solid;line-height:1.85;font-size:.99rem}
+  .sh-note>b{flex:none;white-space:nowrap;font-weight:700}
+  .sh-note.n-tip{background:#FFF4E0;border-color:#F0D49B;color:#6B4510}
+  .sh-note.n-key{background:#E8F3EA;border-color:#B9D6BF;color:#1F4A30}
+  .sh-note.n-warn{background:#FBEAE5;border-color:#EEC3B8;color:#7D2E1E}
+  .sh-hr{display:flex;align-items:center;gap:14px;margin:2.4em 0;color:var(--dawn)}
+  .sh-hr::before,.sh-hr::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent)}
+  .sh-art figure{margin:1.6em 0}
+  .sh-art img,.sh-art video{width:100%;border-radius:16px;display:block;margin:1.4em 0}
+  .sh-art figure img{margin:0;box-shadow:0 12px 30px rgba(36,28,21,.14)}
+  .sh-art figcaption{text-align:center;font-size:.85rem;color:var(--ink-45);margin-top:10px}
+  .sh-imgfail{padding:22px;border:1px dashed var(--line);border-radius:14px;text-align:center;font-size:.85rem;color:var(--ink-45);margin:1.4em 0}
+  .sh-end{text-align:center;margin-top:3em;padding-top:1.6em;border-top:1px solid var(--line);color:var(--ink-45);line-height:2.2}
+  .sh-embed{position:relative;aspect-ratio:16/9;margin:1.4em 0}
+  .sh-embed iframe{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:14px}
 </style>
 </head>
 <body>
@@ -109,20 +156,61 @@ h3{margin:18px 0 8px;font-size:16px}
     <h3 style="margin-top:0" id="pFormTitle">發表新文章</h3>
     <div class="form">
       <label>發佈到（翔天然官網「分享天地」請保留 xiang）<input id="pSite" list="siteList" value="xiang"><datalist id="siteList"></datalist></label>
-      <label>分類<input id="pCat" placeholder="例：烘豆日記"></label>
+      <label>分類（同分類會歸在同一個標籤）<input id="pCat" placeholder="例：烘豆日記" list="catList"><datalist id="catList"></datalist></label>
       <label>狀態<select id="pStatus"><option>發佈</option><option>草稿</option></select></label>
     </div>
     <div class="form" style="grid-template-columns:1fr">
       <label>標題<input id="pTitle" placeholder="文章標題"></label>
-      <label>摘要（顯示在文章列表）<input id="pSum" placeholder="一兩句話介紹"></label>
-      <label>封面圖網址（可按右邊上傳）
-        <span style="display:flex;gap:6px"><input id="pCover" placeholder="https://…" style="flex:1"><button class="sm" type="button" onclick="pickImage('cover')">上傳圖片</button></span></label>
+      <label>摘要（顯示在文章列表與文章開頭）<input id="pSum" placeholder="一兩句話介紹"></label>
+      <label>封面圖（貼「雲端硬碟共用連結」或任何圖片網址都行，也可直接上傳；把圖片拖進這一格也可以）
+        <span class="row"><input id="pCover" placeholder="https://drive.google.com/file/d/…/view 或 https://…" style="flex:1"><button class="sm" type="button" onclick="pickImage('cover')">上傳圖片</button></span>
+        <span class="row"><img id="pCoverPrev" alt="" hidden><span class="sub" id="pCoverMsg"></span></span>
+      </label>
+      <div class="sub">想找免費好看的圖？
+        <a href="https://unsplash.com/s/photos/coffee-beans" target="_blank" rel="noopener">Unsplash</a>・
+        <a href="https://www.pexels.com/search/coffee/" target="_blank" rel="noopener">Pexels</a>・
+        <a href="https://pixabay.com/images/search/coffee/" target="_blank" rel="noopener">Pixabay</a>
+        （都可免費商用；挑好後在圖片上按右鍵「複製圖片位址」貼到封面欄，或下載後上傳。）</div>
       <label>影音連結（YouTube／Vimeo／mp4 網址，選填）<input id="pMedia" placeholder="https://www.youtube.com/watch?v=…"></label>
-      <label>內文
-        <span style="display:flex;gap:6px;margin-bottom:4px"><button class="sm" type="button" onclick="pickImage('body')">插入圖片</button><button class="sm" type="button" onclick="insertH()">插入小標題</button></span>
-        <textarea id="pBody" rows="12" style="font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px;width:100%" placeholder="直接打字。空一行＝新段落。&#10;「## 小標題」會變標題；&#10;單獨一行貼 YouTube 網址會變成影片；&#10;按「插入圖片」會把圖放在游標位置。"></textarea></label>
     </div>
-    <input type="file" id="pFile" accept="image/*" hidden>
+    <div class="sub" style="margin:8px 0 4px">內文（先選取文字再按按鈕＝套用格式；右邊即時預覽就是網站上的樣子）</div>
+    <div class="tb">
+      <button type="button" class="sm" onclick="fmtH2()" title="段落大標題，網站上會自動編號 01、02…">大標題</button>
+      <button type="button" class="sm" onclick="fmtH3()" title="大標題底下的小節標題">小標題</button>
+      <span class="sep"></span>
+      <button type="button" class="sm" onclick="fmtWrap('**','**','粗體字')" title="粗體"><b>B</b></button>
+      <button type="button" class="sm" onclick="fmtWrap('==','==','螢光重點')" title="螢光筆標記重點"><span style="background:#f3b85f;padding:0 3px">螢光</span></button>
+      <span class="sw" title="文字顏色（先選取文字）">
+        <button type="button" style="background:#D9701A" onclick="fmtColor('橘')"></button><button type="button" style="background:#C0392B" onclick="fmtColor('紅')"></button><button type="button" style="background:#2E8B57" onclick="fmtColor('綠')"></button><button type="button" style="background:#2B6CB0" onclick="fmtColor('藍')"></button><button type="button" style="background:#7B4B2A" onclick="fmtColor('褐')"></button>
+      </span>
+      <span class="sep"></span>
+      <button type="button" class="sm" onclick="fmtBlock('> ','引言或金句')">引言</button>
+      <button type="button" class="sm" onclick="fmtBlock('[!提示] ','小提醒內容')">💡提示</button>
+      <button type="button" class="sm" onclick="fmtBlock('[!重點] ','重點內容')">⭐重點</button>
+      <button type="button" class="sm" onclick="fmtBlock('[!注意] ','注意事項')">⚠️注意</button>
+      <button type="button" class="sm" onclick="fmtList()">清單</button>
+      <button type="button" class="sm" onclick="fmtBlock('---','')">分隔線</button>
+      <span class="sep"></span>
+      <button type="button" class="sm" onclick="pickImage('body')">🖼 上傳圖片（可多選）</button>
+      <button type="button" class="sm" onclick="addImgLink()">🔗 貼圖片連結</button>
+      <button type="button" class="sm" onclick="addVideo()">▶ 影片</button>
+      <button type="button" class="sm" onclick="insertSample()">範例</button>
+    </div>
+    <div class="editor">
+      <textarea id="pBody" rows="18" placeholder="直接打字，空一行＝新段落。&#10;也可以把圖片直接拖進來、或 Ctrl+V 貼上截圖，會自動上傳並放在游標位置。"></textarea>
+      <div class="prevbox"><div class="prevtag">預覽</div><div id="pPrev" class="sh-art"></div></div>
+    </div>
+    <details class="sub" style="margin:8px 0"><summary>排版符號說明（按鈕都會幫你打好，想手打也可以）</summary>
+<pre class="syn">## 大標題            → 橘色色塊＋自動編號 01、02…
+### 小標題           → 綠色小節標題
+**粗體**   ==螢光重點==   {橘|橘色字}  （可用：橘 紅 綠 藍 褐）
+> 引言或金句         → 灰底引言框
+[!提示] 內容         → 💡橘色提示框（另有 [!重點] 綠、[!注意] 紅）
+- 項目一             → 清單（每行開頭 - ）；1. 2. 開頭＝編號清單
+---                  → 分隔線
+![圖片說明](圖片或雲端硬碟連結)   → 圖片（說明會顯示在圖下）
+單獨一行的 YouTube 網址 → 嵌入影片</pre></details>
+    <input type="file" id="pFile" accept="image/*" multiple hidden>
     <div class="tools"><button class="pri" onclick="savePost()">儲存文章</button><button class="sm" onclick="resetPost()">清空／新增</button><span class="sub" id="pMsg"></span></div>
     <h3>已有文章</h3>
     <div class="tools"><select id="pfSite" onchange="renderPosts()"><option value="">全部站台</option></select></div>
@@ -315,6 +403,67 @@ function renderReport(){
 }
 
 /* ---------- 內容（文章／圖片／影音） ---------- */
+/* ===== 文章排版（index.html 與 admin.html 預覽共用，兩邊請保持一致）=====
+   ## 大標題（自動編號）  ### 小標題  **粗體**  ==螢光重點==  {橘|彩色字}（橘紅綠藍褐）
+   > 引言   [!提示]/[!重點]/[!注意] 提示框   - 清單   1. 編號清單   ---  分隔線
+   ![圖說](圖片或雲端硬碟連結)   單獨一行的 YouTube／Vimeo／mp4 網址 = 影片 */
+const SH_COLORS={"橘":"#D9701A","紅":"#C0392B","綠":"#2E8B57","藍":"#2B6CB0","褐":"#7B4B2A"};
+const SH_NOTES={"提示":["tip","💡"],"重點":["key","⭐"],"注意":["warn","⚠️"]};
+function shSafeUrl(u){return /^https?:\/\//i.test(u||"")?u:"";}
+/* 雲端硬碟「共用連結」（file/d/…、open?id=、uc?id=、thumbnail?id=）一律轉成可直接顯示的圖片網址 */
+function shImgUrl(u){
+  u=String(u||"").trim();
+  const m=u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?[^#]*?id=|thumbnail\?[^#]*?id=)([\w-]+)/)||u.match(/lh3\.googleusercontent\.com\/d\/([\w-]+)/);
+  return m?"https://lh3.googleusercontent.com/d/"+m[1]+"=w1600":shSafeUrl(u);
+}
+/* 圖片載入失敗時，依序換用其他雲端硬碟圖片網址；都失敗就換成提示（封面則直接隱藏，露出底色） */
+function shImgErr(el){
+  const id=(el.src.match(/googleusercontent\.com\/d\/([\w-]+)/)||el.src.match(/[?&]id=([\w-]+)/)||[])[1];
+  const n=+el.dataset.n||0;el.dataset.n=n+1;
+  if(id&&n===0){el.src="https://drive.google.com/thumbnail?id="+id+"&sz=w1600";return;}
+  if(id&&n===1){el.src="https://drive.google.com/uc?export=view&id="+id;return;}
+  if(el.dataset.cv){el.remove();return;}
+  const d=document.createElement("div");d.className="sh-imgfail";
+  d.textContent="圖片無法顯示（若來自雲端硬碟，請把分享設為「知道連結的任何人」可檢視）";
+  el.replaceWith(d);
+}
+function shImg(u,alt,cv){
+  return `<img src="${esc(u)}" alt="${esc(alt||"")}" loading="lazy" referrerpolicy="no-referrer"${cv?' data-cv="1"':""} onerror="shImgErr(this)">`;
+}
+function shEmbed(u){
+  let m=u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/))([\w-]{11})/);
+  if(m)return `<div class="sh-embed"><iframe src="https://www.youtube.com/embed/${m[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  m=u.match(/vimeo\.com\/(\d+)/);
+  if(m)return `<div class="sh-embed"><iframe src="https://player.vimeo.com/video/${m[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  if(/\.(mp4|webm)(\?.*)?$/i.test(u))return `<video controls preload="metadata" src="${esc(u)}"></video>`;
+  return "";
+}
+function shInline(t){
+  return esc(t)
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/==(.+?)==/g,"<mark>$1</mark>")
+    .replace(/\{(橘|紅|綠|藍|褐)\|(.+?)\}/g,(_,c,x)=>`<span style="color:${SH_COLORS[c]};font-weight:700">${x}</span>`)
+    .replace(/(https?:\/\/[^\s<]+)/g,u=>`<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+}
+function shBody(text){
+  return String(text||"").replace(/\r/g,"").split(/\n{2,}/).map(b=>b.trim()).filter(Boolean).map(b=>{
+    let m;
+    const lines=b.split("\n");
+    if(/^---+$/.test(b))return '<div class="sh-hr"><span>✦</span></div>';
+    if(/^### /.test(b))return `<h3>${shInline(b.slice(4).trim())}</h3>`;
+    if(/^## /.test(b))return `<h2><i class="sh-no"></i>${shInline(b.slice(3).trim())}</h2>`;
+    if((m=b.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/))){
+      const u=shImgUrl(m[2]);
+      if(u)return `<figure>${shImg(u,m[1])}${m[1]?`<figcaption>${esc(m[1])}</figcaption>`:""}</figure>`;
+    }
+    if(/^https?:\/\/\S+$/.test(b)){const e=shEmbed(b);if(e)return e;}
+    if(lines.every(l=>/^>/.test(l)))return `<blockquote>${lines.map(l=>shInline(l.replace(/^>\s?/,""))).join("<br>")}</blockquote>`;
+    if((m=b.match(/^\[!(提示|重點|注意)\]\s*([\s\S]*)$/))){const n=SH_NOTES[m[1]];return `<div class="sh-note n-${n[0]}"><b>${n[1]} ${m[1]}</b><div>${shInline(m[2]).replace(/\n/g,"<br>")}</div></div>`;}
+    if(lines.every(l=>/^[-•・] ?\S/.test(l)))return `<ul>${lines.map(l=>`<li>${shInline(l.replace(/^[-•・] ?/,""))}</li>`).join("")}</ul>`;
+    if(lines.every(l=>/^\d+[.、] ?\S/.test(l)))return `<ol>${lines.map(l=>`<li>${shInline(l.replace(/^\d+[.、] ?/,""))}</li>`).join("")}</ol>`;
+    return `<p>${shInline(b).replace(/\n/g,"<br>")}</p>`;
+  }).join("");
+}
 let POSTS=[],EDIT_ID="",PICK_MODE="";
 async function loadPosts(){
   try{const d=await api({action:"admin_posts"});POSTS=d.posts;renderPosts();}catch(e){toast("讀取文章失敗："+e.message);}
@@ -325,6 +474,7 @@ function renderPosts(){
   $("pfSite").innerHTML='<option value="">全部站台</option>'+sites.map(s=>`<option>${esc(s)}</option>`).join("");
   $("pfSite").value=sites.includes(keep)?keep:"";
   $("siteList").innerHTML=sites.map(s=>`<option value="${esc(s)}">`).join("");
+  $("catList").innerHTML=[...new Set(POSTS.map(p=>p.category).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join("");
   const f=$("pfSite").value,list=POSTS.filter(p=>!f||p.site===f);
   $("postsBody").innerHTML=list.length?list.map(p=>`<tr>
     <td>${esc(p.time.slice(0,10))}</td><td><span class="tag">${esc(p.site)}</span></td><td>${esc(p.title)}</td><td>${esc(p.category)}</td>
@@ -334,13 +484,13 @@ function renderPosts(){
 }
 function resetPost(){
   EDIT_ID="";$("pFormTitle").textContent="發表新文章";
-  ["pCat","pTitle","pSum","pCover","pMedia","pBody"].forEach(i=>$(i).value="");$("pStatus").value="發佈";$("pMsg").textContent="";
+  ["pCat","pTitle","pSum","pCover","pMedia","pBody"].forEach(i=>$(i).value="");$("pStatus").value="發佈";$("pMsg").textContent="";normCover();updatePrev();
 }
 function editPost(id){
   const p=POSTS.find(x=>x.id===id);if(!p)return;
   EDIT_ID=id;$("pFormTitle").textContent="編輯文章";
   $("pSite").value=p.site;$("pCat").value=p.category;$("pStatus").value=p.status;$("pTitle").value=p.title;
-  $("pSum").value=p.summary;$("pCover").value=p.cover;$("pMedia").value=p.media;$("pBody").value=p.body;
+  $("pSum").value=p.summary;$("pCover").value=p.cover;$("pMedia").value=p.media;$("pBody").value=p.body;normCover();updatePrev();
   window.scrollTo({top:0,behavior:"smooth"});
 }
 async function savePost(){
@@ -358,19 +508,70 @@ async function delPost(id){
   try{await api({action:"admin_delete_post",id});if(EDIT_ID===id)resetPost();toast("已刪除");await loadPosts();}
   catch(e){toast("刪除失敗："+e.message);}
 }
-function insertH(){const t=$("pBody"),p=t.selectionStart;t.value=t.value.slice(0,p)+(p&&t.value[p-1]!=="\n"?"\n":"")+"## 小標題\n"+t.value.slice(p);t.focus();}
-function pickImage(mode){PICK_MODE=mode;$("pFile").value="";$("pFile").click();}
-$("pFile").addEventListener("change",async()=>{
-  const f=$("pFile").files[0];if(!f)return;
-  $("pMsg").textContent="圖片處理上傳中…";
-  try{
-    const data=await shrink(f,1600);
-    const d=await api({action:"admin_upload_image",mime:"image/jpeg",data});
-    if(PICK_MODE==="cover")$("pCover").value=d.url;
-    else{const t=$("pBody"),p=t.selectionStart||t.value.length;t.value=t.value.slice(0,p)+"\n\n![]("+d.url+")\n\n"+t.value.slice(p);}
-    $("pMsg").textContent="圖片已上傳";
-  }catch(e){$("pMsg").textContent="";toast("上傳失敗："+e.message);}
-});
+/* ---------- 編輯器：格式按鈕／預覽／圖片 ---------- */
+const TA=()=>$("pBody");
+function taEdit(fn){const t=TA(),s=t.selectionStart,e=t.selectionEnd,sel=t.value.slice(s,e);fn(t,s,e,sel);t.focus();updatePrev();}
+function fmtWrap(l,r,ph){taEdit((t,s,e,sel)=>{const x=sel||ph;t.value=t.value.slice(0,s)+l+x+r+t.value.slice(e);t.setSelectionRange(s+l.length,s+l.length+x.length);});}
+function fmtColor(c){fmtWrap("{"+c+"|","}","彩色文字");}
+/* 區塊（獨立成段）：前後補空行；有選取文字就用選取的 */
+function putBlock(txt,selStart,selLen){
+  const t=TA(),s=t.selectionStart,e=t.selectionEnd,before=t.value.slice(0,s).replace(/\n+$/,""),after=t.value.slice(e).replace(/^\n+/,"");
+  const pre=before?before+"\n\n":"";t.value=pre+txt+(after?"\n\n"+after:"\n\n");
+  const p=pre.length+(selStart||0);t.focus();t.setSelectionRange(p,p+(selLen||0));updatePrev();
+}
+function fmtBlock(prefix,ph){const t=TA(),sel=t.value.slice(t.selectionStart,t.selectionEnd).trim()||ph;putBlock(prefix+sel,prefix.length,sel.length);}
+function fmtH2(){fmtBlock("## ","這一段在講什麼（大標題）");}
+function fmtH3(){fmtBlock("### ","小節標題");}
+function fmtList(){const t=TA(),sel=t.value.slice(t.selectionStart,t.selectionEnd).trim();const txt=sel?sel.split("\n").map(l=>"- "+l.replace(/^[-•・]\s*/,"")).join("\n"):"- 項目一\n- 項目二\n- 項目三";putBlock(txt,0,txt.length);}
+function addImgLink(){const u=prompt("貼上圖片網址，或 Google 雲端硬碟的「共用連結」：");if(!u)return;if(!shImgUrl(u)){toast("這不是有效的網址（要以 http 開頭）");return;}const t=prompt("圖片說明（會顯示在圖下方，可留空）：","")||"";putBlock("!["+t.replace(/[\]\n]/g,"")+"]("+u.trim()+")",0,0);}
+function addVideo(){const u=prompt("貼上 YouTube／Vimeo／mp4 影片網址：");if(!u)return;if(!/^https?:\/\//i.test(u)){toast("網址要以 http 開頭");return;}putBlock(u.trim(),0,0);}
+function insertSample(){
+  const s="## 為什麼選這支豆子\n\n用最簡單的話說明：這支豆子有 **柑橘的明亮**、==蜂蜜般的回甘==，還有 {橘|一點點焦糖香}。\n\n[!提示] 第一次喝建議從中焙開始，酸質比較溫和。\n\n### 沖煮參數\n\n- 水溫 92°C\n- 粉水比 1:15\n- 悶蒸 30 秒\n\n> 慢慢喝，才喝得到故事。\n\n---\n\n## 小結\n\n謝謝你看到這裡 ☕";
+  const t=TA();if(t.value.trim()&&!confirm("內文已有文字，範例會接在最後面，確定？"))return;
+  t.value=(t.value.trim()?t.value.replace(/\s+$/,"")+"\n\n":"")+s;updatePrev();
+}
+let prevTimer=0;
+function updatePrev(){clearTimeout(prevTimer);prevTimer=setTimeout(()=>{
+  const b=$("pBody").value;$("pPrev").innerHTML=b.trim()?shBody(b):'<p style="color:#999">這裡會即時顯示文章在網站上的樣子。</p>';},120);}
+$("pBody").addEventListener("input",updatePrev);
+/* 封面：貼雲端硬碟連結自動轉成可顯示的網址，並顯示縮圖確認 */
+function normCover(){
+  const v=$("pCover").value.trim(),u=shImgUrl(v);
+  if(u&&u!==v)$("pCover").value=u;
+  const im=$("pCoverPrev");im.hidden=!u;$("pCoverMsg").textContent=u?"":(v?"請貼以 http 開頭的圖片網址":"");
+  if(u){im.dataset.n="";im.referrerPolicy="no-referrer";im.onload=()=>{$("pCoverMsg").textContent="✓ 封面可正常顯示";};
+    im.onerror=()=>{const n=+im.dataset.n||0;im.dataset.n=n+1;const id=(im.src.match(/googleusercontent\.com\/d\/([\w-]+)/)||im.src.match(/[?&]id=([\w-]+)/)||[])[1];
+      if(id&&n===0){im.src="https://drive.google.com/thumbnail?id="+id+"&sz=w1600";return;}
+      im.hidden=true;$("pCoverMsg").textContent="⚠ 圖片打不開：若是雲端硬碟，請把檔案分享設為「知道連結的任何人」可檢視";};
+    im.src=u;}
+}
+$("pCover").addEventListener("change",normCover);$("pCover").addEventListener("paste",()=>setTimeout(normCover,0));
+/* 上傳：按鈕（可多選）／拖曳／貼上截圖 */
+function pickImage(mode){PICK_MODE=mode;$("pFile").value="";$("pFile").multiple=(mode==="body");$("pFile").click();}
+$("pFile").addEventListener("change",()=>uploadFiles([...$("pFile").files],PICK_MODE));
+async function uploadFiles(files,mode){
+  files=files.filter(f=>/^image\//.test(f.type));if(!files.length)return;
+  if(mode==="cover")files=files.slice(0,1);
+  let ok=0;
+  for(let i=0;i<files.length;i++){
+    $("pMsg").textContent=`圖片處理上傳中 ${i+1}/${files.length}…`;
+    try{
+      const data=await shrink(files[i],1600);
+      const d=await api({action:"admin_upload_image",mime:"image/jpeg",data});
+      if(mode==="cover"){$("pCover").value=d.url;normCover();}
+      else putBlock("![]("+d.url+")",2,0);
+      ok++;
+    }catch(e){toast("第 "+(i+1)+" 張上傳失敗："+e.message);}
+  }
+  $("pMsg").textContent=ok?`已上傳 ${ok} 張圖片`:"";
+}
+const dropOn=(el,mode)=>{
+  el.addEventListener("dragover",e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes("Files")){e.preventDefault();el.classList.add("drag");}});
+  el.addEventListener("dragleave",()=>el.classList.remove("drag"));
+  el.addEventListener("drop",e=>{el.classList.remove("drag");const f=[...(e.dataTransfer.files||[])];if(f.length){e.preventDefault();uploadFiles(f,mode);}});
+};
+dropOn($("pBody"),"body");dropOn($("pCover"),"cover");
+$("pBody").addEventListener("paste",e=>{const f=[...(e.clipboardData&&e.clipboardData.files||[])].filter(x=>/^image\//.test(x.type));if(f.length){e.preventDefault();uploadFiles(f,"body");}});
 function shrink(file,max){   // 縮到最長邊 max、轉 JPEG，回傳純 base64
   return new Promise((res,rej)=>{
     const img=new Image(),u=URL.createObjectURL(file);
