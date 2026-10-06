@@ -17,9 +17,15 @@ jobs:
       - name: 抓取商品資料
         run: |
           API="https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec?action=products"
-          curl -sSL --retry 3 --max-time 60 "$API" -o new.json
-          # 必須是非空陣列才採用，避免 API 出錯時把網站商品清空
-          jq -e 'type=="array" and length>0' new.json > /dev/null
+          ok=0
+          for i in 1 2 3; do
+            curl -sSL --max-time 60 -A "Mozilla/5.0" "$API" -o new.json || true
+            # 必須是非空陣列才採用，避免 API 出錯時把網站商品清空
+            if jq -e 'type=="array" and length>0' new.json > /dev/null 2>&1; then ok=1; break; fi
+            echo "第 $i 次抓到的不是商品陣列，內容開頭："; head -c 400 new.json; echo
+            sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "放棄：保留原有 products.json"; exit 1; }
           jq -c . new.json > products.json
           rm new.json
       - name: 有變動才 commit
