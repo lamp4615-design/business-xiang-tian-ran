@@ -1105,10 +1105,17 @@ async function ensureReviews(){
 async function flavorInit(){
   await ensureProducts();
   if(DEEPLINK_PRODUCT){
-    const m=findProductForDeepLink(DEEPLINK_PRODUCT);
+    let m=findProductForDeepLink(DEEPLINK_PRODUCT);
+    if(!m&&API_URL){   // 掃 QR 進來卻找不到商品：手上的清單可能是舊快取（新品還沒進去），先向後端要最新的再比對一次
+      try{
+        const list=await Promise.race([fetchProducts(),new Promise((_,rej)=>setTimeout(rej,12000))]);
+        if(list.length){PRODUCTS_CACHE=list;renderProducts();m=findProductForDeepLink(DEEPLINK_PRODUCT);}
+      }catch(e){}
+    }
     if(m){flavorFilterProduct=m.name;showToast(member?`已為你選好「${m.name}」，開始打分吧！`:`已為你選好「${m.name}」，先登入會員（手機）就能打分`);}
     DEEPLINK_PRODUCT=null;
-  }else if(!flavorFilterProduct||flavorFilterProduct==="__all__"){
+  }
+  if(!flavorFilterProduct||flavorFilterProduct==="__all__"){
     if(PRODUCTS_CACHE[0])flavorFilterProduct=PRODUCTS_CACHE[0].name;
   }
   if(flavorFilterProduct)syncProductUrl(flavorFilterProduct);
