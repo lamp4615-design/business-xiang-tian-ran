@@ -516,8 +516,17 @@ function onEdit(e){
 /* ========================= 管理者 API（管理者網頁 admin.html 使用） =========================
  * 密碼不寫在程式碼裡：Apps Script →「專案設定」→「指令碼屬性」新增  ADMIN_KEY = 你的密碼。
  * 全部走 POST：{action:"admin_xxx", key:"密碼", ...} */
-const COST_CATEGORIES = ["生豆","濾紙","包裝袋","運費","其他"];
+/* 成本分類（參考咖啡業常見損益表：銷貨成本 → 毛利 → 銷售費用／管理費用 → 淨利）
+   舊資料用過的「生豆／濾紙／包裝袋／運費／其他」仍保留，會自動歸到對應的群組。 */
+const COST_GROUPS = {
+  "銷貨成本": ["生豆","烘焙代工／損耗","包裝袋","濾紙／掛耳包材","貼標／紙箱","樣品／試飲"],
+  "銷售費用": ["運費","金流手續費","廣告行銷","平台／網站費用"],
+  "管理費用": ["租金","水電瓦斯","人事薪資","設備／折舊","稅務會計","雜項"]
+};
+const COST_LEGACY = { "濾紙":"銷貨成本", "其他":"管理費用" };   // 舊分類名稱 → 群組（生豆／包裝袋／運費本來就在新清單裡）
+const COST_CATEGORIES = [].concat(COST_GROUPS["銷貨成本"], COST_GROUPS["銷售費用"], COST_GROUPS["管理費用"], ["濾紙","其他"]);
 const ORDER_STATUSES  = ["待處理","已完成","已取消"];
+const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1 };
 
 function adminAuthOk(key){
   const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
@@ -527,10 +536,13 @@ function adminAuthOk(key){
 function adminHandle(d){
   if (!adminAuthOk(d.key)) return { ok:false, error:"unauthorized" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  // 只有「寫入」才需要排隊上鎖；讀取不鎖，才不會被別的請求卡住
+  const lock = WRITE_ACTIONS[d.action] ? LockService.getScriptLock() : null;
+  if (lock) lock.waitLock(20000);
   try{
-    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, statuses:ORDER_STATUSES };
+    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES };
+    // 一次回傳後台需要的全部資料（原本要連線 3 次，現在 1 次）
+    if (d.action === "admin_all") return { ok:true, orders:adminListOrders(ss), costs:adminListCosts(ss), posts:listPosts(ss, "", false) };
     if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
     if (d.action === "admin_update_order") return adminUpdateOrder(ss, d);
     if (d.action === "admin_costs") return { ok:true, costs:adminListCosts(ss) };
@@ -541,7 +553,7 @@ function adminHandle(d){
     if (d.action === "admin_delete_post") return adminDeletePost(ss, d);
     if (d.action === "admin_upload_image") return adminUploadImage(d);
     return { ok:false, error:"unknown admin action" };
-  } finally { lock.releaseLock(); }
+  } finally { if (lock) lock.releaseLock(); }
 }
 
 function adminListOrders(ss){
@@ -616,6 +628,7 @@ function adminAddCost(ss, d){
   const amount = Number(d.amount);
   if (!(amount > 0) || !d.item) return { ok:false, error:"item/amount required" };
   const cat = COST_CATEGORIES.indexOf(d.category) > -1 ? d.category : "其他";
+  if (amount > 100000000) return { ok:false, error:"amount too large" };
   const m = String(d.date || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const dt = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date();
   costsSheet(ss).appendRow([ dt, String(d.item), cat, amount, String(d.note || "") ]);
@@ -626,6 +639,8 @@ function adminDeleteCost(ss, d){
   const sh = costsSheet(ss);
   const row = Number(d.row);
   if (!row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+  // 用列號刪除前，先核對那一列的項目名稱，避免另一個視窗資料過期時刪到別筆
+  if (d.item !== undefined && String(sh.getRange(row, 2).getValue()) !== String(d.item)) return { ok:false, error:"資料已變動，請重新整理後再刪" };
   sh.deleteRow(row);
   return { ok:true };
 }
@@ -762,7 +777,7 @@ function setupSheets(){
   let c = ss.getSheetByName(COSTS_TAB) || ss.insertSheet(COSTS_TAB);
   if (c.getLastRow() === 0){
     c.appendRow(["日期","項目","分類","金額","備註"]);
-    c.appendRow([new Date(), "範例：生豆採購", "原料", 3000, "示範用，可刪除這一列"]);
+    c.appendRow([new Date(), "範例：生豆採購", "生豆", 3000, "示範用，可刪除這一列"]);
   }
 
   // 總覽：粗略試算「營業額 - 成本」，公式會自動抓 orders 和 costs 的加總
@@ -770,11 +785,11 @@ function setupSheets(){
   if (d.getLastRow() === 0){
     d.appendRow(["翔天然　營運總覽（粗略試算，僅供參考）"]);
     d.appendRow([""]);
-    d.appendRow(["總營業額（orders 全部訂單金額加總）", "=SUM(orders!F:F)"]);
+    d.appendRow(["總營業額（orders「已完成」訂單金額加總）", "=SUMIF(orders!G:G,\"已完成\",orders!F:F)"]);
     d.appendRow(["總成本（costs 全部支出金額加總）",     "=SUM(costs!D:D)"]);
     d.appendRow(["粗估淨利（營業額－成本）",             "=B3-B4"]);
     d.appendRow([""]);
-    d.appendRow(["＊ 營業額包含所有狀態的訂單（含「待處理」尚未收款的），只是粗估，正式對帳仍需人工確認。"]);
+    d.appendRow(["＊ 營業額只計「已完成」訂單，與管理後台報表一致；只是粗估，正式對帳仍需人工確認。"]);
     d.setColumnWidth(1, 340);
     d.setColumnWidth(2, 160);
   }

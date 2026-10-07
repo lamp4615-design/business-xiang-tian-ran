@@ -123,6 +123,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <select id="fStatus" onchange="renderOrders()"><option value="">全部狀態</option></select>
       <input id="fSearch" placeholder="搜尋姓名／手機／內容" oninput="renderOrders()">
       <button class="sm" onclick="loadAll()">重新整理</button>
+      <button class="sm" onclick="exportOrders()">匯出 CSV</button>
       <span class="sub" id="ordersSum"></span>
     </div>
     <div class="wrap"><table>
@@ -145,6 +146,8 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
     <div class="tools">
       <select id="cfMonth" onchange="renderCosts()"></select>
       <select id="cfCat" onchange="renderCosts()"><option value="">全部分類</option></select>
+      <button class="sm" onclick="copyFixed()" title="把上個月的租金、水電、人事等固定支出複製到這個月">帶入上月固定支出</button>
+      <button class="sm" onclick="exportCosts()">匯出 CSV</button>
       <span class="sub" id="costsSum"></span>
     </div>
     <div class="wrap"><table>
@@ -236,15 +239,31 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <span class="sub">營收只計「已完成」訂單，依下單日歸月份。</span>
     </div>
     <div class="cards" id="repCards"></div>
+
+    <h3>損益表（<span id="pLabel"></span>）</h3>
+    <div class="wrap"><table>
+      <thead><tr><th>項目</th><th class="num">本月</th><th class="num">占營收</th><th class="num">全年累計</th><th class="num">占營收</th></tr></thead>
+      <tbody id="plBody"></tbody>
+    </table></div>
+    <p class="sub">咖啡店常見參考：銷貨成本約 25–35%、人事約 25–35%、租金約 8–15%、淨利約 8–12%。你是網路賣烘焙豆，比例會不同，這些數字只當參考，重點是看自己每月的變化。</p>
+
     <h3>各月份（<span id="yLabel"></span> 年）</h3>
     <div class="wrap"><table>
-      <thead><tr><th>月份</th><th class="num">營收</th><th class="num">成本</th><th class="num">盈餘</th><th class="num">出貨包數</th></tr></thead>
+      <thead><tr><th>月份</th><th class="num">營收</th><th class="num">銷貨成本</th><th class="num">毛利</th><th class="num">費用</th><th class="num">淨利</th><th class="num">出貨包數</th></tr></thead>
       <tbody id="monthsBody"></tbody>
     </table></div>
-    <h3>成本分類（<span id="pLabel"></span>）</h3>
+
+    <h3>費用明細（<span id="pLabel2"></span>）</h3>
     <div class="wrap"><table>
-      <thead><tr><th>分類</th><th class="num">金額</th><th>占比</th></tr></thead>
+      <thead><tr><th>群組／分類</th><th class="num">金額</th><th>占本月支出</th></tr></thead>
       <tbody id="catBody"></tbody>
+    </table></div>
+
+    <h3>熱銷商品與客戶（<span id="pLabel3"></span>）</h3>
+    <div class="cards" id="custCards"></div>
+    <div class="wrap"><table>
+      <thead><tr><th>商品</th><th class="num">售出包數</th><th>占比</th></tr></thead>
+      <tbody id="topBody"></tbody>
     </table></div>
   </section>
 </main>
@@ -257,6 +276,14 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 const API_URL="https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec";
 const $=id=>document.getElementById(id);
 let KEY="",ORDERS=[],COSTS=[],CATS=["生豆","濾紙","包裝袋","運費","其他"],STATUSES=["待處理","已完成","已取消"];
+/* 成本分類群組（與後端 COST_GROUPS 一致；登入時會用後端回傳的覆蓋）：銷貨成本 → 毛利 → 銷售費用／管理費用 → 淨利 */
+let GROUPS={"銷貨成本":["生豆","烘焙代工／損耗","包裝袋","濾紙／掛耳包材","貼標／紙箱","樣品／試飲"],"銷售費用":["運費","金流手續費","廣告行銷","平台／網站費用"],"管理費用":["租金","水電瓦斯","人事薪資","設備／折舊","稅務會計","雜項"]};
+let LEGACY={"濾紙":"銷貨成本","其他":"管理費用"};
+const FIXED_CATS=["租金","水電瓦斯","人事薪資","設備／折舊","稅務會計"];   // 「帶入上月固定支出」會複製的分類
+function groupOf(cat){
+  for(const g in GROUPS)if(GROUPS[g].includes(cat))return g;
+  return LEGACY[cat]||"管理費用";
+}
 
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=n=>"NT$ "+Math.round(n).toLocaleString();
@@ -276,6 +303,7 @@ async function doLogin(){
   try{
     const d=await api({action:"admin_ping"});
     if(d.categories)CATS=d.categories;if(d.statuses)STATUSES=d.statuses;
+    if(d.groups)GROUPS=d.groups;if(d.legacy)LEGACY=d.legacy;
     try{sessionStorage.setItem("xn_admin",KEY);}catch(e){}
     $("login").hidden=true;$("app").hidden=false;initUi();loadAll();
   }catch(e){KEY="";$("loginMsg").textContent=e.message==="unauthorized"?"密碼錯誤，或後台尚未設定 ADMIN_KEY":"連線失敗："+e.message;}
@@ -292,16 +320,17 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
 
 function initUi(){
   $("fStatus").innerHTML='<option value="">全部狀態</option>'+STATUSES.map(s=>`<option>${s}</option>`).join("");
-  $("cCat").innerHTML=CATS.map(c=>`<option>${c}</option>`).join("");
-  $("cfCat").innerHTML='<option value="">全部分類</option>'+CATS.map(c=>`<option>${c}</option>`).join("");
+  const grouped=Object.keys(GROUPS).map(g=>`<optgroup label="${esc(g)}">${GROUPS[g].map(c=>`<option>${esc(c)}</option>`).join("")}</optgroup>`).join("");
+  $("cCat").innerHTML=grouped;
+  $("cfCat").innerHTML='<option value="">全部分類</option>'+grouped+'<optgroup label="舊分類"><option>濾紙</option><option>其他</option></optgroup>';
   const t=new Date();$("cDate").value=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
 }
 
 async function loadAll(){
   try{
-    const [o,c]=await Promise.all([api({action:"admin_orders"}),api({action:"admin_costs"})]);
-    ORDERS=o.orders;COSTS=c.costs;
-    loadPosts();
+    const d=await api({action:"admin_all"});   // 一次連線拿回訂單、成本、文章
+    ORDERS=d.orders;COSTS=d.costs;POSTS=d.posts||[];
+    renderPosts();
     buildPeriodSelects();renderOrders();renderCosts();renderReport();
   }catch(e){toast("讀取失敗："+e.message);}
 }
@@ -324,7 +353,8 @@ function buildPeriodSelects(){
 function renderOrders(){
   const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
   const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
-  $("ordersSum").textContent=`${list.length} 筆`;
+  const pend=list.filter(o=>o.status==="待處理");
+  $("ordersSum").textContent=`${list.length} 筆`+(pend.length?`・待處理 ${pend.length} 筆（${money(pend.reduce((s,o)=>s+o.total,0))}）`:"");
   if(!list.length){$("ordersBody").innerHTML='<tr><td colspan="8" class="empty">沒有訂單</td></tr>';return;}
   $("ordersBody").innerHTML=list.map(o=>{
     const d=o.time?new Date(o.time):null;
@@ -359,6 +389,44 @@ function renderCosts(){
     <td class="num">${money(x.amount)}</td><td>${esc(x.note)}</td>
     <td><button class="sm del" onclick="delCost(${x.row})">刪除</button></td></tr>`).join("");
 }
+/* 把上個月的固定支出（租金、水電、人事、設備、稅務）複製到「目前選的月份」 */
+async function copyFixed(){
+  const m=$("cfMonth").value||ym(new Date());
+  const [y,mo]=m.split("-").map(Number);
+  const prev=ym(new Date(y,mo-2,1));
+  const src=COSTS.filter(c=>c.date&&c.date.startsWith(prev)&&FIXED_CATS.includes(c.category));
+  if(!src.length){toast(`${prev} 沒有可複製的固定支出`);return;}
+  const have=new Set(COSTS.filter(c=>c.date&&c.date.startsWith(m)).map(c=>c.category+"|"+c.item));
+  const todo=src.filter(c=>!have.has(c.category+"|"+c.item));
+  if(!todo.length){toast(`${m} 已經有這些固定支出了`);return;}
+  if(!confirm(`把 ${prev} 的 ${todo.length} 筆固定支出複製到 ${m}？\n\n`+todo.map(c=>`${c.category}　${c.item}　${money(c.amount)}`).join("\n")+`\n\n日期會記為 ${m}-01。`))return;
+  try{
+    for(const c of todo)await api({action:"admin_add_cost",date:m+"-01",item:c.item,category:c.category,amount:c.amount,note:c.note});
+    toast(`已複製 ${todo.length} 筆`);await loadAll();
+  }catch(e){toast("複製失敗："+e.message);await loadAll();}
+}
+
+/* ---------- 匯出 CSV（給會計師／報稅用；加 BOM 讓 Excel 正確顯示中文） ---------- */
+function csvCell(v){
+  let s=String(v==null?"":v);
+  if(/^[=+\-@\t\r]/.test(s))s="'"+s;   // 避免被 Excel 當成公式執行
+  return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+}
+function downloadCsv(name,rows){
+  const blob=new Blob(["﻿"+rows.map(r=>r.map(csvCell).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+function exportCosts(){
+  const m=$("cfMonth").value,c=$("cfCat").value;
+  const list=COSTS.filter(x=>(!m||x.date.startsWith(m))&&(!c||x.category===c));
+  downloadCsv(`成本_${m||"全部"}.csv`,[["日期","項目","群組","分類","金額","備註"]].concat(list.map(x=>[x.date,x.item,groupOf(x.category),x.category,x.amount,x.note])));
+}
+function exportOrders(){
+  const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
+  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
+  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","狀態"]].concat(list.map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.status])));
+}
 async function addCost(){
   const item=$("cItem").value.trim(),amount=Number($("cAmt").value);
   if(!item||!(amount>0)){toast("請填項目與金額");return;}
@@ -369,46 +437,103 @@ async function addCost(){
   }catch(e){toast("新增失敗："+e.message);}
 }
 async function delCost(row){
-  if(!confirm("確定刪除這筆花費？"))return;
-  try{await api({action:"admin_delete_cost",row});toast("已刪除");await loadAll();}
+  const c=COSTS.find(x=>x.row===row);
+  if(!confirm(c?`確定刪除這筆花費？\n${c.date}　${c.item}　${money(c.amount)}`:"確定刪除這筆花費？"))return;
+  try{await api({action:"admin_delete_cost",row,item:c?c.item:undefined});toast("已刪除");await loadAll();}
   catch(e){toast("刪除失敗："+e.message);}
 }
 
 /* ---------- 報表 ---------- */
+/* 損益結構（參考咖啡業）：營收 − 銷貨成本 = 毛利；毛利 − 銷售費用 − 管理費用 = 淨利。
+   營收只計「已完成」訂單，依下單日歸月份；成本依登記日期歸月份。 */
 function sumBy(year,month){   // month 省略 = 全年
-  let rev=0,cost=0,bags=0;
+  let rev=0,bags=0,orders=0,cogs=0,sell=0,admin=0;
   ORDERS.forEach(o=>{
     if(o.status!=="已完成"||!o.time)return;
     const d=new Date(o.time);
     if(d.getFullYear()!==year||(month&&d.getMonth()+1!==month))return;
-    rev+=o.total;bags+=o.bags;
+    rev+=o.total;bags+=o.bags;orders++;
   });
   COSTS.forEach(c=>{
     if(!c.date)return;
     const y=Number(c.date.slice(0,4)),m=Number(c.date.slice(5,7));
     if(y!==year||(month&&m!==month))return;
-    cost+=c.amount;
+    const g=groupOf(c.category);
+    if(g==="銷貨成本")cogs+=c.amount;else if(g==="銷售費用")sell+=c.amount;else admin+=c.amount;
   });
-  return{rev,cost,bags,profit:rev-cost};
+  const gross=rev-cogs,exp=sell+admin,profit=gross-exp;
+  return{rev,bags,orders,cogs,sell,admin,gross,exp,profit,cost:cogs+exp};
 }
 const pc=n=>n>=0?"pos":"neg";
+const pct=(a,b)=>b>0?(a/b*100).toFixed(1)+"%":"—";
+/* 把「售出商品 x 數量、…」拆成 {商品: 包數} */
+function parseItems(text){
+  const out={};
+  String(text||"").split("、").forEach(seg=>{
+    const m=seg.trim().match(/^(.+?)\s*[x×]\s*(\d+)$/i);
+    if(m)out[m[1].trim()]=(out[m[1].trim()]||0)+Number(m[2]);
+  });
+  return out;
+}
 function renderReport(){
   const y=Number($("rYear").value),m=Number($("rMonth").value);
   const mo=sumBy(y,m),yr=sumBy(y);
-  $("yLabel").textContent=y;$("pLabel").textContent=`${y} 年 ${m} 月`;
-  const card=(k,v,cls="")=>`<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  $("yLabel").textContent=y;
+  ["pLabel","pLabel2","pLabel3"].forEach(id=>$(id).textContent=`${y} 年 ${m} 月`);
+  const card=(k,v,cls="",sub="")=>`<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div>${sub?`<div class="sub">${sub}</div>`:""}</div>`;
   const pending=ORDERS.filter(o=>o.status==="待處理").reduce((s,o)=>s+o.total,0);
+  // 損益兩平營收 = 費用 ÷ 毛利率（毛利率 ≤ 0 時無法估算）
+  const gm=mo.rev>0?mo.gross/mo.rev:0;
+  const be=gm>0?Math.ceil(mo.exp/gm):0;
   $("repCards").innerHTML=
-    card(`${m} 月營收`,money(mo.rev))+card(`${m} 月成本`,money(mo.cost))+card(`${m} 月盈餘`,money(mo.profit),pc(mo.profit))+
-    card(`${y} 年營收`,money(yr.rev))+card(`${y} 年成本`,money(yr.cost))+card(`${y} 年盈餘`,money(yr.profit),pc(yr.profit))+
+    card(`${m} 月營收`,money(mo.rev),"",`${mo.orders} 筆訂單`)+
+    card("毛利",money(mo.gross),pc(mo.gross),`毛利率 ${pct(mo.gross,mo.rev)}`)+
+    card("費用（銷售＋管理）",money(mo.exp),"",`銷售 ${money(mo.sell)}・管理 ${money(mo.admin)}`)+
+    card(`${m} 月淨利`,money(mo.profit),pc(mo.profit),`淨利率 ${pct(mo.profit,mo.rev)}`)+
+    card("損益兩平營收",be?money(be):"—","",be?(mo.rev>=be?"本月已達成 ✓":`還差 ${money(be-mo.rev)}`):"需先有營收與銷貨成本")+
+    card("客單價",mo.orders?money(mo.rev/mo.orders):"—","",`平均每包 ${mo.bags?money(mo.rev/mo.bags):"—"}`)+
+    card(`${y} 年淨利`,money(yr.profit),pc(yr.profit),`營收 ${money(yr.rev)}`)+
     card("待處理訂單金額",money(pending));
+
+  const row=(label,a,b,cls="",strong=false)=>{const t=strong?"th":"td";return `<tr><${t}>${label}</${t}><${t} class="num ${cls}">${money(a)}</${t}><${t} class="num">${pct(a,mo.rev)}</${t}><${t} class="num ${cls}">${money(b)}</${t}><${t} class="num">${pct(b,yr.rev)}</${t}></tr>`;};
+  $("plBody").innerHTML=
+    row("營收（已完成訂單）",mo.rev,yr.rev,"",true)+
+    row("　− 銷貨成本",mo.cogs,yr.cogs)+
+    row("毛利",mo.gross,yr.gross,pc(mo.gross),true)+
+    row("　− 銷售費用",mo.sell,yr.sell)+
+    row("　− 管理費用",mo.admin,yr.admin)+
+    row("淨利",mo.profit,yr.profit,pc(mo.profit),true);
+
   $("monthsBody").innerHTML=Array.from({length:12},(_,i)=>{const s=sumBy(y,i+1);
-    return `<tr><td>${i+1} 月</td><td class="num">${money(s.rev)}</td><td class="num">${money(s.cost)}</td><td class="num ${pc(s.profit)}">${money(s.profit)}</td><td class="num">${s.bags}</td></tr>`;}).join("")
-    +`<tr><th>全年</th><th class="num">${money(yr.rev)}</th><th class="num">${money(yr.cost)}</th><th class="num ${pc(yr.profit)}">${money(yr.profit)}</th><th class="num">${yr.bags}</th></tr>`;
-  const cat={};let tot=0;
-  COSTS.forEach(c=>{if(c.date&&Number(c.date.slice(0,4))===y&&Number(c.date.slice(5,7))===m){cat[c.category]=(cat[c.category]||0)+c.amount;tot+=c.amount;}});
-  const keys=Object.keys(cat).sort((a,b)=>cat[b]-cat[a]);
-  $("catBody").innerHTML=keys.length?keys.map(k=>`<tr><td>${esc(k)}</td><td class="num">${money(cat[k])}</td><td><div class="bar"><span style="width:${cat[k]/tot*100}%"></span></div></td></tr>`).join(""):'<tr><td colspan="3" class="empty">這個月沒有花費紀錄</td></tr>';
+    return `<tr><td>${i+1} 月</td><td class="num">${money(s.rev)}</td><td class="num">${money(s.cogs)}</td><td class="num ${pc(s.gross)}">${money(s.gross)}</td><td class="num">${money(s.exp)}</td><td class="num ${pc(s.profit)}">${money(s.profit)}</td><td class="num">${s.bags}</td></tr>`;}).join("")
+    +`<tr><th>全年</th><th class="num">${money(yr.rev)}</th><th class="num">${money(yr.cogs)}</th><th class="num ${pc(yr.gross)}">${money(yr.gross)}</th><th class="num">${money(yr.exp)}</th><th class="num ${pc(yr.profit)}">${money(yr.profit)}</th><th class="num">${yr.bags}</th></tr>`;
+
+  // 費用明細：先依群組，再依分類
+  const byCat={},byGrp={};let tot=0;
+  COSTS.forEach(c=>{if(c.date&&Number(c.date.slice(0,4))===y&&Number(c.date.slice(5,7))===m){
+    byCat[c.category]=(byCat[c.category]||0)+c.amount;const g=groupOf(c.category);byGrp[g]=(byGrp[g]||0)+c.amount;tot+=c.amount;}});
+  const bar=(v)=>`<div class="bar"><span style="width:${tot?v/tot*100:0}%"></span></div>`;
+  $("catBody").innerHTML=tot?Object.keys(GROUPS).filter(g=>byGrp[g]).map(g=>
+    `<tr><th>${esc(g)}</th><th class="num">${money(byGrp[g])}</th><th>${bar(byGrp[g])}</th></tr>`+
+    Object.keys(byCat).filter(c=>groupOf(c)===g).sort((a,b)=>byCat[b]-byCat[a]).map(c=>
+      `<tr><td>　${esc(c)}</td><td class="num">${money(byCat[c])}</td><td>${bar(byCat[c])}</td></tr>`).join("")
+  ).join(""):'<tr><td colspan="3" class="empty">這個月沒有花費紀錄</td></tr>';
+
+  // 熱銷商品（只算已完成訂單）與客戶：新客＝這個月才第一次下單，回購＝之前就買過
+  const items={};let itemTot=0;const buyers=new Set();
+  const first={};   // 手機 → 最早一筆有效訂單時間
+  ORDERS.forEach(o=>{if(o.status==="已取消"||!o.time||!o.phone)return;const t=new Date(o.time).getTime();if(first[o.phone]===undefined||t<first[o.phone])first[o.phone]=t;});
+  ORDERS.forEach(o=>{
+    if(o.status!=="已完成"||!o.time)return;
+    const d=new Date(o.time);if(d.getFullYear()!==y||d.getMonth()+1!==m)return;
+    if(o.phone)buyers.add(o.phone);
+    const it=parseItems(o.items);for(const k in it){items[k]=(items[k]||0)+it[k];itemTot+=it[k];}
+  });
+  let fresh=0;buyers.forEach(p=>{const d=new Date(first[p]);if(d.getFullYear()===y&&d.getMonth()+1===m)fresh++;});
+  const back=buyers.size-fresh;
+  $("custCards").innerHTML=card("購買人數",buyers.size)+card("新客",fresh)+card("回購客",back,"",buyers.size?`回購率 ${pct(back,buyers.size)}`:"");
+  const keys=Object.keys(items).sort((a,b)=>items[b]-items[a]);
+  $("topBody").innerHTML=keys.length?keys.map(k=>`<tr><td>${esc(k)}</td><td class="num">${items[k]}</td><td><div class="bar"><span style="width:${items[k]/itemTot*100}%"></span></div></td></tr>`).join(""):'<tr><td colspan="3" class="empty">這個月沒有已完成的訂單</td></tr>';
 }
 
 /* ---------- 內容（文章／圖片／影音） ---------- */
