@@ -1075,6 +1075,7 @@ async function ensureReviews(){
   const fetchRaw=async()=>{const d=await (await fetch(API_URL+"?action=reviews")).json();const a=Array.isArray(d)?d:(d.reviews||[]);try{localStorage.setItem(LS,JSON.stringify(a));}catch(e){}return a;};
   let cached=null;
   if(API_URL){try{const a=JSON.parse(localStorage.getItem(LS)||"null");if(Array.isArray(a))cached=a;}catch(e){}}
+  if(!cached&&API_URL){try{const r=await fetch("reviews.json");if(r.ok){const j=await r.json();if(Array.isArray(j))cached=j;}}catch(e){}}   // 首次到訪：讀網站上的靜態檔
   if(cached){   // 回訪：先用上次的評分資料秒開，背景再更新（有變動才重畫）
     REVIEWS_CACHE=cached.map(normalizeReview);reviewsLoaded=true;reviewsLoading=false;renderFlavorPage();
     fetchRaw().then(a=>{if(JSON.stringify(a)!==JSON.stringify(cached)){REVIEWS_CACHE=a.map(normalizeReview);renderFlavorPage();}}).catch(()=>{});
@@ -1458,6 +1459,7 @@ async function renderShare(id){
       const fetchPosts=async()=>{const d=await (await fetch(API_URL+"?action=posts&site="+SHARE_SITE)).json();const a=Array.isArray(d)?d:[];try{localStorage.setItem(LS,JSON.stringify(a));}catch(e){}return a;};
       let cached=null;
       try{const a=JSON.parse(localStorage.getItem(LS)||"null");if(Array.isArray(a)&&a.length)cached=a;}catch(e){}
+      if(!cached){try{const r=await fetch("posts.json");if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length)cached=j;}}catch(e){}}   // 首次到訪：讀網站上的靜態檔
       if(cached){   // 回訪：先用上次的文章清單秒開，背景再更新（有變動且仍在分享頁才重畫）
         SHARE_POSTS=cached;
         fetchPosts().then(a=>{if(JSON.stringify(a)!==JSON.stringify(cached)){SHARE_POSTS=a;if((location.hash||"").indexOf("#share")===0)renderShare(id);}}).catch(()=>{});

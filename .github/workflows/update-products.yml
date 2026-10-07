@@ -1,6 +1,7 @@
 name: 更新商品清單
 
-# 每 15 分鐘從 Apps Script 抓一次商品資料，存成 products.json（網站載入時優先讀這個靜態檔，速度快很多）
+# 每 15 分鐘從 Apps Script 抓商品、風味評分、分享文章，存成靜態 json（網站載入時優先讀這些靜態檔，速度快很多）
+# 任何一項抓不到，就保留原本的檔案不覆蓋，也不影響其他項目。
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -14,23 +15,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 抓取商品資料
+      - name: 抓取資料
         run: |
-          API="https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec?action=products"
-          ok=0
-          for i in 1 2 3; do
-            rm -f new.json; curl -sSL --max-time 120 -A "Mozilla/5.0" "$API" -o new.json || true
-            # 必須是非空陣列才採用，避免 API 出錯時把網站商品清空
-            if jq -e 'type=="array" and length>0' new.json > /dev/null 2>&1; then ok=1; break; fi
-            echo "第 $i 次抓到的不是商品陣列，內容開頭："; head -c 400 new.json 2>/dev/null; echo
-            sleep 10
-          done
-          [ "$ok" = 1 ] || { echo "放棄：保留原有 products.json"; exit 1; }
-          jq -c . new.json > products.json
-          rm new.json
+          BASE="https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec"
+          # fetch_json <query> <輸出檔> <最少筆數>
+          fetch_json() {
+            for i in 1 2 3 4; do
+              rm -f new.json
+              curl -sSL --max-time 90 -A "Mozilla/5.0" "$BASE?$1" -o new.json || true
+              if jq -e --argjson min "$3" 'type=="array" and length>=$min' new.json > /dev/null 2>&1; then
+                jq -c . new.json > "$2"; rm -f new.json; echo "OK $2"; return 0
+              fi
+              echo "第 $i 次抓 $1 失敗，內容開頭："; head -c 200 new.json 2>/dev/null; echo
+              sleep 10
+            done
+            rm -f new.json; echo "放棄 $2，保留原檔"; return 1
+          }
+          fail=0
+          fetch_json "action=products" products.json 1 || fail=1
+          fetch_json "action=reviews" reviews.json 0 || fail=1
+          fetch_json "action=posts&site=xiang" posts.json 0 || fail=1
+          [ "$fail" = 0 ] || echo "::warning::有項目抓取失敗，已保留原檔"
       - name: 有變動才 commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add products.json
-          git diff --cached --quiet || (git commit -m "自動更新商品清單" && git push)
+          git add -A products.json reviews.json posts.json
+          git diff --cached --quiet || (git commit -m "自動更新商品／評分／文章資料" && git pull -q --rebase && git push)
