@@ -203,6 +203,123 @@ function notifyNewProducts(){
   }
 }
 
+/* ========================= 最後預購 / 下架通知 =========================
+   【最後預購】在 products 分頁把某商品的 last_call 欄填 TRUE（商品仍上架中），
+              就會寄「即將下架，最後預購」給所有有填 Email 的會員，寄過自動標記 last_call_notified=TRUE。
+   【下架通知】商品曾經上架通知過（notified=TRUE），之後把 active 改成 FALSE，
+              就會寄「已下架」通知，寄過自動標記 off_notified=TRUE。
+   這兩欄（last_call、last_call_notified、off_notified）程式會自動在 products 分頁最右邊補上，不用自己加。
+   時間觸發器請改設 notifyProductChanges（一次處理：新品／最後預購／下架）。 */
+function isTrue_(v){ return v === true || /^(true|yes|y|是)$/i.test(String(v).trim()); }
+function isOff_(v){ return v === false || /^(false|no)$/i.test(String(v).trim()); }
+
+/* 取得欄位位置（1 起算）；沒有這欄就自動在表頭最右邊補上。回傳 { col, created } */
+function ensureCol_(sh, name){
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  const head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const i = head.indexOf(name);
+  if (i > -1) return { col: i + 1, created: false };
+  const col = head.filter(String).length + 1;
+  sh.getRange(1, col).setValue(name);
+  return { col: col, created: true };
+}
+
+function memberEmails_(ss){
+  const msh = ss.getSheetByName(MEMBERS_TAB);
+  const emails = [];
+  if (msh){
+    const mrows = msh.getDataRange().getValues();
+    for (let i = 1; i < mrows.length; i++){
+      const email = String(mrows[i][4] || "").trim();
+      if (email && emails.indexOf(email) < 0) emails.push(email);
+    }
+  }
+  return emails;
+}
+
+function sendToMembers_(emails, subject, lines){
+  const body = lines.join("\n");
+  emails.forEach(addr => {
+    try{ MailApp.sendEmail(addr, subject, body); }catch(err){ /* 單一信箱失敗不影響其他人 */ }
+  });
+}
+
+function productLine_(p){
+  return "・" + p.name + (p.subtitle ? "（" + p.subtitle + "）" : "") + (p.price ? " — NT$ " + p.price + (p.unit ? "/" + p.unit : "") : "");
+}
+
+/* 最後預購通知 */
+function notifyLastCall(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const psh = ss.getSheetByName(PRODUCTS_TAB);
+  if (!psh) return;
+  const lc = ensureCol_(psh, "last_call").col;
+  const lcn = ensureCol_(psh, "last_call_notified").col;
+  const rows = psh.getDataRange().getValues();
+  if (rows.length < 2) return;
+  const head = rows.shift().map(h => String(h).trim());
+  const at = name => head.indexOf(name);
+  const list = [];
+  rows.forEach((r, i) => {
+    if (!r[at("id")]) return;
+    if (isOff_(r[at("active")])) return;                 // 已下架的不寄最後預購
+    if (!isTrue_(r[lc - 1]) || isTrue_(r[lcn - 1])) return;
+    list.push({ sheetRow: i + 2, name: String(r[at("name")] || ""), subtitle: String(r[at("subtitle")] || ""),
+                price: Number(r[at("price")]) || 0, unit: String(r[at("unit")] || "") });
+  });
+  if (!list.length) return;
+  const emails = memberEmails_(ss);
+  if (emails.length){
+    const lines = ["這款豆子即將下架，想喝的話請把握最後預購機會：", ""];
+    list.forEach(p => lines.push(productLine_(p)));
+    lines.push("", "現在去訂購：" + SITE_URL + "/#products", "", "— 翔天然，翔自在");
+    sendToMembers_(emails, "【翔天然】最後預購 ⏳ 即將下架", lines);
+  }
+  list.forEach(p => psh.getRange(p.sheetRow, lcn).setValue(true));
+}
+
+/* 下架通知 */
+function notifyDiscontinued(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const psh = ss.getSheetByName(PRODUCTS_TAB);
+  if (!psh) return;
+  const off = ensureCol_(psh, "off_notified");
+  const rows = psh.getDataRange().getValues();
+  if (rows.length < 2) return;
+  const head = rows.shift().map(h => String(h).trim());
+  const at = name => head.indexOf(name);
+  // 第一次啟用：先把「目前已經下架」的商品全部標記為已處理，不補寄舊商品的下架信
+  if (off.created){
+    rows.forEach((r, i) => { if (r[at("id")] && isOff_(r[at("active")])) psh.getRange(i + 2, off.col).setValue(true); });
+    return;
+  }
+  const list = [];
+  rows.forEach((r, i) => {
+    if (!r[at("id")]) return;
+    if (!isOff_(r[at("active")])) return;                // 還上架中
+    if (!isTrue_(r[at("notified")])) return;             // 從沒公開過（草稿），不通知
+    if (isTrue_(r[off.col - 1])) return;                 // 已通知過
+    list.push({ sheetRow: i + 2, name: String(r[at("name")] || ""), subtitle: String(r[at("subtitle")] || ""),
+                price: 0, unit: "" });
+  });
+  if (!list.length) return;
+  const emails = memberEmails_(ss);
+  if (emails.length){
+    const lines = ["以下豆子已經下架，謝謝你的支持：", ""];
+    list.forEach(p => lines.push(productLine_(p)));
+    lines.push("", "看看目前還有哪些豆子：" + SITE_URL + "/#products", "", "— 翔天然，翔自在");
+    sendToMembers_(emails, "【翔天然】豆子下架通知", lines);
+  }
+  list.forEach(p => psh.getRange(p.sheetRow, off.col).setValue(true));
+}
+
+/* 時間觸發器請設這一個：每次依序處理 新品上架／最後預購／下架 */
+function notifyProductChanges(){
+  notifyNewProducts();
+  notifyLastCall();
+  notifyDiscontinued();
+}
+
 /* ========================= 風味評分（五軸） ========================= */
 const FLAVOR_AXES = ["aroma","acidity","sweetness","body","bitterness"];
 // 對應 reviews 分頁欄位順序：建立時間/手機/品項/香氣/酸質/甜感/醇厚度/苦味
