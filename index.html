@@ -797,7 +797,8 @@ function productArt(hue){
   </svg>`;
 }
 /* Drive 縮圖網址一律縮成卡片夠用的寬度（後台上傳的是 w1600，太大） */
-function smallImg(u){return String(u||"").replace(/([?&]sz=)w\d+/,"$1w600").replace(/(res\.cloudinary\.com\/[^?#]*\/)w_\d+/,"$1w_600");}
+function cldSmall(u){return String(u||"").replace(/(res\.cloudinary\.com\/[^?#]*?)([\/,])w_\d+(?=[,\/])/,"$1$2w_600");}
+function smallImg(u){return cldSmall(String(u||"").replace(/([?&]sz=)w\d+/,"$1w600"));}
 function thumb(p){return productArt(p.hue)+(p.image?`<img src="${esc(smallImg(p.image))}" alt="${esc(p.name)}" width="400" height="300" loading="lazy" decoding="async" onerror="this.style.display='none'">`:"");}
 
 /* ---------- 讀取產品 ---------- */
@@ -1070,9 +1071,17 @@ function normalizeReview(r){
 
 async function ensureReviews(){
   if(reviewsLoaded||reviewsLoading)return;reviewsLoading=true;
+  const LS="xtr_reviews_v1";
+  const fetchRaw=async()=>{const d=await (await fetch(API_URL+"?action=reviews")).json();const a=Array.isArray(d)?d:(d.reviews||[]);try{localStorage.setItem(LS,JSON.stringify(a));}catch(e){}return a;};
+  let cached=null;
+  if(API_URL){try{const a=JSON.parse(localStorage.getItem(LS)||"null");if(Array.isArray(a))cached=a;}catch(e){}}
+  if(cached){   // 回訪：先用上次的評分資料秒開，背景再更新（有變動才重畫）
+    REVIEWS_CACHE=cached.map(normalizeReview);reviewsLoaded=true;reviewsLoading=false;renderFlavorPage();
+    fetchRaw().then(a=>{if(JSON.stringify(a)!==JSON.stringify(cached)){REVIEWS_CACHE=a.map(normalizeReview);renderFlavorPage();}}).catch(()=>{});
+    return;
+  }
   try{
-    if(API_URL){const res=await fetch(API_URL+"?action=reviews");const d=await res.json();
-      REVIEWS_CACHE=(Array.isArray(d)?d:(d.reviews||[])).map(normalizeReview);}
+    if(API_URL){REVIEWS_CACHE=(await fetchRaw()).map(normalizeReview);}
     else{REVIEWS_CACHE=SAMPLE_REVIEWS.map(normalizeReview);}
   }catch(e){REVIEWS_CACHE=SAMPLE_REVIEWS.map(normalizeReview);}
   reviewsLoaded=true;reviewsLoading=false;renderFlavorPage();
@@ -1381,6 +1390,8 @@ let SHARE_POSTS=null,SHARE_CAT="";
    ![圖說](圖片或雲端硬碟連結)   單獨一行的 YouTube／Vimeo／mp4 網址 = 影片 */
 const SH_COLORS={"橘":"#D9701A","紅":"#C0392B","綠":"#2E8B57","藍":"#2B6CB0","褐":"#7B4B2A"};
 const SH_NOTES={"提示":["tip","💡"],"重點":["key","⭐"],"注意":["warn","⚠️"]};
+/* 文章列表卡片只需要小圖：雲端硬碟 =w1600 與 Cloudinary w_1600 都縮成 600 */
+function shSmall(u){return cldSmall(String(u||"").replace(/(googleusercontent\.com\/d\/[\w-]+)=w1600/,"$1=w600"));}
 function shSafeUrl(u){return /^https?:\/\//i.test(u||"")?u:"";}
 /* 雲端硬碟「共用連結」（file/d/…、open?id=、uc?id=、thumbnail?id=）一律轉成可直接顯示的圖片網址 */
 function shImgUrl(u){
@@ -1443,8 +1454,17 @@ async function renderShare(id){
   if(SHARE_POSTS===null){
     if(!API_URL){SHARE_POSTS=[];}
     else{
-      try{const d=await (await fetch(API_URL+"?action=posts&site="+SHARE_SITE)).json();SHARE_POSTS=Array.isArray(d)?d:[];}
-      catch(e){box.innerHTML='<div class="sh-empty">文章載入失敗，請稍後再試。</div>';return;}
+      const LS="xtr_posts_v1";
+      const fetchPosts=async()=>{const d=await (await fetch(API_URL+"?action=posts&site="+SHARE_SITE)).json();const a=Array.isArray(d)?d:[];try{localStorage.setItem(LS,JSON.stringify(a));}catch(e){}return a;};
+      let cached=null;
+      try{const a=JSON.parse(localStorage.getItem(LS)||"null");if(Array.isArray(a)&&a.length)cached=a;}catch(e){}
+      if(cached){   // 回訪：先用上次的文章清單秒開，背景再更新（有變動且仍在分享頁才重畫）
+        SHARE_POSTS=cached;
+        fetchPosts().then(a=>{if(JSON.stringify(a)!==JSON.stringify(cached)){SHARE_POSTS=a;if((location.hash||"").indexOf("#share")===0)renderShare(id);}}).catch(()=>{});
+      }else{
+        try{SHARE_POSTS=await fetchPosts();}
+        catch(e){box.innerHTML='<div class="sh-empty">文章載入失敗，請稍後再試。</div>';return;}
+      }
     }
   }
   if(id){
@@ -1463,7 +1483,7 @@ async function renderShare(id){
   const list=SHARE_POSTS.filter(p=>!SHARE_CAT||p.category===SHARE_CAT);
   box.innerHTML=`<div class="sh-hero"><span class="eyebrow">Sharing Corner</span><h2>分享天地</h2><p>烘豆日記、風味故事、影片與日常，慢慢分享給你。</p></div>`
     +(cats.length?`<div class="sh-chips"><button class="sh-chip${SHARE_CAT?"":" on"}" data-c="">全部</button>${cats.map(c=>`<button class="sh-chip${SHARE_CAT===c?" on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>`:"")
-    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shImgUrl(p.cover);return `<a class="sh-card" onclick="go('share/${esc(p.id)}')"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
+    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shSmall(shImgUrl(p.cover));return `<a class="sh-card" onclick="go('share/${esc(p.id)}')"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
       <div class="sh-cbody"><div class="sh-meta">${esc((p.time||"").slice(0,10))}</div><h3>${esc(p.title)}</h3>${p.summary?`<p>${esc(p.summary)}</p>`:""}</div></a>`;}).join("")}</div>`
       :'<div class="sh-empty">還沒有文章，敬請期待。</div>')
     +`<div class="sh-band"><div><h3>一杯咖啡，一段故事</h3><p>讀完分享，也來挑一包適合你的豆子。</p></div><a onclick="go('products')">看看今天的豆子 →</a></div><div class="sh-credit">照片：<a href="https://unsplash.com" target="_blank" rel="noopener">Unsplash</a>（免費授權）</div>`;
@@ -1509,6 +1529,7 @@ function maybeShowWelcome(){
 $("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
 loadSession();updateAccountUI();renderCart();route();maybeShowWelcome();
 ensureProducts();   // 不等切到產品頁，一進站就先在背景抓商品資料
+setTimeout(()=>{ensureReviews();if(typeof renderShare==="function"&&API_URL&&SHARE_POSTS===null){try{const c=JSON.parse(localStorage.getItem("xtr_posts_v1")||"null");if(!c)fetch(API_URL+"?action=posts&site="+SHARE_SITE).then(r=>r.json()).then(a=>{if(Array.isArray(a))localStorage.setItem("xtr_posts_v1",JSON.stringify(a));}).catch(()=>{});}catch(e){}}},1500);   // 稍後在背景預抓風味評分與分享文章
 </script>
 </body>
 </html>
