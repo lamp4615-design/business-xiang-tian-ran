@@ -935,7 +935,12 @@ async function confirmPurchase(){
   const btn=$("confirmBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="送出中…";
   try{
     if(API_URL){
-      await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags})});
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags})});
+      let r=null;try{r=await res.json();}catch(e){}
+      if(r&&r.ok===false){
+        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":"訂單送出失敗，請稍後再試或聯絡我們");
+        btn.disabled=false;btn.textContent=old;return;
+      }
     }else{await new Promise(r=>setTimeout(r,600));}
     cart=[];renderCart();
     $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！<br>我們會盡快透過 LINE 或電話與你聯繫。<br>訂單處理完成後，點數會自動加到會員中心。</div>';
@@ -976,7 +981,7 @@ function renderMember(){
     el.innerHTML=`<h3>會員中心</h3><p class="sub">歡迎回來，${esc(member.name)}。</p>
       <div class="mc-row first"><span class="k">姓名</span><span>${esc(member.name)}</span></div>
       <div class="mc-row"><span class="k">手機</span><span>${esc(member.phone)}</span></div>
-      <div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>
+      ${member.city?`<div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>`:""}
       ${member.email?`<div class="mc-row"><span class="k">Email</span><span>${esc(member.email)}</span></div>`:""}
       ${pointsPanelHtml()}
       <div class="mc-row"><span class="k">抽獎券</span><span>${member.tickets!=null?member.tickets+" 張":"計算中…"}</span></div>
@@ -1023,8 +1028,18 @@ async function submitJoin(){
   if(!name||!phone||!addr){note.textContent="請填寫姓名、手機，並選擇所在地區。";return;}
   const btn=$("joinBtn");btn.disabled=true;btn.textContent="送出中…";
   try{
-    if(API_URL){await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"join",name,phone,city:addr,email})});}
+    let existed=false;
+    if(API_URL){
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"join",name,phone,city:addr,email})});
+      let r=null;try{r=await res.json();}catch(e){}
+      if(r&&r.ok===false){
+        note.textContent=r.error==="rate_limited"?"這支手機剛剛已送出過，請一分鐘後再試。":r.error==="bad input"?"姓名或手機格式不正確，請再確認。":"目前加入人數較多，請稍後再試。";
+        btn.disabled=false;btn.textContent="加入會員";return;
+      }
+      existed=!!(r&&r.existed);
+    }
     else{await new Promise(r=>setTimeout(r,500));}
+    if(existed){note.textContent="這支手機已經是會員了，請直接用「登入」。";btn.disabled=false;btn.textContent="加入會員";return;}
     member={name,phone,city:addr,email};saveSession();afterAuth("歡迎加入，"+name);
   }catch(e){note.textContent="送出失敗，請稍後再試。";if($("joinBtn")){btn.disabled=false;btn.textContent="加入會員";}}
 }

@@ -74,20 +74,65 @@ function toImageUrl(s){
   return s;
 }
 
-/* 用手機查會員（比對時忽略開頭 0 與符號） */
-function findMember(phone){
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(MEMBERS_TAB);
-  if (!sh) return { found:false };
-  const norm = s => String(s || "").replace(/\D/g, "").replace(/^0+/, "");
-  const key = norm(phone);
-  if (!key) return { found:false };
+/* ========================= 個資保護 / 防洗版 ========================= */
+const normPhone_ = s => String(s || "").replace(/\D/g, "").replace(/^0+/, "");
+
+/* 姓名遮罩：保留頭尾，中間用 ○（王小明 → 王○明、王明 → 王○） */
+function maskName_(n){
+  const a = Array.from(String(n || "").trim());
+  if (a.length <= 1) return a.join("");
+  if (a.length === 2) return a[0] + "○";
+  return a[0] + "○".repeat(a.length - 2) + a[a.length - 1];
+}
+
+/* 寫進試算表的文字：限制長度，並避免開頭是 = + - @ 被試算表當成公式執行 */
+function safeText_(s, max){
+  s = String(s == null ? "" : s).trim().slice(0, max || 200);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+
+/* 同一個 key 在 seconds 秒內只放行一次（用 CacheService，免費） */
+function rateLimit_(key, seconds){
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try{
+    const cache = CacheService.getScriptCache();
+    if (cache.get(key)) return false;
+    cache.put(key, "1", seconds);
+    return true;
+  } finally { lock.releaseLock(); }
+}
+/* 全站總量上限：seconds 秒內最多 max 次，避免有人灌爆你的信箱與試算表 */
+function globalCap_(key, max, seconds){
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try{
+    const cache = CacheService.getScriptCache();
+    const n = Number(cache.get(key) || 0);
+    if (n >= max) return false;
+    cache.put(key, String(n + 1), seconds);
+    return true;
+  } finally { lock.releaseLock(); }
+}
+
+/* 內部用：用手機找會員，回傳完整資料（不會直接給前台） */
+function lookupMember_(ss, phone){
+  const sh = ss.getSheetByName(MEMBERS_TAB);
+  const key = normPhone_(phone);
+  if (!sh || !key) return null;
   const rows = sh.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++){
-    if (norm(rows[i][2]) === key){
-      return { found:true, name:String(rows[i][1]), phone:String(rows[i][2]), city:String(rows[i][3]), email:String(rows[i][4]||"") };
-    }
+    if (normPhone_(rows[i][2]) === key) return { name:String(rows[i][1] || ""), city:String(rows[i][3] || ""), email:String(rows[i][4] || "") };
   }
-  return { found:false };
+  return null;
+}
+
+/* 登入：只回傳「是不是會員」與遮罩後的姓名。不回傳地址、Email，也不回傳資料庫裡存的手機。
+   （下單時姓名／地區由後端依手機自己查，前台不需要持有完整個資。） */
+function findMember(phone){
+  const m = lookupMember_(SpreadsheetApp.openById(SHEET_ID), phone);
+  if (!m) return { found:false };
+  return { found:true, name:maskName_(m.name), phone:String(phone || "").slice(0, 20), city:"", email:"" };
 }
 
 
@@ -95,9 +140,9 @@ function findMember(phone){
 function doPost(e){
   try{
     const d = JSON.parse(e.postData.contents);
-    if (d.action === "join")  { addMember(d); return json({ ok:true }); }
-    if (d.action === "order") { addOrder(d);  return json({ ok:true }); }
-    if (d.action === "review"){ addReview(d); return json({ ok:true }); }
+    if (d.action === "join")  return json(addMember(d));
+    if (d.action === "order") return json(addOrder(d));
+    if (d.action === "review") return json(addReview(d));
     if (String(d.action || "").indexOf("admin_") === 0) return json(adminHandle(d));
     return json({ ok:false, error:"unknown action" });
   }catch(err){
@@ -106,18 +151,41 @@ function doPost(e){
 }
 
 function addMember(d){
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(MEMBERS_TAB);
-  sh.appendRow([ new Date(), d.name || "", "", d.city || "", d.email || "" ]);
-  setTextCell(sh, sh.getLastRow(), 3, d.phone);
+  const key = normPhone_(d.phone);
+  const name = safeText_(d.name, 40);
+  if (key.length < 8 || key.length > 12 || !name) return { ok:false, error:"bad input" };
+  if (!rateLimit_("join_" + key, 60)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("join_all", 30, 600)) return { ok:false, error:"busy" };
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  if (lookupMember_(ss, d.phone)) return { ok:true, existed:true };   // 已是會員：不重複新增，也不讓別人覆蓋他的資料
+  const sh = ss.getSheetByName(MEMBERS_TAB);
+  sh.appendRow([ new Date(), name, "", safeText_(d.city, 60), safeText_(d.email, 80) ]);
+  setTextCell(sh, sh.getLastRow(), 3, String(d.phone).slice(0, 20));
+  return { ok:true };
 }
 
 function addOrder(d){
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(ORDERS_TAB);
+  const key = normPhone_(d.phone);
+  if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
+  const items = safeText_(d.items, 500);
+  const total = Number(d.total) || 0;
+  if (!items || !(total > 0) || total > 1000000) return { ok:false, error:"bad order" };
+  if (!rateLimit_("ord_" + key, 60)) return { ok:false, error:"rate_limited" };   // 同一支手機一分鐘只能下一張
+  if (!globalCap_("ord_all", 20, 600)) return { ok:false, error:"busy" };          // 全站 10 分鐘最多 20 張
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(ORDERS_TAB);
+  // 會員的姓名／地區以試算表為準（前台只有遮罩後的姓名）；查不到才用前台送來的
+  const m = lookupMember_(ss, d.phone);
+  const name = m ? m.name : safeText_(d.name, 40);
+  const city = m ? m.city : safeText_(d.city, 60);
+  const bags = Math.min(1000, Math.max(0, Math.floor(Number(d.bags)) || parseBags(items)));
   // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點
   // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
-  sh.appendRow([ new Date(), d.name || "", "", d.city || "", d.items || "", Number(d.total) || 0, "待處理", Number(d.bags) || parseBags(d.items), 0 ]);
-  setTextCell(sh, sh.getLastRow(), 3, d.phone);
-  notifyOrder(d);   // 寄 Email 通知
+  sh.appendRow([ new Date(), name, "", city, items, total, "待處理", bags, 0 ]);
+  setTextCell(sh, sh.getLastRow(), 3, String(d.phone).slice(0, 20));
+  notifyOrder({ name:name, phone:String(d.phone).slice(0, 20), city:city, items:items, total:total });   // 寄 Email 通知
+  return { ok:true };
 }
 
 /* 新訂單 Email 通知 */
@@ -346,11 +414,16 @@ function getReviews(){
 }
 
 function addReview(d){
+  const key = normPhone_(d.phone);
+  const product = safeText_(d.product, 60);
+  if (!product) return { ok:false, error:"bad input" };
+  if (!rateLimit_("rv_" + (key || "anon") + "_" + product, 5)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("rv_all", 120, 600)) return { ok:false, error:"busy" };
   const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
-  sh.appendRow([ new Date(), "", d.product || "",
-    Number(d.aroma) || 0, Number(d.acidity) || 0, Number(d.sweetness) || 0,
-    Number(d.body) || 0, Number(d.bitterness) || 0 ]);
-  setTextCell(sh, sh.getLastRow(), 2, d.phone);   // 手機存完整（文字），只在後台看得到
+  const v = n => Math.min(5, Math.max(0, Number(n) || 0));   // 評分限 0～5
+  sh.appendRow([ new Date(), "", product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness) ]);
+  setTextCell(sh, sh.getLastRow(), 2, String(d.phone || "").slice(0, 20));   // 手機存完整（文字），只在後台看得到
+  return { ok:true };
 }
 
 /* ========================= 抽獎券 / 抽獎 ========================= */
