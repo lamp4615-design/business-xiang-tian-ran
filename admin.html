@@ -15,8 +15,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;pa
 @media (prefers-color-scheme:dark){header{background:#10211a;color:var(--ink)}}
 header h1{margin:0;font-size:18px}
 header button{background:transparent;border:1px solid rgba(255,255,255,.5);color:inherit;border-radius:8px;padding:6px 12px;cursor:pointer}
-nav{display:flex;gap:6px;padding:10px 16px 0;max-width:1000px;margin:0 auto}
-nav button{flex:1;padding:10px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:transparent;color:var(--mute);cursor:pointer;font-size:15px}
+nav{display:flex;gap:6px;padding:10px 16px 0;max-width:1000px;margin:0 auto;overflow-x:auto}
+nav button{flex:1;white-space:nowrap;padding:10px 14px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:transparent;color:var(--mute);cursor:pointer;font-size:15px}
 nav button.on{background:var(--card);color:var(--ink);font-weight:700}
 main{max-width:1000px;margin:0 auto;padding:0 16px 40px}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:0 0 12px 12px;padding:16px}
@@ -51,6 +51,11 @@ h3{margin:18px 0 8px;font-size:16px}
 .toast.show{opacity:1}
 @media (prefers-color-scheme:dark){.toast{color:#10211a}}
 .sub{color:var(--mute);font-size:13px}
+.seg-active{color:var(--ok);border-color:var(--ok)}.seg-watch{color:var(--orange);border-color:var(--orange)}.seg-dormant{color:var(--red);border-color:var(--red)}.seg-never{color:var(--mute)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:auto}
+.modal[hidden]{display:none}
+.modal-box{position:relative;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:20px;width:100%;max-width:820px}
+.modal-x{position:absolute;right:14px;top:14px}
 
 .row{display:flex;gap:6px;align-items:center}
 #pCoverPrev{max-height:72px;max-width:140px;border-radius:8px;border:1px solid var(--line)}
@@ -112,6 +117,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 <header><h1>翔天然 管理後台</h1><button onclick="logout()">登出</button></header>
 <nav>
   <button data-t="orders" class="on">訂單</button>
+  <button data-t="members">會員</button>
   <button data-t="costs">成本</button>
   <button data-t="report">盈餘報表</button>
   <button data-t="posts">內容</button>
@@ -132,6 +138,32 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
     </table></div>
     <p class="sub">把狀態改成「已完成」→ 自動依包數幫會員加點；之後改包數會自動補差額；改回待處理／已取消會扣回。</p>
   </section>
+
+  <section class="panel" id="t-members" hidden>
+    <div class="cards" id="memCards"></div>
+    <div class="tools">
+      <input id="memSearch" placeholder="搜尋姓名／手機／Email／地區" oninput="renderMembers()" style="min-width:220px">
+      <select id="memFilter" onchange="renderMembers()">
+        <option value="">全部會員</option><option value="new">新會員（30 天內加入）</option><option value="active">活躍（60 天內下單）</option>
+        <option value="watch">觀望（61～90 天）</option><option value="dormant">沉睡（超過 90 天）</option><option value="never">從未購買</option>
+        <option value="noemail">沒有 Email</option><option value="changed">近 30 天資料有異動</option>
+      </select>
+      <select id="memSort" onchange="renderMembers()">
+        <option value="recent">排序：最近下單</option><option value="spent">累計消費</option><option value="orders">訂單數</option>
+        <option value="points">點數</option><option value="joined">加入時間</option><option value="updated">資料更新時間</option>
+      </select>
+      <button class="sm" onclick="loadMembers()">重新整理</button>
+      <button class="sm" onclick="exportMembers()">匯出 CSV</button>
+      <span class="sub" id="memSum"></span>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr><th>會員</th><th>Email</th><th class="num">購買</th><th>購買頻率</th><th>最近下單</th><th class="num">點數</th><th>資料更新</th><th></th></tr></thead>
+      <tbody id="memBody"></tbody>
+    </table></div>
+    <p class="sub">營收與購買次數只計「已完成」訂單；活躍＝60 天內有下單、觀望＝61～90 天、沉睡＝超過 90 天沒下單。會員資料被修改（本人或管理者）都會留下紀錄，按「詳情」可查看。</p>
+  </section>
+
+  <div id="memModal" class="modal" hidden onclick="if(event.target===this)closeMember()"><div class="modal-box"><button class="sm modal-x" onclick="closeMember()">關閉 ✕</button><div id="memModalBody"></div></div></div>
 
   <section class="panel" id="t-costs" hidden>
     <h3 style="margin-top:0">登記花費</h3>
@@ -315,7 +347,8 @@ try{const k=sessionStorage.getItem("xn_admin");if(k){$("pw").value=k;doLogin();}
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
-  ["orders","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  ["orders","members","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  if(b.dataset.t==="members"&&!MEM_LOADED)loadMembers();
 });
 
 function initUi(){
@@ -442,6 +475,144 @@ async function delCost(row){
   try{await api({action:"admin_delete_cost",row,item:c?c.item:undefined});toast("已刪除");await loadAll();}
   catch(e){toast("刪除失敗："+e.message);}
 }
+
+/* ---------- 會員管理 ----------
+   資料來源：試算表 members（基本資料）＋ orders（購買）＋ points（點數）＋ reviews（評分）＋ member_log（資料異動紀錄）。
+   區隔：活躍＝60 天內有下單；觀望＝61～90 天；沉睡＝超過 90 天沒下單；從未購買＝註冊後沒有任何（未取消的）訂單。 */
+let MEMBERS=[],MEM_LOADED=false,MEM_CUR=null;
+const DAY=86400000;
+const mDate=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`:"—";};
+const mDateTime=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?mDate(iso)+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"):"—";};
+const daysSince=iso=>iso?Math.floor((Date.now()-new Date(iso).getTime())/DAY):null;
+function memSeg(m){
+  if(!m.orders)return "never";
+  const d=daysSince(m.lastOrder);
+  return d==null?"never":d<=60?"active":d<=90?"watch":"dormant";
+}
+const SEG_LABEL={never:"從未購買",active:"活躍",watch:"觀望",dormant:"沉睡"};
+async function loadMembers(){
+  $("memSum").textContent="讀取中…";
+  try{const d=await api({action:"admin_members"});MEMBERS=d.members||[];MEM_LOADED=true;renderMembers();}
+  catch(e){$("memSum").textContent="";toast("讀取會員失敗："+e.message);}
+}
+function renderMembers(){
+  const now=new Date(),cur=ym(now);
+  const seg=m=>memSeg(m);
+  const card=(k,v,sub="")=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="sub">${sub}</div>`:""}</div>`;
+  const total=MEMBERS.length,withEmail=MEMBERS.filter(m=>m.email).length;
+  const buyers=MEMBERS.filter(m=>m.done>=1).length,repeat=MEMBERS.filter(m=>m.done>=2).length;
+  const chg30=MEMBERS.filter(m=>m.lastChange&&daysSince(m.lastChange)<=30).length;
+  $("memCards").innerHTML=
+    card("總會員數",total,`本月新增 ${MEMBERS.filter(m=>m.joined&&m.joined.slice(0,7)===cur).length}`)+
+    card("活躍會員",MEMBERS.filter(m=>seg(m)==="active").length,"60 天內有下單")+
+    card("沉睡會員",MEMBERS.filter(m=>seg(m)==="dormant").length,"超過 90 天沒下單")+
+    card("回購率",buyers?(repeat/buyers*100).toFixed(0)+"%":"—",`買過 ${buyers} 人，回購 ${repeat} 人`)+
+    card("有 Email",total?(withEmail/total*100).toFixed(0)+"%":"—",`${withEmail}／${total} 人可收新品通知`)+
+    card("近 30 天資料異動",chg30+" 人","含會員自己改與管理者改")+
+    card("有效點數合計",MEMBERS.reduce((s,m)=>s+m.points,0));
+  const q=$("memSearch").value.trim().toLowerCase(),f=$("memFilter").value,so=$("memSort").value;
+  let list=MEMBERS.filter(m=>{
+    if(q&&!(m.name+m.phone+m.email+m.city).toLowerCase().includes(q))return false;
+    if(f==="new")return m.joined&&daysSince(m.joined)<=30;
+    if(f==="noemail")return !m.email;
+    if(f==="changed")return m.lastChange&&daysSince(m.lastChange)<=30;
+    if(f)return seg(m)===f;
+    return true;
+  });
+  const key={recent:m=>m.lastOrder?new Date(m.lastOrder).getTime():0,spent:m=>m.spent,orders:m=>m.done,points:m=>m.points,joined:m=>m.joined?new Date(m.joined).getTime():0,updated:m=>m.updated?new Date(m.updated).getTime():0}[so]||(m=>0);
+  list=list.slice().sort((a,b)=>key(b)-key(a));
+  $("memSum").textContent=`${list.length} 位`;
+  $("memBody").innerHTML=list.length?list.map(m=>{
+    const i=MEMBERS.indexOf(m),s=seg(m),d=daysSince(m.lastOrder);
+    const freq=m.gapDays>0?`平均 ${m.gapDays} 天買一次`:(m.done===1?"只買過 1 次":"—");
+    return `<tr>
+      <td>${esc(m.name)}<div class="sub">${esc(m.phone)}${m.city?"・"+esc(m.city):""}</div><span class="tag seg-${s}">${SEG_LABEL[s]}</span>${m.joined&&daysSince(m.joined)<=30?' <span class="tag">新會員</span>':""}</td>
+      <td>${m.email?esc(m.email):'<span class="neg">未登記</span>'}</td>
+      <td class="num">${m.done} 單<div class="sub">${money(m.spent)}</div>${m.avg?`<div class="sub">客單 ${money(m.avg)}</div>`:""}</td>
+      <td>${freq}<div class="sub">近 90 天 ${m.orders90} 單</div></td>
+      <td>${m.lastOrder?mDate(m.lastOrder)+`<div class="sub">${d} 天前</div>`:"—"}</td>
+      <td class="num">${m.points}${m.points&&m.pointsExpiry?`<div class="sub">到 ${mDate(m.pointsExpiry)}</div>`:""}</td>
+      <td>${m.updated?mDate(m.updated):'<span class="sub">未修改</span>'}${m.changes?`<div class="sub">異動 ${m.changes} 次</div>`:""}</td>
+      <td><button class="sm" onclick="openMember(${i})">詳情</button></td></tr>`;}).join(""):'<tr><td colspan="8" class="empty">沒有符合的會員</td></tr>';
+}
+function exportMembers(){
+  downloadCsv("會員.csv",[["姓名","手機","所在地區","Email","加入日","訂單數(已完成)","累計消費","客單價","包數","平均購買間隔(天)","近90天訂單","最近下單","分類","點數","點數到期","評分次數","資料更新","異動次數"]]
+    .concat(MEMBERS.map(m=>[m.name,m.phone,m.city,m.email,mDate(m.joined),m.done,m.spent,m.avg,m.bags,m.gapDays||"",m.orders90,m.lastOrder?mDate(m.lastOrder):"",SEG_LABEL[memSeg(m)],m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.updated?mDate(m.updated):"",m.changes])));
+}
+
+/* ----- 會員詳情視窗 ----- */
+async function openMember(i){
+  const m=MEMBERS[i];if(!m)return;MEM_CUR=m;
+  $("memModal").hidden=false;
+  $("memModalBody").innerHTML=`<h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.phone)}</span></h3><p class="sub">讀取中…</p>`;
+  let det={orders:[],log:[]};
+  try{det=await api({action:"admin_member_detail",phone:m.phone});}catch(e){toast("讀取詳情失敗："+e.message);}
+  if(MEM_CUR!==m)return;
+  const s=memSeg(m);
+  $("memModalBody").innerHTML=`
+    <h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.phone)}</span> <span class="tag seg-${s}">${SEG_LABEL[s]}</span></h3>
+    <p class="sub">加入 ${mDate(m.joined)}・已完成 ${m.done} 單・累計 ${money(m.spent)}・評分 ${m.reviews} 次・點數 ${m.points}${m.pointsExpiry&&m.points?"（到 "+mDate(m.pointsExpiry)+"）":""}</p>
+
+    <h3>修改資料</h3>
+    <div class="form">
+      <label>姓名<input id="mdName" value="${esc(m.name)}" maxlength="40"></label>
+      <label>所在地區<input id="mdCity" value="${esc(m.city)}" maxlength="60"></label>
+      <label>Email<input id="mdEmail" value="${esc(m.email)}" maxlength="80"></label>
+      <button class="pri" onclick="saveMember()">儲存</button>
+    </div>
+    <p class="sub">手機是會員帳號，這裡不能改（要換手機請直接在試算表 members 分頁處理）。每次修改都會記錄在下方「資料異動紀錄」。</p>
+
+    <h3>協助會員驗證／調整點數</h3>
+    <div class="tools">
+      <button class="sm" onclick="issueCode()">產生驗證碼</button>
+      <span class="sub">給沒有 Email 或收不到信的會員：會員在網站會員中心輸入這組碼，就能自己看紀錄、補登 Email。</span>
+    </div>
+    <div id="mdCode" class="sub"></div>
+    <div class="tools">
+      <label class="sub">點數 ±<input id="mdDelta" type="number" step="1" placeholder="例 3 或 -2" style="width:110px"></label>
+      <label class="sub">原因<input id="mdReason" placeholder="必填，例：活動贈點" style="width:200px"></label>
+      <button class="sm" onclick="adjustPoints()">調整點數</button>
+    </div>
+
+    <h3>購買紀錄（${det.orders.length}）</h3>
+    <div class="wrap"><table><thead><tr><th>時間</th><th>內容</th><th class="num">金額</th><th>包數</th><th>狀態</th></tr></thead><tbody>
+      ${det.orders.length?det.orders.map(o=>`<tr><td>${mDateTime(o.time)}</td><td>${esc(o.items)}</td><td class="num">${money(o.total)}</td><td>${o.bags}</td><td class="s-${esc(o.status)}">${esc(o.status)}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">沒有訂單</td></tr>'}
+    </tbody></table></div>
+
+    <h3>資料異動紀錄（${det.log.length}）</h3>
+    <div class="wrap"><table><thead><tr><th>時間</th><th>欄位</th><th>舊值</th><th>新值</th><th>操作者</th><th>備註</th></tr></thead><tbody>
+      ${det.log.length?det.log.map(l=>`<tr><td>${mDateTime(l.time)}</td><td>${esc(l.field)}</td><td>${esc(l.oldV)}</td><td>${esc(l.newV)}</td><td>${esc(l.by)}</td><td>${esc(l.note)}</td></tr>`).join(""):'<tr><td colspan="6" class="empty">這位會員的資料沒有被異動過</td></tr>'}
+    </tbody></table></div>`;
+}
+function closeMember(){$("memModal").hidden=true;MEM_CUR=null;}
+async function saveMember(){
+  const m=MEM_CUR;if(!m)return;
+  try{
+    const r=await api({action:"admin_member_update",phone:m.phone,name:$("mdName").value,city:$("mdCity").value,email:$("mdEmail").value.trim()});
+    toast(r.changed?`已更新 ${r.changed} 個欄位`:"資料沒有變動");
+    await loadMembers();const i=MEMBERS.findIndex(x=>x.phone===m.phone);if(i>-1)openMember(i);
+  }catch(e){toast(({bad_email:"Email 格式不正確",bad_name:"姓名不能空白"})[e.message]||"儲存失敗："+e.message);}
+}
+async function issueCode(){
+  const m=MEM_CUR;if(!m)return;
+  try{
+    const r=await api({action:"admin_member_code",phone:m.phone});
+    $("mdCode").innerHTML=`驗證碼：<b style="font-size:22px;letter-spacing:.2em">${esc(r.code)}</b>　（${r.hours} 小時內有效，只能用一次。請用 LINE 或電話告訴 ${esc(m.name)}）`;
+  }catch(e){toast("產生失敗："+e.message);}
+}
+async function adjustPoints(){
+  const m=MEM_CUR;if(!m)return;
+  const delta=Number($("mdDelta").value),reason=$("mdReason").value.trim();
+  if(!Number.isInteger(delta)||!delta){toast("請填整數點數（可為負）");return;}
+  if(!reason){toast("請填寫原因");return;}
+  if(!confirm(`${m.name}：點數 ${delta>0?"+":""}${delta}（${reason}）？`))return;
+  try{
+    const r=await api({action:"admin_points_adjust",phone:m.phone,delta,reason});
+    toast("已調整，目前 "+r.points+" 點");
+    await loadMembers();const i=MEMBERS.findIndex(x=>x.phone===m.phone);if(i>-1)openMember(i);
+  }catch(e){toast("調整失敗："+e.message);}
+}
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("memModal").hidden)closeMember();});
 
 /* ---------- 報表 ---------- */
 /* 損益結構（參考咖啡業）：營收 − 銷貨成本 = 毛利；毛利 − 銷售費用 − 管理費用 = 淨利。

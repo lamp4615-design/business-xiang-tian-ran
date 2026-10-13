@@ -181,6 +181,19 @@
   .mc-row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:.96rem;align-items:flex-start}
   .mc-row.first{border-top:1px solid var(--line)}
   .mc-row .k{color:var(--ink-45);min-width:76px;letter-spacing:.06em;flex:none}
+  .mc-sec{margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+  .mc-sec h4{margin:0 0 12px;font-family:var(--serif);font-size:1.05rem;color:var(--pine);letter-spacing:.04em}
+  .mc-sec-p{font-size:.86rem;color:var(--ink-70);line-height:1.7;margin:0 0 14px}
+  .sec-row{display:flex;gap:10px}.sec-row input{flex:1}.sec-row .btn{flex:none;padding-left:20px;padding-right:20px}
+  .field select{width:100%;padding:13px 15px;border:1px solid var(--line);border-radius:12px;font-family:var(--sans);font-size:.95rem;color:var(--espresso);background:var(--paper)}
+  .field select:focus{outline:none;border-color:var(--dawn);box-shadow:0 0 0 3px rgba(197,138,61,.16)}
+  .field input:disabled{opacity:.65;cursor:not-allowed}
+  .ord{border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;background:var(--paper)}
+  .ord-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .ord-d{font-size:.8rem;color:var(--ink-45);letter-spacing:.04em}
+  .ord-s{font-size:.74rem;padding:2px 10px;border-radius:99px;border:1px solid var(--line)}
+  .ord-s.done{color:#2f7d4f;border-color:rgba(47,125,79,.4)}.ord-s.wait{color:#b8700f;border-color:rgba(184,112,15,.4)}.ord-s.cancel{color:var(--ink-45);text-decoration:line-through}
+  .ord-i{font-size:.95rem;line-height:1.6}.ord-t{font-size:.86rem;color:var(--ink-70);margin-top:2px}
   .mc-hint{font-size:.82rem;color:var(--pine-mid);background:rgba(47,162,76,.1);padding:11px 14px;border-radius:12px;margin-top:16px;line-height:1.6}
   .pts-panel{margin:20px 0 6px;padding:18px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(135deg,#FBFAF6,#F4EFE6)}
   .pts-top{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
@@ -783,7 +796,7 @@ function $(id){return document.getElementById(id);}
 function val(id){const e=$(id);return e?e.value.trim():"";}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
 function saveSession(){try{localStorage.setItem("xn_member",JSON.stringify(member));}catch(e){}}
-function loadSession(){try{const s=localStorage.getItem("xn_member");if(s)member=JSON.parse(s);}catch(e){}}
+function loadSession(){try{const s=localStorage.getItem("xn_member");if(s)member=JSON.parse(s);}catch(e){}loadToken();}
 
 /* ---------- 產品視覺 ---------- */
 function productArt(hue){
@@ -980,14 +993,16 @@ function renderMember(){
   if(member){
     el.innerHTML=`<h3>會員中心</h3><p class="sub">歡迎回來，${esc(member.name)}。</p>
       <div class="mc-row first"><span class="k">姓名</span><span>${esc(member.name)}</span></div>
-      <div class="mc-row"><span class="k">手機</span><span>${esc(member.phone)}</span></div>
+      <div class="mc-row"><span class="k">手機</span><span>${esc(maskPhone(member.phone))}</span></div>
       ${member.city?`<div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>`:""}
       ${member.email?`<div class="mc-row"><span class="k">Email</span><span>${esc(member.email)}</span></div>`:""}
       ${pointsPanelHtml()}
       <div class="mc-row"><span class="k">抽獎券</span><span>${member.tickets!=null?member.tickets+" 張":"計算中…"}</span></div>
       <p class="mc-hint">每評一支沒評過的豆子 +1 張抽獎券，未來將舉辦抽獎送好禮。</p>
+      <div class="mc-secure" id="mcSecure"></div>
       <button class="btn btn-primary form-btn" style="margin-top:22px" onclick="go('products')">開始選購</button>
       <p class="form-note"><button class="linklike" onclick="logout()">登出</button></p>`;
+    renderSecure();
   }else{
     el.innerHTML=`<div class="mtabs"><button class="mtab active" id="tabLogin" onclick="memberTab('login')">登入</button><button class="mtab" id="tabJoin" onclick="memberTab('join')">加入會員</button></div>
       <div id="viewLogin"><p class="sub">輸入註冊時的手機號碼即可登入。</p>
@@ -1037,14 +1052,120 @@ async function submitJoin(){
         btn.disabled=false;btn.textContent="加入會員";return;
       }
       existed=!!(r&&r.existed);
+      if(r&&r.token)saveToken(r.token);   // 帳號是他剛建立的，加入後馬上能看／補自己的資料
     }
     else{await new Promise(r=>setTimeout(r,500));}
     if(existed){note.textContent="這支手機已經是會員了，請直接用「登入」。";btn.disabled=false;btn.textContent="加入會員";return;}
     member={name,phone,city:addr,email};saveSession();afterAuth("歡迎加入，"+name);
   }catch(e){note.textContent="送出失敗，請稍後再試。";if($("joinBtn")){btn.disabled=false;btn.textContent="加入會員";}}
 }
+/* ---------- 會員資料安全區：購買紀錄／修改資料／補登 Email（需先驗證身分）----------
+   登入只靠手機號碼，所以要看個資得再驗證：① 寄驗證碼到會員登記的 Email；② 沒有 Email 時由店家給碼。
+   驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後查看／修改都帶憑證。 */
+const CITIES=["台北市","新北市","基隆市","桃園市","新竹市","新竹縣","苗栗縣","台中市","彰化縣","南投縣","雲林縣","嘉義市","嘉義縣","台南市","高雄市","屏東縣","宜蘭縣","花蓮縣","台東縣","澎湖縣","金門縣","連江縣"];
+const LINE_URL="https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
+let memberToken="",secureData=null,secureLoading=false;
+const normPhoneJs=s=>String(s||"").replace(/\D/g,"").replace(/^0+/,"");
+function loadToken(){try{memberToken=localStorage.getItem("xn_token")||"";}catch(e){}}
+function saveToken(t){memberToken=t||"";if(!t)secureData=null;try{t?localStorage.setItem("xn_token",t):localStorage.removeItem("xn_token");}catch(e){}}
+/* 手機尾 4 碼不完整顯示：0972048522 → 097204xxxx */
+function maskPhone(p){const d=String(p||"").replace(/\D/g,"");return d.length>4?d.slice(0,-4)+"xxxx":"xxxx";}
+async function secureApi(payload){
+  const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
+  return await res.json();
+}
+const fmtDate=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`:"";};
+const ORD_CLS={"已完成":"done","待處理":"wait","已取消":"cancel"};
+function secureNote(msg){const n=$("secNote");if(n)n.textContent=msg||"";}
+
+function renderSecure(msg){
+  const box=$("mcSecure");if(!box||!member)return;
+  if(memberToken&&String(memberToken).split(".")[0]!==normPhoneJs(member.phone))saveToken("");   // 憑證不是這支手機的（換帳號登入）
+  if(!API_URL){box.innerHTML="";return;}
+  if(!memberToken){
+    box.innerHTML=`<div class="mc-sec"><h4>我的資料與購買紀錄</h4>
+      <p class="mc-sec-p">為了保護你的個資，查看購買紀錄、修改資料或補登 Email 前，需要先驗證身分。</p>
+      <button class="btn btn-primary form-btn" id="secSendBtn" onclick="secureSendCode()">寄驗證碼到我的 Email</button>
+      <div class="field" style="margin-top:14px"><label for="secCode">收到驗證碼了？輸入 6 碼</label>
+        <div class="sec-row"><input id="secCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code"><button class="btn btn-ghost" id="secVerifyBtn" onclick="secureVerify()">驗證</button></div></div>
+      <p class="form-note" id="secNote">${esc(msg||"")}</p>
+      <p class="form-note">沒有登記 Email、或收不到信？<a href="${LINE_URL}" target="_blank" rel="noopener">用 LINE 聯絡我們</a>，我們會給你驗證碼。</p></div>`;
+    return;
+  }
+  if(!secureData){
+    box.innerHTML=`<div class="mc-sec"><h4>我的資料與購買紀錄</h4><p class="mc-sec-p">讀取中…</p></div>`;
+    if(!secureLoading)secureLoad();
+    return;
+  }
+  const d=secureData;
+  const orders=d.orders.length?d.orders.map(o=>`<div class="ord"><div class="ord-top"><span class="ord-d">${esc(fmtDate(o.time))}</span><span class="ord-s ${ORD_CLS[o.status]||"wait"}">${esc(o.status)}</span></div>
+      <div class="ord-i">${esc(o.items)}</div><div class="ord-t">NT$ ${Number(o.total).toLocaleString()}</div></div>`).join(""):`<p class="mc-sec-p">還沒有購買紀錄。</p>`;
+  box.innerHTML=`<div class="mc-sec"><h4>購買紀錄</h4>${orders}</div>
+    <div class="mc-sec"><h4>會員資料</h4>
+      ${d.email?"":`<p class="mc-hint" style="margin-top:0">你還沒有登記 Email，補上後可以收到新品上架通知，之後也能用 Email 收驗證碼。</p>`}
+      <div class="field"><label for="pfName">姓名</label><input id="pfName" type="text" maxlength="40" value="${esc(d.name)}"></div>
+      <div class="field"><label>手機（登入帳號）</label><input type="text" value="${esc(maskPhone(d.phone))}" disabled><p class="mc-sec-p" style="margin-top:6px">手機是你的帳號，無法自行修改；需要更換請聯絡我們。</p></div>
+      <div class="field"><label for="pfCity">所在地區</label><select id="pfCity"><option value="">請選擇縣市</option>${CITIES.map(c=>`<option value="${c}"${c===d.city?" selected":""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><label for="pfEmail">Email</label><input id="pfEmail" type="email" maxlength="80" placeholder="name@example.com" value="${esc(d.email)}"></div>
+      <button class="btn btn-primary form-btn" id="pfSave" onclick="secureSave()">儲存變更</button>
+      <p class="form-note" id="secNote">${esc(msg||"")}</p>
+      <p class="form-note"><button class="linklike" onclick="secureLock()">鎖定個人資料（共用裝置建議使用）</button></p></div>`;
+}
+async function secureSendCode(){
+  const btn=$("secSendBtn");btn.disabled=true;secureNote("寄送中…");
+  try{
+    const r=await secureApi({action:"member_code_request",phone:member.phone});
+    secureNote(r.ok?"如果這支手機有登記 Email，驗證碼已寄出（10 分鐘內有效，也請看看垃圾信件匣）。沒有 Email 的話，請用下方 LINE 聯絡我們。":(r.error==="rate_limited"?"寄送太頻繁，請稍後再試。":"目前無法寄送，請稍後再試。"));
+  }catch(e){secureNote("連線失敗，請稍後再試。");}
+  setTimeout(()=>{const b=$("secSendBtn");if(b)b.disabled=false;},30000);   // 避免連按
+}
+async function secureVerify(){
+  const code=($("secCode").value||"").replace(/\D/g,"");
+  if(code.length!==6){secureNote("請輸入 6 位數驗證碼。");return;}
+  const btn=$("secVerifyBtn");btn.disabled=true;secureNote("驗證中…");
+  try{
+    const r=await secureApi({action:"member_code_verify",phone:member.phone,code});
+    if(r.ok){saveToken(r.token);renderSecure();return;}
+    secureNote(r.error==="too_many"?"錯誤次數太多，請重新寄送驗證碼。":"驗證碼不正確或已過期，請再確認。");
+  }catch(e){secureNote("連線失敗，請稍後再試。");}
+  btn.disabled=false;
+}
+async function secureLoad(){
+  secureLoading=true;
+  try{
+    const r=await secureApi({action:"member_profile",token:memberToken});
+    if(r.ok){
+      secureData=r;
+      // 驗證過了，本人看自己的真實姓名／地區／Email 沒問題，同步到這台裝置的會員資料
+      member.name=r.name;member.city=r.city;member.email=r.email;saveSession();updateAccountUI();
+      if(r.points!=null){member.points=r.points;member.pointsExpiry=r.pointsExpiry||"";}
+      secureLoading=false;renderMember();return;
+    }
+    if(r.error==="auth"){secureLoading=false;saveToken("");renderSecure("驗證已過期，請重新驗證。");return;}
+  }catch(e){}
+  secureLoading=false;
+  const box=$("mcSecure");if(box)box.innerHTML=`<div class="mc-sec"><h4>我的資料與購買紀錄</h4><p class="mc-sec-p">讀取失敗，請<button class="linklike" onclick="secureData=null;renderSecure()">再試一次</button>。</p></div>`;
+}
+async function secureSave(){
+  const name=($("pfName").value||"").trim(),city=$("pfCity").value,email=($("pfEmail").value||"").trim();
+  if(!name){secureNote("姓名不能空白。");return;}
+  if(email&&!/^[A-Za-z0-9][A-Za-z0-9._%+\-]*@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/.test(email)){secureNote("Email 格式不正確。");return;}
+  const btn=$("pfSave");btn.disabled=true;secureNote("儲存中…");
+  try{
+    const r=await secureApi({action:"member_update",token:memberToken,name,city,email});
+    if(r.ok){
+      secureData=Object.assign({},secureData,{name,city,email});
+      member.name=name;member.city=city;member.email=email;saveSession();updateAccountUI();
+      renderMember();showToast(r.changed?"資料已更新":"資料沒有變動");return;
+    }
+    if(r.error==="auth"){saveToken("");renderSecure("驗證已過期，請重新驗證。");return;}
+    secureNote(r.error==="bad_email"?"Email 格式不正確。":r.error==="rate_limited"?"操作太快，請稍後再試。":"儲存失敗，請稍後再試。");
+  }catch(e){secureNote("連線失敗，請稍後再試。");}
+  btn.disabled=false;
+}
+function secureLock(){saveToken("");renderSecure();showToast("已鎖定個人資料");}
 function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();}
-function logout(){member=null;try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
+function logout(){member=null;saveToken("");try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
   const lbl=$("accountLabel");if(lbl)lbl.textContent=member?member.name:"會員";
   const m=$("menuAccount");if(m)m.innerHTML=member?`${esc(member.name)} · <button class="linklike" onclick="logout()">登出</button>`:"尚未登入";
