@@ -35,6 +35,7 @@ function doGet(e){
   if (action === "reviews")  return json(getReviews());
   if (action === "mystats")  return json(getMyStats(p.phone));
   if (action === "posts")    return json(getPosts(p.site));
+  if (action === "unsub")    return unsubscribe_(p);
   return json({ ok:false, error:"unknown action" });
 }
 
@@ -115,14 +116,141 @@ function globalCap_(key, max, seconds){
   } finally { lock.releaseLock(); }
 }
 
-/* 內部用：用手機找會員，回傳完整資料（不會直接給前台） */
+/* ========================= 會員資料欄位升級：會員編號／行銷同意／來源／狀態 =========================
+ * 參考會員資料庫的常見做法：
+ *   ① 會員編號（M0001…）：系統產生、永遠不變。手機、Email 會換，不適合當唯一識別；訂單、客服紀錄都記會員編號。
+ *   ② 行銷同意：只有「同意收新品／預購通知」的會員才會被寄行銷信；同意與取消都記錄（時間、誰操作）。
+ *   ③ 來源：會員是從哪裡來的（QR 貼紙、LINE、Facebook…），用來比較各管道帶來的客人品質。
+ *   ④ 狀態：正常／已刪除（依個資法刪除或匿名化後保留編號供對帳）。
+ * 這些欄位第一次用到時會自動補上，並把既有會員一次補齊（見 migrateMembers_）。 */
+const MEMBER_FIELDS = ["會員編號", "行銷同意", "同意時間", "來源", "狀態"];
+const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec";
+
+/* 欄位名稱 → 欄號（1 起算），沒有這欄回 0 */
+function memberCols_(sh){
+  const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].map(h => String(h).trim());
+  const m = {};
+  MEMBER_FIELDS.concat(["更新時間"]).forEach(n => { const i = head.indexOf(n); m[n] = i > -1 ? i + 1 : 0; });
+  return m;
+}
+function hasHeader_(sh, name){
+  return sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].some(h => String(h).trim() === name);
+}
+function nextMemberId_(sh, idCol){
+  let max = 0;
+  const n = sh.getLastRow() - 1;
+  if (n > 0) sh.getRange(2, idCol, n, 1).getValues().forEach(r => { const m = /^M(\d+)$/.exec(String(r[0]).trim()); if (m) max = Math.max(max, Number(m[1])); });
+  return "M" + ("000" + (max + 1)).slice(-Math.max(4, String(max + 1).length));
+}
+
+/* 確保欄位齊全；缺的就補、既有會員一次補齊。locked=true 表示呼叫端已經在鎖裡（Apps Script 的鎖不能巢狀）。
+   回傳欄位對照表。 */
+function ensureMemberSchema_(ss, locked){
+  const sh = ss.getSheetByName(MEMBERS_TAB);
+  if (!sh) return null;
+  const orders = ss.getSheetByName(ORDERS_TAB);
+  let cols = memberCols_(sh);
+  if (MEMBER_FIELDS.every(n => cols[n]) && (!orders || hasHeader_(orders, "會員編號"))) return cols;
+  const lock = locked ? null : LockService.getScriptLock();
+  if (lock) lock.waitLock(20000);
+  try{
+    MEMBER_FIELDS.forEach(n => ensureCol_(sh, n));
+    if (orders) ensureCol_(orders, "會員編號");
+    cols = memberCols_(sh);
+    migrateMembers_(ss, sh, cols);
+    if (orders) stampOrderIds_(ss);
+  } finally { if (lock) lock.releaseLock(); }
+  return memberCols_(sh);
+}
+
+/* 既有會員補齊：編號、狀態；行銷同意——加入表單當初就寫明「填 Email＝想收新品上架通知」，所以有有效 Email 的視為已同意 */
+function migrateMembers_(ss, sh, cols){
+  if (sh.getLastRow() < 2) return;
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  let nextN = 0;
+  rows.forEach(r => { const m = /^M(\d+)$/.exec(String(r[cols["會員編號"] - 1] || "").trim()); if (m) nextN = Math.max(nextN, Number(m[1])); });
+  let granted = 0;
+  rows.forEach((r, i) => {
+    const row = i + 2;
+    if (!r[0] && !r[1] && !r[2]) return;   // 空列
+    if (!String(r[cols["會員編號"] - 1] || "").trim()){
+      nextN++;
+      sh.getRange(row, cols["會員編號"]).setValue("M" + ("000" + nextN).slice(-Math.max(4, String(nextN).length)));
+    }
+    if (!String(r[cols["狀態"] - 1] || "").trim()) sh.getRange(row, cols["狀態"]).setValue("正常");
+    const cur = r[cols["行銷同意"] - 1];
+    if (cur === "" || cur == null){
+      const ok = EMAIL_RE.test(String(r[4] || "").trim());
+      sh.getRange(row, cols["行銷同意"]).setValue(ok);
+      if (ok){ sh.getRange(row, cols["同意時間"]).setValue(r[0] || new Date()); granted++; }
+    }
+  });
+  if (granted) logChange_(ss, "", "行銷同意", "", "既有 " + granted + " 位會員自動補登為同意", "系統", "加入表單註明填 Email 即同意收新品通知；會員可隨時取消");
+}
+
+/* 把訂單補上會員編號（依手機對應）；之後新訂單會自己帶 */
+function stampOrderIds_(ss){
+  const msh = ss.getSheetByName(MEMBERS_TAB), osh = ss.getSheetByName(ORDERS_TAB);
+  if (!msh || !osh || osh.getLastRow() < 2) return;
+  const cols = memberCols_(msh);
+  const idByKey = {};
+  msh.getDataRange().getValues().slice(1).forEach(r => { const k = normPhone_(r[2]); const id = String(r[cols["會員編號"] - 1] || ""); if (k && id) idByKey[k] = id; });
+  const rows = osh.getDataRange().getValues();
+  const head = rows[0].map(h => String(h).trim());
+  const pI = head.indexOf("手機"), idI = head.indexOf("會員編號");
+  if (pI < 0 || idI < 0) return;
+  for (let i = 1; i < rows.length; i++){
+    if (String(rows[i][idI] || "").trim()) continue;
+    const id = idByKey[normPhone_(rows[i][pI])];
+    if (id) osh.getRange(i + 1, idI + 1).setValue(id);
+  }
+}
+
+/* 手動執行一次也可以（Apps Script 選 setupMemberFields → 執行）：補齊欄位、編號、同意紀錄 */
+function setupMemberFields(){ ensureMemberSchema_(SpreadsheetApp.openById(SHEET_ID), false); }
+
+/* ----- 取消訂閱（信件裡的連結）----- */
+function unsubUrl_(key){ return WEBAPP_URL + "?action=unsub&k=" + key + "&s=" + hmac_("unsub." + key); }
+function htmlPage_(title, msg){
+  return HtmlService.createHtmlOutput(
+    '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + title + '</title></head>' +
+    '<body style="font-family:sans-serif;max-width:460px;margin:12vh auto;padding:0 20px;color:#233a2e;line-height:1.8"><h2>' + title + '</h2><p>' + msg + '</p>' +
+    '<p style="color:#777;font-size:14px">— 翔天然，翔自在</p></body></html>');
+}
+function unsubscribe_(p){
+  const key = String(p.k || "");
+  if (!/^\d{8,12}$/.test(key) || !safeEq_(hmac_("unsub." + key), String(p.s || ""))) return htmlPage_("連結無效", "這個取消訂閱連結已失效，請到網站「會員中心」自行修改，或用 LINE 聯絡我們。");
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try{
+    const cols = ensureMemberSchema_(ss, true);
+    const sh = ss.getSheetByName(MEMBERS_TAB);
+    const row = findMemberRow_(sh, key);
+    if (!row) return htmlPage_("已完成", "我們不會再寄行銷通知給這個帳號。");
+    if (isTrue_(sh.getRange(row, cols["行銷同意"]).getValue())){
+      sh.getRange(row, cols["行銷同意"]).setValue(false);
+      sh.getRange(row, cols["同意時間"]).setValue("");
+      logChange_(ss, String(sh.getRange(row, 3).getValue()), "行銷同意", "同意", "不同意", "會員本人", "信件內的取消訂閱連結");
+    }
+  } finally { lock.releaseLock(); }
+  return htmlPage_("已取消訂閱", "之後不會再寄新品上架、預購這類行銷通知給你。訂單與驗證碼等必要通知不受影響。<br>若是誤按，可到網站「會員中心」重新開啟。");
+}
+
+/* 內部用：用手機找會員，回傳完整資料（不會直接給前台）。已刪除的會員視為不存在。 */
 function lookupMember_(ss, phone){
   const sh = ss.getSheetByName(MEMBERS_TAB);
   const key = normPhone_(phone);
   if (!sh || !key) return null;
   const rows = sh.getDataRange().getValues();
+  if (rows.length < 2) return null;
+  const head = rows[0].map(h => String(h).trim());
+  const idI = head.indexOf("會員編號"), cI = head.indexOf("行銷同意"), sI = head.indexOf("狀態");
   for (let i = 1; i < rows.length; i++){
-    if (normPhone_(rows[i][2]) === key) return { name:String(rows[i][1] || ""), city:String(rows[i][3] || ""), email:String(rows[i][4] || "") };
+    if (normPhone_(rows[i][2]) !== key) continue;
+    if (sI > -1 && String(rows[i][sI]).trim() === "已刪除") return null;
+    return { name:String(rows[i][1] || ""), city:String(rows[i][3] || ""), email:String(rows[i][4] || ""),
+             id: idI > -1 ? String(rows[i][idI] || "") : "", consent: cI > -1 && isTrue_(rows[i][cI]) };
   }
   return null;
 }
@@ -162,10 +290,24 @@ function addMember(d){
   if (!rateLimit_("join_" + key, 60)) return { ok:false, error:"rate_limited" };
   if (!globalCap_("join_all", 30, 600)) return { ok:false, error:"busy" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  if (lookupMember_(ss, d.phone)) return { ok:true, existed:true };   // 已是會員：不重複新增，也不讓別人覆蓋他的資料
-  const sh = ss.getSheetByName(MEMBERS_TAB);
-  sh.appendRow([ new Date(), name, "", safeText_(d.city, 60), safeText_(d.email, 80) ]);
-  setTextCell(sh, sh.getLastRow(), 3, String(d.phone).slice(0, 20));
+  const email = safeText_(d.email, 80);
+  const consent = isTrue_(d.consent) && EMAIL_RE.test(email);   // 行銷同意：要有有效 Email 才有意義
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try{
+    if (lookupMember_(ss, d.phone)) return { ok:true, existed:true };   // 已是會員：不重複新增，也不讓別人覆蓋他的資料
+    const cols = ensureMemberSchema_(ss, true);
+    const sh = ss.getSheetByName(MEMBERS_TAB);
+    sh.appendRow([ new Date(), name, "", safeText_(d.city, 60), email ]);
+    const row = sh.getLastRow();
+    setTextCell(sh, row, 3, String(d.phone).slice(0, 20));
+    sh.getRange(row, cols["會員編號"]).setValue(nextMemberId_(sh, cols["會員編號"]));
+    sh.getRange(row, cols["行銷同意"]).setValue(consent);
+    if (consent) sh.getRange(row, cols["同意時間"]).setValue(new Date());
+    sh.getRange(row, cols["來源"]).setValue(safeText_(d.source, 30));
+    sh.getRange(row, cols["狀態"]).setValue("正常");
+    if (consent) logChange_(ss, String(d.phone).slice(0, 20), "行銷同意", "", "同意", "會員本人", "加入會員時勾選");
+  } finally { lock.releaseLock(); }
   return { ok:true, token:signToken_(key) };   // 帳號是他剛建立的，直接給憑證，加入後馬上能看自己的資料
 }
 
@@ -179,6 +321,7 @@ function addOrder(d){
   if (!globalCap_("ord_all", 20, 600)) return { ok:false, error:"busy" };          // 全站 10 分鐘最多 20 張
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  ensureMemberSchema_(ss, false);
   const sh = ss.getSheetByName(ORDERS_TAB);
   // 會員的姓名／地區以試算表為準（前台只有遮罩後的姓名）；查不到才用前台送來的
   const m = lookupMember_(ss, d.phone);
@@ -189,6 +332,7 @@ function addOrder(d){
   // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
   sh.appendRow([ new Date(), name, "", city, items, total, "待處理", bags, 0 ]);
   setTextCell(sh, sh.getLastRow(), 3, String(d.phone).slice(0, 20));
+  if (m && m.id) sh.getRange(sh.getLastRow(), ensureCol_(sh, "會員編號").col).setValue(m.id);   // 訂單記會員編號，換手機也對得上
   notifyOrder({ name:name, phone:String(d.phone).slice(0, 20), city:city, items:items, total:total });   // 寄 Email 通知
   return { ok:true };
 }
@@ -330,11 +474,12 @@ function memberProfile(d){
   const sh = ss.getSheetByName(MEMBERS_TAB);
   const row = findMemberRow_(sh, key);
   if (!row) return { ok:false, error:"auth" };
+  const cols = ensureMemberSchema_(ss, false);
   const v = sh.getRange(row, 1, 1, Math.max(sh.getLastColumn(), 5)).getValues()[0];
   const orders = readOrders_(ss).filter(o => o.key === key).sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 100).map(orderView_);
   const st = getMyStats(String(v[2]));
   return { ok:true, name:String(v[1] || ""), phone:String(v[2] || ""), city:String(v[3] || ""), email:String(v[4] || ""),
-           joined: v[0] ? new Date(v[0]).toISOString() : "", orders:orders, points:st.points || 0, pointsExpiry:st.pointsExpiry || "", tickets:st.tickets || 0 };
+           joined: v[0] ? new Date(v[0]).toISOString() : "", id:String(v[cols["會員編號"] - 1] || ""), consent:isTrue_(v[cols["行銷同意"] - 1]), orders:orders, points:st.points || 0, pointsExpiry:st.pointsExpiry || "", tickets:st.tickets || 0 };
 }
 
 /* 把異動記進 member_log（誰、什麼時候、改了什麼，方便對帳／追查） */
@@ -376,6 +521,7 @@ function movePhone_(ss, oldKey, newPhone){
 /* 套用資料變更（姓名／地區／Email／手機），回傳實際有變動的欄位數；本人與管理者共用。
    手機是帳號：換號碼時，名下的訂單、點數、評分會一併轉移；新號碼若已是別人的會員就擋下。 */
 function applyMemberEdit_(ss, key, d, by){
+  const cols = ensureMemberSchema_(ss, true);
   const sh = ss.getSheetByName(MEMBERS_TAB);
   const row = findMemberRow_(sh, key);
   if (!row) return { ok:false, error:"not found" };
@@ -396,6 +542,10 @@ function applyMemberEdit_(ss, key, d, by){
       newPhone = digits;
     }
   }
+  // 行銷同意：勾選要有有效 Email；Email 被清空時一併取消（沒有 Email 沒辦法寄）
+  const curConsent = isTrue_(sh.getRange(row, cols["行銷同意"]).getValue());
+  let wantConsent = (d.consent === undefined || d.consent === null) ? curConsent : isTrue_(d.consent);
+  if (wantConsent && !EMAIL_RE.test(email)) { if (d.consent !== undefined && d.consent !== null && isTrue_(d.consent)) return { ok:false, error:"consent_needs_email" }; wantConsent = false; }
   const changes = [["姓名", String(old[1] || ""), name, 2], ["所在地區", String(old[3] || ""), city, 4], ["Email", String(old[4] || ""), email, 5]];
   let n = 0;
   if (newPhone){
@@ -411,6 +561,12 @@ function applyMemberEdit_(ss, key, d, by){
     logChange_(ss, phone, c[0], c[1], c[2], by);
     n++;
   });
+  if (wantConsent !== curConsent){
+    sh.getRange(row, cols["行銷同意"]).setValue(wantConsent);
+    sh.getRange(row, cols["同意時間"]).setValue(wantConsent ? new Date() : "");
+    logChange_(ss, phone, "行銷同意", curConsent ? "同意" : "不同意", wantConsent ? "同意" : "不同意", by);
+    n++;
+  }
   if (n) sh.getRange(row, ensureCol_(sh, "更新時間").col).setValue(new Date());
   return newPhone ? { ok:true, changed:n, phone:newPhone } : { ok:true, changed:n };
 }
@@ -483,28 +639,13 @@ function notifyNewProducts(){
   });
   if (!newOnes.length) return; // 沒有新上架商品，不用寄信
 
-  // 找出所有「有填 Email」的會員
-  const msh = ss.getSheetByName(MEMBERS_TAB);
-  const emails = [];
-  if (msh){
-    const mrows = msh.getDataRange().getValues();
-    for (let i = 1; i < mrows.length; i++){
-      const email = String(mrows[i][4] || "").trim();
-      if (email) emails.push(email);
-    }
-  }
-
+  // 只寄給「同意收行銷通知」的會員
+  const emails = memberEmails_(ss);
   if (emails.length){
-    const subject = "【翔天然】新品上架囉 ☕";
     const lines = ["翔天然又有新豆子上架了：", ""];
-    newOnes.forEach(p => {
-      lines.push("・" + p.name + (p.subtitle ? "（" + p.subtitle + "）" : "") + " — NT$ " + p.price + (p.unit ? "/" + p.unit : ""));
-    });
+    newOnes.forEach(p => lines.push(productLine_(p)));
     lines.push("", "去看看：" + SITE_URL + "/#products", "", "— 翔天然，翔自在");
-    const body = lines.join("\n");
-    emails.forEach(addr => {
-      try{ MailApp.sendEmail(addr, subject, body); }catch(err){ /* 單一信箱失敗不影響其他人 */ }
-    });
+    sendToMembers_(emails, "【翔天然】新品上架囉 ☕", lines);
   }
 
   // 標記這些商品為「已通知」，避免下次重複寄信
@@ -534,23 +675,28 @@ function ensureCol_(sh, name){
   return { col: col, created: true };
 }
 
+/* 行銷信的收件人：行銷同意＝是、有有效 Email、狀態正常。回傳 [{email, key}]（信箱重複只留一筆） */
 function memberEmails_(ss){
+  const cols = ensureMemberSchema_(ss, false);
   const msh = ss.getSheetByName(MEMBERS_TAB);
-  const emails = [];
-  if (msh){
-    const mrows = msh.getDataRange().getValues();
-    for (let i = 1; i < mrows.length; i++){
-      const email = String(mrows[i][4] || "").trim();
-      if (email && emails.indexOf(email) < 0) emails.push(email);
-    }
-  }
-  return emails;
+  const out = [], seen = {};
+  if (!msh || !cols) return out;
+  msh.getDataRange().getValues().slice(1).forEach(r => {
+    const email = String(r[4] || "").trim();
+    if (!email || !EMAIL_RE.test(email) || seen[email.toLowerCase()]) return;
+    if (!isTrue_(r[cols["行銷同意"] - 1])) return;
+    if (String(r[cols["狀態"] - 1]).trim() === "已刪除") return;
+    seen[email.toLowerCase()] = 1;
+    out.push({ email:email, key:normPhone_(r[2]) });
+  });
+  return out;
 }
 
-function sendToMembers_(emails, subject, lines){
-  const body = lines.join("\n");
-  emails.forEach(addr => {
-    try{ MailApp.sendEmail(addr, subject, body); }catch(err){ /* 單一信箱失敗不影響其他人 */ }
+/* 每位收件人各寄一封，信尾附「一鍵取消訂閱」（個資法：拒絕行銷後須停止利用） */
+function sendToMembers_(recipients, subject, lines){
+  recipients.forEach(r => {
+    const body = lines.join("\n") + "\n\n——\n不想再收到這類通知？一鍵取消：" + unsubUrl_(r.key) + "\n也可以到網站「會員中心」自行修改。";
+    try{ MailApp.sendEmail(r.email, subject, body); }catch(err){ /* 單一信箱失敗不影響其他人 */ }
   });
 }
 
@@ -841,7 +987,7 @@ const COST_GROUPS = {
 const COST_LEGACY = { "濾紙":"銷貨成本", "其他":"管理費用" };   // 舊分類名稱 → 群組（生豆／包裝袋／運費本來就在新清單裡）
 const COST_CATEGORIES = [].concat(COST_GROUPS["銷貨成本"], COST_GROUPS["銷售費用"], COST_GROUPS["管理費用"], ["濾紙","其他"]);
 const ORDER_STATUSES  = ["待處理","已完成","已取消"];
-const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1 };
+const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1 };
 
 function adminAuthOk(key){
   const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
@@ -855,13 +1001,16 @@ function adminHandle(d){
   const lock = WRITE_ACTIONS[d.action] ? LockService.getScriptLock() : null;
   if (lock) lock.waitLock(20000);
   try{
-    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES };
+    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
     // 一次回傳後台需要的全部資料（原本要連線 3 次，現在 1 次）
     if (d.action === "admin_all") return { ok:true, orders:adminListOrders(ss), costs:adminListCosts(ss), posts:listPosts(ss, "", false) };
     if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
-    if (d.action === "admin_members") return { ok:true, members:adminMembers(ss) };
-    if (d.action === "admin_member_detail") return adminMemberDetail(ss, d);
+    if (d.action === "admin_members") { ensureMemberSchema_(ss, false); return { ok:true, members:adminMembers(ss) }; }
+    if (d.action === "admin_member_detail") { ensureMemberSchema_(ss, false); return adminMemberDetail(ss, d); }
     if (d.action === "admin_member_update") return adminMemberUpdate(ss, d);
+    if (d.action === "admin_note_add") return adminNoteAdd(ss, d);
+    if (d.action === "admin_note_status") return adminNoteStatus(ss, d);
+    if (d.action === "admin_member_delete") return adminMemberDelete(ss, d);
     if (d.action === "admin_member_code") return adminMemberCode(ss, d);
     if (d.action === "admin_points_adjust") return adminPointsAdjust(ss, d);
     if (d.action === "admin_update_order") return adminUpdateOrder(ss, d);
@@ -882,12 +1031,29 @@ function adminHandle(d){
  * admin_member_update  → 管理者修改會員資料（姓名／地區／Email），會記進 member_log
  * admin_member_code    → 產生一次性驗證碼（6 小時有效），給沒有 Email 的會員自己查看資料用
  * admin_points_adjust  → 手動加／扣點數（要填原因，會記進 member_log） */
+/* ----- 客服／備註紀錄（member_notes）：用「分類」整理問題，內容簡短，避免把大量敏感內容寫進自由文字 ----- */
+const NOTES_TAB = "member_notes";
+const NOTE_CATEGORIES = ["物流配送", "商品品質", "使用方式", "退款退貨", "訂單問題", "其他", "一般備註"];
+function notesSheet_(ss){
+  let sh = ss.getSheetByName(NOTES_TAB);
+  if (!sh){ sh = ss.insertSheet(NOTES_TAB); sh.appendRow(["時間", "會員編號", "分類", "內容", "狀態", "需追蹤", "處理時間"]); }
+  return sh;
+}
+function parseItems_(text){
+  const out = {};
+  String(text || "").split("、").forEach(seg => {
+    const m = seg.trim().match(/^(.+?)\s*[x×]\s*(\d+)$/i);
+    if (m) out[m[1].trim()] = (out[m[1].trim()] || 0) + Number(m[2]);
+  });
+  return out;
+}
+
 function adminMembers(ss){
   const msh = ss.getSheetByName(MEMBERS_TAB);
   if (!msh || msh.getLastRow() < 2) return [];
   const rows = msh.getDataRange().getValues();
   const head = rows[0].map(h => String(h).trim());
-  const uCol = head.indexOf("更新時間");
+  const ix = n => head.indexOf(n);
 
   const byKey = {};
   readOrders_(ss).forEach(o => { if (o.key) (byKey[o.key] = byKey[o.key] || []).push(o); });
@@ -910,30 +1076,47 @@ function adminMembers(ss){
     const o = lg[k] || (lg[k] = { n:0, last:null });
     o.n++; if (t && (!o.last || t > o.last)) o.last = t;
   });
+  const openNotes = {};
+  const nsh = ss.getSheetByName(NOTES_TAB);
+  if (nsh && nsh.getLastRow() > 1) nsh.getDataRange().getValues().slice(1).forEach(r => {
+    if (String(r[4]) === "待處理") openNotes[String(r[1])] = (openNotes[String(r[1])] || 0) + 1;
+  });
 
   const now = new Date(), seen = {}, out = [];
   for (let i = 1; i < rows.length; i++){
     const r = rows[i], key = normPhone_(r[2]);
-    if (!key || seen[key]) continue;           // 同一支手機重複列只算一次
+    if (!key || seen[key]) continue;           // 同一支手機重複列只算一次（已刪除的會員手機是空的，也會被略過）
+    if (ix("狀態") > -1 && String(r[ix("狀態")]).trim() === "已刪除") continue;
     seen[key] = 1;
-    const all = (byKey[key] || []).filter(o => o.status !== "已取消");
+    const mine = byKey[key] || [];
+    const all = mine.filter(o => o.status !== "已取消");
     const done = all.filter(o => o.status === "已完成" && o.time).sort((a, b) => a.time - b.time);
     const spent = done.reduce((s, o) => s + o.total, 0);
     const gap = done.length >= 2 ? Math.round((done[done.length - 1].time - done[0].time) / 86400000 / (done.length - 1)) : 0;
-    const last = all.reduce((m, o) => (o.time && (!m || o.time > m)) ? o.time : m, null);
+    const timed = all.filter(o => o.time);
+    const last = timed.reduce((m, o) => (!m || o.time > m) ? o.time : m, null);
+    const first = timed.reduce((m, o) => (!m || o.time < m) ? o.time : m, null);
+    const items = {};
+    done.forEach(o => { const it = parseItems_(o.items); Object.keys(it).forEach(k => items[k] = (items[k] || 0) + it[k]); });
+    const top = Object.keys(items).sort((a, b) => items[b] - items[a]).slice(0, 2).map(k => k + "×" + items[k]).join("、");
     const p = pts[key] || { points:0, expiry:null };
     const expired = p.expiry && now > p.expiry;
+    const id = ix("會員編號") > -1 ? String(r[ix("會員編號")] || "") : "";
     out.push({
-      joined: r[0] ? new Date(r[0]).toISOString() : "",
+      id: id, joined: r[0] ? new Date(r[0]).toISOString() : "",
       name: String(r[1] || ""), phone: String(r[2] || ""), city: String(r[3] || ""), email: String(r[4] || ""),
-      updated: uCol > -1 && r[uCol] ? new Date(r[uCol]).toISOString() : "",
-      orders: all.length, done: done.length, spent: spent, avg: done.length ? Math.round(spent / done.length) : 0,
-      bags: done.reduce((s, o) => s + o.bags, 0),
+      source: ix("來源") > -1 ? String(r[ix("來源")] || "") : "",
+      consent: ix("行銷同意") > -1 && isTrue_(r[ix("行銷同意")]),
+      consentAt: ix("同意時間") > -1 && r[ix("同意時間")] ? new Date(r[ix("同意時間")]).toISOString() : "",
+      updated: ix("更新時間") > -1 && r[ix("更新時間")] ? new Date(r[ix("更新時間")]).toISOString() : "",
+      orders: all.length, done: done.length, cancelled: mine.length - all.length,
+      spent: spent, avg: done.length ? Math.round(spent / done.length) : 0,
+      bags: done.reduce((s, o) => s + o.bags, 0), topItems: top,
       gapDays: gap,                                                             // 平均每隔幾天買一次（至少 2 次已完成訂單才算）
       orders90: done.filter(o => now - o.time <= 90 * 86400000).length,       // 近 90 天已完成訂單數
-      lastOrder: last ? last.toISOString() : "",
+      firstOrder: first ? first.toISOString() : "", lastOrder: last ? last.toISOString() : "",
       points: expired ? 0 : p.points, pointsExpiry: p.expiry ? p.expiry.toISOString() : "",
-      reviews: rv[key] || 0,
+      reviews: rv[key] || 0, openNotes: openNotes[id] || 0,
       changes: lg[key] ? lg[key].n : 0, lastChange: lg[key] && lg[key].last ? lg[key].last.toISOString() : ""
     });
   }
@@ -942,7 +1125,8 @@ function adminMembers(ss){
 
 function adminMemberDetail(ss, d){
   const key = normPhone_(d.phone);
-  if (!key) return { ok:false, error:"bad phone" };
+  const m = lookupMember_(ss, d.phone);
+  if (!key || !m) return { ok:false, error:"not found" };
   const orders = readOrders_(ss).filter(o => o.key === key).sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 200).map(orderView_);
   const log = [];
   const lsh = ss.getSheetByName(MEMBER_LOG_TAB);
@@ -951,7 +1135,104 @@ function adminMemberDetail(ss, d){
     log.push({ time: r[0] ? new Date(r[0]).toISOString() : "", field:String(r[2] || ""), oldV:String(r[3] || ""), newV:String(r[4] || ""), by:String(r[5] || ""), note:String(r[6] || "") });
   });
   log.sort((a, b) => b.time.localeCompare(a.time));
-  return { ok:true, orders:orders, log:log.slice(0, 100) };
+  const notes = [];
+  const nsh = ss.getSheetByName(NOTES_TAB);
+  if (nsh && nsh.getLastRow() > 1 && m.id) nsh.getDataRange().getValues().slice(1).forEach((r, i) => {
+    if (String(r[1]) !== m.id) return;
+    notes.push({ row: i + 2, time: r[0] ? new Date(r[0]).toISOString() : "", category:String(r[2] || ""), text:String(r[3] || ""), status:String(r[4] || ""), follow:String(r[5]) === "是", doneAt: r[6] ? new Date(r[6]).toISOString() : "" });
+  });
+  notes.sort((a, b) => b.time.localeCompare(a.time));
+  // 會員基本資料（含同意狀態），給後台顯示與「匯出此會員全部資料」（個資法的查詢請求）用
+  const sh = ss.getSheetByName(MEMBERS_TAB), row = findMemberRow_(sh, key);
+  const cols = memberCols_(sh);
+  const v = sh.getRange(row, 1, 1, Math.max(sh.getLastColumn(), 5)).getValues()[0];
+  const profile = { id:m.id, name:m.name, phone:String(v[2]), city:m.city, email:m.email, joined: v[0] ? new Date(v[0]).toISOString() : "",
+    consent:m.consent, consentAt: cols["同意時間"] && v[cols["同意時間"] - 1] ? new Date(v[cols["同意時間"] - 1]).toISOString() : "",
+    source: cols["來源"] ? String(v[cols["來源"] - 1] || "") : "", status: cols["狀態"] ? String(v[cols["狀態"] - 1] || "正常") : "正常" };
+  return { ok:true, profile:profile, orders:orders, log:log.slice(0, 100), notes:notes };
+}
+
+function adminNoteAdd(ss, d){
+  const m = lookupMember_(ss, d.phone);
+  const text = safeText_(d.text, 120);
+  if (!m || !m.id) return { ok:false, error:"not found" };
+  if (NOTE_CATEGORIES.indexOf(d.category) < 0) return { ok:false, error:"bad category" };
+  if (!text) return { ok:false, error:"text required" };
+  const follow = isTrue_(d.follow) && d.category !== "一般備註";
+  notesSheet_(ss).appendRow([ new Date(), m.id, d.category, text, follow ? "待處理" : "已記錄", follow ? "是" : "否", "" ]);
+  return { ok:true };
+}
+function adminNoteStatus(ss, d){
+  const sh = notesSheet_(ss), row = Number(d.row), m = lookupMember_(ss, d.phone);
+  if (!m || !row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+  if (String(sh.getRange(row, 2).getValue()) !== m.id) return { ok:false, error:"資料已變動，請重新整理" };
+  sh.getRange(row, 5).setValue("已處理");
+  sh.getRange(row, 7).setValue(new Date());
+  return { ok:true };
+}
+
+/* 依個資法刪除（匿名化）：清除姓名、手機、Email、地區等可識別資料，保留會員編號、訂單金額／品項（帳務需要）、去識別的評分。
+   必須輸入該會員的編號確認。刪除後同一支手機可以重新註冊成新會員。 */
+function adminMemberDelete(ss, d){
+  const key = normPhone_(d.phone);
+  const m = lookupMember_(ss, d.phone);
+  if (!key || !m || !m.id) return { ok:false, error:"not found" };
+  if (String(d.confirm || "").trim() !== m.id) return { ok:false, error:"confirm mismatch" };
+  const cols = ensureMemberSchema_(ss, true);
+  const msh = ss.getSheetByName(MEMBERS_TAB), row = findMemberRow_(msh, key);
+  const DEL = "(已刪除)";
+  // 會員資料
+  msh.getRange(row, 2).setValue(DEL);
+  setTextCell(msh, row, 3, "");
+  msh.getRange(row, 4).setValue("");
+  msh.getRange(row, 5).setValue("");
+  msh.getRange(row, cols["行銷同意"]).setValue(false);
+  msh.getRange(row, cols["同意時間"]).setValue("");
+  msh.getRange(row, cols["狀態"]).setValue("已刪除");
+  msh.getRange(row, ensureCol_(msh, "更新時間").col).setValue(new Date());
+  // 訂單：保留金額與品項（報稅對帳），拿掉姓名、手機、地區
+  const osh = ss.getSheetByName(ORDERS_TAB);
+  if (osh && osh.getLastRow() > 1){
+    const rows = osh.getDataRange().getValues();
+    const head = rows[0].map(h => String(h).trim());
+    const pI = head.indexOf("手機"), nI = head.indexOf("姓名"), aI = head.indexOf("寄送地址") > -1 ? head.indexOf("寄送地址") : head.indexOf("所在地區");
+    for (let r = 1; r < rows.length; r++){
+      if (normPhone_(rows[r][pI]) !== key) continue;
+      if (nI > -1) osh.getRange(r + 1, nI + 1).setValue(DEL);
+      if (aI > -1) osh.getRange(r + 1, aI + 1).setValue("");
+      setTextCell(osh, r + 1, pI + 1, "");
+    }
+  }
+  // 點數：刪除（由下往上刪，列號才不會跑掉）
+  const psh = ss.getSheetByName(POINTS_TAB);
+  if (psh && psh.getLastRow() > 1){
+    const rows = psh.getDataRange().getValues();
+    for (let r = rows.length - 1; r >= 1; r--) if (normPhone_(rows[r][0]) === key) psh.deleteRow(r + 1);
+  }
+  // 評分：保留分數（統計用），去掉手機
+  const rsh = ss.getSheetByName(REVIEWS_TAB);
+  if (rsh && rsh.getLastRow() > 1){
+    const rows = rsh.getDataRange().getValues();
+    for (let r = 1; r < rows.length; r++) if (normPhone_(rows[r][1]) === key) setTextCell(rsh, r + 1, 2, "");
+  }
+  // 異動紀錄：拿掉手機，並把姓名／手機／Email／地區的新舊值遮掉
+  const lsh = ss.getSheetByName(MEMBER_LOG_TAB);
+  if (lsh && lsh.getLastRow() > 1){
+    const rows = lsh.getDataRange().getValues();
+    for (let r = 1; r < rows.length; r++){
+      if (normPhone_(rows[r][1]) !== key) continue;
+      setTextCell(lsh, r + 1, 2, "");
+      if (["姓名", "手機", "Email", "所在地區"].indexOf(String(rows[r][2])) > -1){ lsh.getRange(r + 1, 4).setValue(DEL); lsh.getRange(r + 1, 5).setValue(DEL); }
+    }
+  }
+  // 客服紀錄：整筆刪除（內容可能含個人資訊）
+  const nsh = ss.getSheetByName(NOTES_TAB);
+  if (nsh && nsh.getLastRow() > 1){
+    const rows = nsh.getDataRange().getValues();
+    for (let r = rows.length - 1; r >= 1; r--) if (String(rows[r][1]) === m.id) nsh.deleteRow(r + 1);
+  }
+  logChange_(ss, "", "刪除會員資料", "", "已匿名化（保留編號 " + m.id + "）", "管理者", safeText_(d.reason || "依當事人要求", 60));
+  return { ok:true, id:m.id };
 }
 
 function adminMemberUpdate(ss, d){

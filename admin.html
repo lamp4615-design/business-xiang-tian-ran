@@ -51,7 +51,7 @@ h3{margin:18px 0 8px;font-size:16px}
 .toast.show{opacity:1}
 @media (prefers-color-scheme:dark){.toast{color:#10211a}}
 .sub{color:var(--mute);font-size:13px}
-.seg-active{color:var(--ok);border-color:var(--ok)}.seg-watch{color:var(--orange);border-color:var(--orange)}.seg-dormant{color:var(--red);border-color:var(--red)}.seg-never{color:var(--mute)}
+.seg-vip{color:#a8741a;border-color:#a8741a}.seg-active{color:var(--ok);border-color:var(--ok)}.seg-watch{color:var(--orange);border-color:var(--orange)}.seg-dormant{color:var(--red);border-color:var(--red)}.seg-never{color:var(--mute)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:auto}
 .modal[hidden]{display:none}
 .modal-box{position:relative;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:20px;width:100%;max-width:820px}
@@ -146,8 +146,9 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <select id="memFilter" onchange="renderMembers()">
         <option value="">全部會員</option><option value="new">新會員（30 天內加入）</option><option value="active">活躍（60 天內下單）</option>
         <option value="watch">觀望（61～90 天）</option><option value="dormant">沉睡（超過 90 天）</option><option value="never">從未購買</option>
-        <option value="noemail">沒有 Email</option><option value="changed">近 30 天資料有異動</option>
+        <option value="vip">高價值回購客</option><option value="noemail">沒有 Email</option><option value="consent">同意收行銷通知</option><option value="noconsent">不同意行銷</option><option value="followup">有待追蹤客服</option><option value="changed">近 30 天資料有異動</option>
       </select>
+      <select id="memSource" onchange="renderMembers()"><option value="">全部來源</option></select>
       <select id="memSort" onchange="renderMembers()">
         <option value="recent">排序：最近下單</option><option value="spent">累計消費</option><option value="orders">訂單數</option>
         <option value="points">點數</option><option value="joined">加入時間</option><option value="updated">資料更新時間</option>
@@ -157,10 +158,16 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <span class="sub" id="memSum"></span>
     </div>
     <div class="wrap"><table>
-      <thead><tr><th>會員</th><th>Email</th><th class="num">購買</th><th>購買頻率</th><th>最近下單</th><th class="num">點數</th><th>資料更新</th><th></th></tr></thead>
+      <thead><tr><th>會員</th><th>Email／行銷</th><th>來源</th><th class="num">購買</th><th>購買頻率</th><th>最近下單</th><th class="num">點數</th><th>資料更新</th><th></th></tr></thead>
       <tbody id="memBody"></tbody>
     </table></div>
-    <p class="sub">營收與購買次數只計「已完成」訂單；活躍＝60 天內有下單、觀望＝61～90 天、沉睡＝超過 90 天沒下單。會員資料被修改（本人或管理者）都會留下紀錄，按「詳情」可查看。</p>
+    <h3>來源分析（哪個管道帶來的客人品質好）</h3>
+    <div class="wrap"><table>
+      <thead><tr><th>來源</th><th class="num">會員數</th><th class="num">有購買</th><th class="num">回購</th><th class="num">累計營收</th><th class="num">平均每位會員</th></tr></thead>
+      <tbody id="srcBody"></tbody>
+    </table></div>
+    <p class="sub">來源是會員<b>第一次進站</b>時記下的：網址帶 <code>?src=名稱</code>（例如貼在 IG、廣告、直播的連結）會記成那個名稱；掃 QR 貼紙記為「QR貼紙」；其餘依連進來的網站判斷（Facebook、LINE、Google 搜尋…），都沒有就是「直接進站」。
+    <p class="sub">營收與購買次數只計「已完成」訂單；活躍＝60 天內有下單、觀望＝61～90 天、沉睡＝超過 90 天沒下單；高價值回購客＝已完成 3 單以上且近 90 天有買。會員資料被修改（本人或管理者）都會留下紀錄，按「詳情」可查看。</p>
   </section>
 
   <div id="memModal" class="modal" hidden onclick="if(event.target===this)closeMember()"><div class="modal-box"><button class="sm modal-x" onclick="closeMember()">關閉 ✕</button><div id="memModalBody"></div></div></div>
@@ -335,7 +342,7 @@ async function doLogin(){
   try{
     const d=await api({action:"admin_ping"});
     if(d.categories)CATS=d.categories;if(d.statuses)STATUSES=d.statuses;
-    if(d.groups)GROUPS=d.groups;if(d.legacy)LEGACY=d.legacy;
+    if(d.groups)GROUPS=d.groups;if(d.legacy)LEGACY=d.legacy;if(d.noteCategories)NOTE_CATS=d.noteCategories;
     try{sessionStorage.setItem("xn_admin",KEY);}catch(e){}
     $("login").hidden=true;$("app").hidden=false;initUi();loadAll();
   }catch(e){KEY="";$("loginMsg").textContent=e.message==="unauthorized"?"密碼錯誤，或後台尚未設定 ADMIN_KEY":"連線失敗："+e.message;}
@@ -477,9 +484,11 @@ async function delCost(row){
 }
 
 /* ---------- 會員管理 ----------
-   資料來源：試算表 members（基本資料）＋ orders（購買）＋ points（點數）＋ reviews（評分）＋ member_log（資料異動紀錄）。
-   區隔：活躍＝60 天內有下單；觀望＝61～90 天；沉睡＝超過 90 天沒下單；從未購買＝註冊後沒有任何（未取消的）訂單。 */
-let MEMBERS=[],MEM_LOADED=false,MEM_CUR=null;
+   資料來源：試算表 members（基本資料、行銷同意、來源）＋ orders（購買）＋ points（點數）＋ reviews（評分）
+            ＋ member_log（資料異動紀錄）＋ member_notes（客服紀錄）。會員以「會員編號」識別，手機只是登入帳號。
+   分類：活躍＝60 天內有下單；觀望＝61～90 天；沉睡＝超過 90 天沒下單；從未購買＝註冊後沒有任何（未取消的）訂單；
+        高價值回購客＝已完成 3 單以上、而且近 90 天還有買。 */
+let MEMBERS=[],MEM_LOADED=false,MEM_CUR=null,MEM_DETAIL=null,NOTE_CATS=["物流配送","商品品質","使用方式","退款退貨","訂單問題","其他","一般備註"];
 const DAY=86400000;
 const mDate=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`:"—";};
 const mDateTime=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?mDate(iso)+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"):"—";};
@@ -489,7 +498,9 @@ function memSeg(m){
   const d=daysSince(m.lastOrder);
   return d==null?"never":d<=60?"active":d<=90?"watch":"dormant";
 }
+const isVip=m=>m.done>=3&&m.orders90>=1;
 const SEG_LABEL={never:"從未購買",active:"活躍",watch:"觀望",dormant:"沉睡"};
+const srcOf=m=>m.source||"未記錄";
 async function loadMembers(){
   $("memSum").textContent="讀取中…";
   try{const d=await api({action:"admin_members"});MEMBERS=d.members||[];MEM_LOADED=true;renderMembers();}
@@ -497,61 +508,94 @@ async function loadMembers(){
 }
 function renderMembers(){
   const now=new Date(),cur=ym(now);
-  const seg=m=>memSeg(m);
   const card=(k,v,sub="")=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="sub">${sub}</div>`:""}</div>`;
-  const total=MEMBERS.length,withEmail=MEMBERS.filter(m=>m.email).length;
-  const buyers=MEMBERS.filter(m=>m.done>=1).length,repeat=MEMBERS.filter(m=>m.done>=2).length;
+  const total=MEMBERS.length,withEmail=MEMBERS.filter(m=>m.email).length,consent=MEMBERS.filter(m=>m.consent).length;
+  const buyers=MEMBERS.filter(m=>m.done>=1),repeat=MEMBERS.filter(m=>m.done>=2);
+  const sumSpent=a=>a.reduce((s,m)=>s+m.spent,0);
+  const newThis=MEMBERS.filter(m=>m.joined&&m.joined.slice(0,7)===cur),newBought=newThis.filter(m=>m.orders>0).length;
+  const cancelled=MEMBERS.reduce((s,m)=>s+m.cancelled,0),allOrders=MEMBERS.reduce((s,m)=>s+m.orders+m.cancelled,0);
   const chg30=MEMBERS.filter(m=>m.lastChange&&daysSince(m.lastChange)<=30).length;
+  const follow=MEMBERS.reduce((s,m)=>s+m.openNotes,0);
   $("memCards").innerHTML=
-    card("總會員數",total,`本月新增 ${MEMBERS.filter(m=>m.joined&&m.joined.slice(0,7)===cur).length}`)+
-    card("活躍會員",MEMBERS.filter(m=>seg(m)==="active").length,"60 天內有下單")+
-    card("沉睡會員",MEMBERS.filter(m=>seg(m)==="dormant").length,"超過 90 天沒下單")+
-    card("回購率",buyers?(repeat/buyers*100).toFixed(0)+"%":"—",`買過 ${buyers} 人，回購 ${repeat} 人`)+
-    card("有 Email",total?(withEmail/total*100).toFixed(0)+"%":"—",`${withEmail}／${total} 人可收新品通知`)+
-    card("近 30 天資料異動",chg30+" 人","含會員自己改與管理者改")+
+    card("總會員數",total,`本月新增 ${newThis.length}・新客轉換 ${newThis.length?(newBought/newThis.length*100).toFixed(0)+"%":"—"}`)+
+    card("活躍會員",MEMBERS.filter(m=>memSeg(m)==="active").length,"60 天內有下單")+
+    card("沉睡會員",MEMBERS.filter(m=>memSeg(m)==="dormant").length,"超過 90 天沒下單")+
+    card("高價值回購客",MEMBERS.filter(isVip).length,"3 單以上且近 90 天有買")+
+    card("首購後回購率",buyers.length?(repeat.length/buyers.length*100).toFixed(0)+"%":"—",`買過 ${buyers.length} 人，回購 ${repeat.length} 人`)+
+    card("回購客營收占比",sumSpent(buyers)?(sumSpent(repeat)/sumSpent(buyers)*100).toFixed(0)+"%":"—","買 2 次以上的人貢獻")+
+    card("取消率",allOrders?(cancelled/allOrders*100).toFixed(1)+"%":"—",`${cancelled} 張取消／${allOrders} 張`)+
+    card("同意收行銷通知",total?(consent/total*100).toFixed(0)+"%":"—",`${consent}／${total} 人（有 Email ${withEmail} 人）`)+
+    card("待追蹤客服",follow+" 件",follow?"請到會員詳情處理":"目前沒有")+
+    card("近 30 天資料異動",chg30+" 人","本人或管理者修改")+
     card("有效點數合計",MEMBERS.reduce((s,m)=>s+m.points,0));
-  const q=$("memSearch").value.trim().toLowerCase(),f=$("memFilter").value,so=$("memSort").value;
+
+  // 來源選單（保留目前選的）
+  const keepSrc=$("memSource").value;
+  const sources=[...new Set(MEMBERS.map(srcOf))].sort();
+  $("memSource").innerHTML='<option value="">全部來源</option>'+sources.map(s=>`<option>${esc(s)}</option>`).join("");
+  $("memSource").value=sources.includes(keepSrc)?keepSrc:"";
+
+  const q=$("memSearch").value.trim().toLowerCase(),f=$("memFilter").value,so=$("memSort").value,sf=$("memSource").value;
   let list=MEMBERS.filter(m=>{
-    if(q&&!(m.name+m.phone+m.email+m.city).toLowerCase().includes(q))return false;
+    if(sf&&srcOf(m)!==sf)return false;
+    if(q&&!(m.name+m.phone+m.email+m.city+m.id).toLowerCase().includes(q))return false;
     if(f==="new")return m.joined&&daysSince(m.joined)<=30;
     if(f==="noemail")return !m.email;
     if(f==="changed")return m.lastChange&&daysSince(m.lastChange)<=30;
-    if(f)return seg(m)===f;
+    if(f==="vip")return isVip(m);
+    if(f==="consent")return m.consent;
+    if(f==="noconsent")return !m.consent;
+    if(f==="followup")return m.openNotes>0;
+    if(f)return memSeg(m)===f;
     return true;
   });
   const key={recent:m=>m.lastOrder?new Date(m.lastOrder).getTime():0,spent:m=>m.spent,orders:m=>m.done,points:m=>m.points,joined:m=>m.joined?new Date(m.joined).getTime():0,updated:m=>m.updated?new Date(m.updated).getTime():0}[so]||(m=>0);
   list=list.slice().sort((a,b)=>key(b)-key(a));
   $("memSum").textContent=`${list.length} 位`;
   $("memBody").innerHTML=list.length?list.map(m=>{
-    const i=MEMBERS.indexOf(m),s=seg(m),d=daysSince(m.lastOrder);
+    const i=MEMBERS.indexOf(m),s=memSeg(m),d=daysSince(m.lastOrder);
     const freq=m.gapDays>0?`平均 ${m.gapDays} 天買一次`:(m.done===1?"只買過 1 次":"—");
     return `<tr>
-      <td>${esc(m.name)}<div class="sub">${esc(m.phone)}${m.city?"・"+esc(m.city):""}</div><span class="tag seg-${s}">${SEG_LABEL[s]}</span>${m.joined&&daysSince(m.joined)<=30?' <span class="tag">新會員</span>':""}</td>
-      <td>${m.email?esc(m.email):'<span class="neg">未登記</span>'}</td>
-      <td class="num">${m.done} 單<div class="sub">${money(m.spent)}</div>${m.avg?`<div class="sub">客單 ${money(m.avg)}</div>`:""}</td>
-      <td>${freq}<div class="sub">近 90 天 ${m.orders90} 單</div></td>
-      <td>${m.lastOrder?mDate(m.lastOrder)+`<div class="sub">${d} 天前</div>`:"—"}</td>
+      <td>${esc(m.name)}<div class="sub">${esc(m.id||"—")}・${esc(m.phone)}${m.city?"・"+esc(m.city):""}</div><span class="tag seg-${s}">${SEG_LABEL[s]}</span>${isVip(m)?' <span class="tag seg-vip">高價值</span>':""}${m.joined&&daysSince(m.joined)<=30?' <span class="tag">新會員</span>':""}${m.openNotes?` <span class="tag seg-dormant">待追蹤 ${m.openNotes}</span>`:""}</td>
+      <td>${m.email?esc(m.email):'<span class="neg">未登記</span>'}<div class="sub">${m.consent?"✓ 同意行銷":"不寄行銷"}</div></td>
+      <td>${esc(srcOf(m))}</td>
+      <td class="num">${m.done} 單<div class="sub">${money(m.spent)}</div>${m.avg?`<div class="sub">客單 ${money(m.avg)}</div>`:""}${m.cancelled?`<div class="sub neg">取消 ${m.cancelled}</div>`:""}</td>
+      <td>${freq}<div class="sub">近 90 天 ${m.orders90} 單</div>${m.topItems?`<div class="sub">常買：${esc(m.topItems)}</div>`:""}</td>
+      <td>${m.lastOrder?mDate(m.lastOrder)+`<div class="sub">${d} 天前</div>`:"—"}${m.firstOrder?`<div class="sub">首購 ${mDate(m.firstOrder)}</div>`:""}</td>
       <td class="num">${m.points}${m.points&&m.pointsExpiry?`<div class="sub">到 ${mDate(m.pointsExpiry)}</div>`:""}</td>
       <td>${m.updated?mDate(m.updated):'<span class="sub">未修改</span>'}${m.changes?`<div class="sub">異動 ${m.changes} 次</div>`:""}</td>
-      <td><button class="sm" onclick="openMember(${i})">詳情</button></td></tr>`;}).join(""):'<tr><td colspan="8" class="empty">沒有符合的會員</td></tr>';
+      <td><button class="sm" onclick="openMember(${i})">詳情</button></td></tr>`;}).join(""):'<tr><td colspan="9" class="empty">沒有符合的會員</td></tr>';
+
+  // 來源分析：各管道帶來多少會員、有多少人真的買、回購、營收（比較客人品質）
+  const by={};
+  MEMBERS.forEach(m=>{const k=srcOf(m);const o=by[k]||(by[k]={n:0,buy:0,rep:0,rev:0});o.n++;if(m.done>=1)o.buy++;if(m.done>=2)o.rep++;o.rev+=m.spent;});
+  const ks=Object.keys(by).sort((a,b)=>by[b].rev-by[a].rev||by[b].n-by[a].n);
+  $("srcBody").innerHTML=ks.length?ks.map(k=>{const o=by[k];return `<tr><td>${esc(k)}</td><td class="num">${o.n}</td><td class="num">${o.buy}<div class="sub">${(o.buy/o.n*100).toFixed(0)}%</div></td><td class="num">${o.rep}<div class="sub">${o.buy?(o.rep/o.buy*100).toFixed(0)+"%":"—"}</div></td><td class="num">${money(o.rev)}</td><td class="num">${money(o.rev/o.n)}</td></tr>`;}).join(""):'<tr><td colspan="6" class="empty">還沒有會員</td></tr>';
 }
 function exportMembers(){
-  downloadCsv("會員.csv",[["姓名","手機","所在地區","Email","加入日","訂單數(已完成)","累計消費","客單價","包數","平均購買間隔(天)","近90天訂單","最近下單","分類","點數","點數到期","評分次數","資料更新","異動次數"]]
-    .concat(MEMBERS.map(m=>[m.name,m.phone,m.city,m.email,mDate(m.joined),m.done,m.spent,m.avg,m.bags,m.gapDays||"",m.orders90,m.lastOrder?mDate(m.lastOrder):"",SEG_LABEL[memSeg(m)],m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.updated?mDate(m.updated):"",m.changes])));
+  downloadCsv("會員.csv",[["會員編號","姓名","手機","所在地區","Email","行銷同意","來源","加入日","首購日","最近下單","訂單數(已完成)","取消單數","累計消費","客單價","包數","常購品項","平均購買間隔(天)","近90天訂單","分類","高價值","點數","點數到期","評分次數","資料更新","異動次數","待追蹤客服"]]
+    .concat(MEMBERS.map(m=>[m.id,m.name,m.phone,m.city,m.email,m.consent?"同意":"不同意",srcOf(m),mDate(m.joined),m.firstOrder?mDate(m.firstOrder):"",m.lastOrder?mDate(m.lastOrder):"",m.done,m.cancelled,m.spent,m.avg,m.bags,m.topItems,m.gapDays||"",m.orders90,SEG_LABEL[memSeg(m)],isVip(m)?"是":"",m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.updated?mDate(m.updated):"",m.changes,m.openNotes])));
 }
 
 /* ----- 會員詳情視窗 ----- */
+async function reopenMember(phone){
+  await loadMembers();
+  const i=MEMBERS.findIndex(x=>x.phone===phone);
+  if(i>-1)openMember(i);else closeMember();
+}
 async function openMember(i){
-  const m=MEMBERS[i];if(!m)return;MEM_CUR=m;
+  const m=MEMBERS[i];if(!m)return;MEM_CUR=m;MEM_DETAIL=null;
   $("memModal").hidden=false;
   $("memModalBody").innerHTML=`<h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.phone)}</span></h3><p class="sub">讀取中…</p>`;
-  let det={orders:[],log:[]};
+  let det={orders:[],log:[],notes:[],profile:null};
   try{det=await api({action:"admin_member_detail",phone:m.phone});}catch(e){toast("讀取詳情失敗："+e.message);}
   if(MEM_CUR!==m)return;
-  const s=memSeg(m);
+  MEM_DETAIL=det;
+  const s=memSeg(m),pf=det.profile||{};
   $("memModalBody").innerHTML=`
-    <h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.phone)}</span> <span class="tag seg-${s}">${SEG_LABEL[s]}</span></h3>
-    <p class="sub">加入 ${mDate(m.joined)}・已完成 ${m.done} 單・累計 ${money(m.spent)}・評分 ${m.reviews} 次・點數 ${m.points}${m.pointsExpiry&&m.points?"（到 "+mDate(m.pointsExpiry)+"）":""}</p>
+    <h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.id||"—")}・${esc(m.phone)}</span> <span class="tag seg-${s}">${SEG_LABEL[s]}</span>${isVip(m)?' <span class="tag seg-vip">高價值</span>':""}</h3>
+    <p class="sub">加入 ${mDate(m.joined)}・來源：${esc(srcOf(m))}・首購 ${m.firstOrder?mDate(m.firstOrder):"—"}・已完成 ${m.done} 單・取消 ${m.cancelled} 單・累計 ${money(m.spent)}・評分 ${m.reviews} 次・點數 ${m.points}${m.pointsExpiry&&m.points?"（到 "+mDate(m.pointsExpiry)+"）":""}${m.topItems?"・常買："+esc(m.topItems):""}</p>
+    <p class="sub">行銷通知：${m.consent?`<b class="pos">同意</b>（${mDate(pf.consentAt||m.consentAt)}）`:"<b>不同意</b>（不會寄新品／預購通知）"}</p>
 
     <h3>修改資料</h3>
     <div class="form">
@@ -559,14 +603,15 @@ async function openMember(i){
       <label>手機（登入帳號）<input id="mdPhone" value="${esc(m.phone)}" maxlength="20" inputmode="numeric"></label>
       <label>所在地區<input id="mdCity" value="${esc(m.city)}" maxlength="60"></label>
       <label>Email<input id="mdEmail" value="${esc(m.email)}" maxlength="80"></label>
+      <label>行銷通知<select id="mdConsent"><option value="1"${m.consent?" selected":""}>同意</option><option value="0"${m.consent?"":" selected"}>不同意</option></select></label>
       <button class="pri" onclick="saveMember()">儲存</button>
     </div>
-    <p class="sub">換手機時，這位會員的訂單、點數、評分、異動紀錄會一併轉到新號碼（新號碼已是別的會員會被擋下）。每次修改都會記錄在下方「資料異動紀錄」。</p>
+    <p class="sub">換手機時，訂單、點數、評分、異動紀錄會一併轉到新號碼（新號碼已是別的會員會被擋下）。行銷通知請只在客人明確要求時才改為「同意」；客人要求停止，隨時可改為「不同意」。每次修改都會記錄在下方「資料異動紀錄」。</p>
 
     <h3>協助會員驗證／調整點數</h3>
     <div class="tools">
       <button class="sm" onclick="issueCode()">產生驗證碼</button>
-      <span class="sub">給沒有 Email 或收不到信的會員：會員在網站會員中心輸入這組碼，就能自己看紀錄、補登 Email。</span>
+      <span class="sub">給沒有 Email 或收不到信的會員：會員在網站會員中心輸入這組碼，就能自己修改資料、補登 Email。</span>
     </div>
     <div id="mdCode" class="sub"></div>
     <div class="tools">
@@ -574,6 +619,17 @@ async function openMember(i){
       <label class="sub">原因<input id="mdReason" placeholder="必填，例：活動贈點" style="width:200px"></label>
       <button class="sm" onclick="adjustPoints()">調整點數</button>
     </div>
+
+    <h3>客服／備註紀錄（${det.notes.length}）</h3>
+    <div class="tools">
+      <select id="ntCat">${NOTE_CATS.map(c=>`<option>${esc(c)}</option>`).join("")}</select>
+      <input id="ntText" maxlength="120" placeholder="簡短描述（120 字內；請勿寫身分證、卡號等敏感資料）" style="flex:1;min-width:240px">
+      <label class="sub"><input type="checkbox" id="ntFollow"> 需追蹤</label>
+      <button class="sm" onclick="addNote()">新增</button>
+    </div>
+    <div class="wrap"><table><thead><tr><th>時間</th><th>分類</th><th>內容</th><th>狀態</th><th></th></tr></thead><tbody>
+      ${det.notes.length?det.notes.map(n=>`<tr><td>${mDateTime(n.time)}</td><td><span class="tag">${esc(n.category)}</span></td><td>${esc(n.text)}</td><td class="${n.status==="待處理"?"neg":""}">${esc(n.status)}${n.doneAt?`<div class="sub">${mDate(n.doneAt)}</div>`:""}</td><td>${n.status==="待處理"?`<button class="sm" onclick="doneNote(${n.row})">標記已處理</button>`:""}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">沒有客服紀錄</td></tr>'}
+    </tbody></table></div>
 
     <h3>購買紀錄（${det.orders.length}）</h3>
     <div class="wrap"><table><thead><tr><th>時間</th><th>內容</th><th class="num">金額</th><th>包數</th><th>狀態</th></tr></thead><tbody>
@@ -583,22 +639,32 @@ async function openMember(i){
     <h3>資料異動紀錄（${det.log.length}）</h3>
     <div class="wrap"><table><thead><tr><th>時間</th><th>欄位</th><th>舊值</th><th>新值</th><th>操作者</th><th>備註</th></tr></thead><tbody>
       ${det.log.length?det.log.map(l=>`<tr><td>${mDateTime(l.time)}</td><td>${esc(l.field)}</td><td>${esc(l.oldV)}</td><td>${esc(l.newV)}</td><td>${esc(l.by)}</td><td>${esc(l.note)}</td></tr>`).join(""):'<tr><td colspan="6" class="empty">這位會員的資料沒有被異動過</td></tr>'}
-    </tbody></table></div>`;
+    </tbody></table></div>
+
+    <h3>個資處理（依當事人要求）</h3>
+    <div class="tools">
+      <button class="sm" onclick="exportMember()">匯出此會員全部資料（查詢請求）</button>
+      <span class="sub">會員要求查詢自己的資料時，用這個匯出（JSON 檔）給他。</span>
+    </div>
+    <div class="tools">
+      <input id="mdDelReason" placeholder="刪除原因（選填，例：客人來信要求）" style="min-width:260px">
+      <button class="sm del" onclick="deleteMember()">刪除會員資料（匿名化）</button>
+    </div>
+    <p class="sub">刪除會清除姓名、手機、Email、地區，並刪除點數與客服紀錄；訂單的品項與金額會保留供帳務使用（不再顯示是誰）。此動作無法復原，需輸入會員編號確認。</p>`;
 }
-function closeMember(){$("memModal").hidden=true;MEM_CUR=null;}
+function closeMember(){$("memModal").hidden=true;MEM_CUR=null;MEM_DETAIL=null;}
 async function saveMember(){
   const m=MEM_CUR;if(!m)return;
   try{
     const newPhone=$("mdPhone").value.replace(/\D/g,"");
     const phoneChanged=newPhone&&newPhone.replace(/^0+/,"")!==String(m.phone).replace(/\D/g,"").replace(/^0+/,"");
     if(phoneChanged&&!confirm(`把 ${m.name} 的手機從 ${m.phone} 改成 ${newPhone}？\n訂單、點數、評分會一併轉到新號碼。`))return;
-    const payload={action:"admin_member_update",phone:m.phone,name:$("mdName").value,city:$("mdCity").value,email:$("mdEmail").value.trim()};
+    const payload={action:"admin_member_update",phone:m.phone,name:$("mdName").value,city:$("mdCity").value,email:$("mdEmail").value.trim(),consent:$("mdConsent").value==="1"};
     if(phoneChanged)payload.newPhone=newPhone;
     const r=await api(payload);
     toast(r.changed?`已更新 ${r.changed} 個欄位`:"資料沒有變動");
-    const keep=r.phone||m.phone;
-    await loadMembers();const i=MEMBERS.findIndex(x=>x.phone===keep);if(i>-1)openMember(i);
-  }catch(e){toast(({bad_email:"Email 格式不正確",bad_name:"姓名不能空白",bad_phone:"手機格式不正確",phone_taken:"這支手機已是其他會員"})[e.message]||"儲存失敗："+e.message);}
+    await reopenMember(r.phone||m.phone);
+  }catch(e){toast(({bad_email:"Email 格式不正確",bad_name:"姓名不能空白",bad_phone:"手機格式不正確",phone_taken:"這支手機已是其他會員",consent_needs_email:"要同意行銷通知，需要先有 Email"})[e.message]||"儲存失敗："+e.message);}
 }
 async function issueCode(){
   const m=MEM_CUR;if(!m)return;
@@ -616,8 +682,39 @@ async function adjustPoints(){
   try{
     const r=await api({action:"admin_points_adjust",phone:m.phone,delta,reason});
     toast("已調整，目前 "+r.points+" 點");
-    await loadMembers();const i=MEMBERS.findIndex(x=>x.phone===m.phone);if(i>-1)openMember(i);
+    await reopenMember(m.phone);
   }catch(e){toast("調整失敗："+e.message);}
+}
+async function addNote(){
+  const m=MEM_CUR;if(!m)return;
+  const text=$("ntText").value.trim();
+  if(!text){toast("請填寫內容");return;}
+  try{
+    await api({action:"admin_note_add",phone:m.phone,category:$("ntCat").value,text,follow:$("ntFollow").checked});
+    toast("已新增");await reopenMember(m.phone);
+  }catch(e){toast("新增失敗："+e.message);}
+}
+async function doneNote(row){
+  const m=MEM_CUR;if(!m)return;
+  try{await api({action:"admin_note_status",phone:m.phone,row});toast("已標記處理");await reopenMember(m.phone);}
+  catch(e){toast("失敗："+e.message);}
+}
+function exportMember(){
+  const m=MEM_CUR,d=MEM_DETAIL;if(!m||!d)return;
+  const blob=new Blob([JSON.stringify({匯出時間:new Date().toISOString(),會員資料:d.profile,購買紀錄:d.orders,客服紀錄:d.notes.map(n=>({時間:n.time,分類:n.category,內容:n.text,狀態:n.status})),資料異動紀錄:d.log},null,2)],{type:"application/json;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`會員資料_${m.id||"member"}.json`;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+async function deleteMember(){
+  const m=MEM_CUR;if(!m)return;
+  if(!m.id){toast("這位會員還沒有會員編號，請先重新整理");return;}
+  const c=prompt(`要刪除會員「${m.name}」（${m.id}）的個人資料嗎？\n姓名、手機、Email、地區都會清除，點數與客服紀錄會刪除，無法復原。\n訂單的品項與金額會保留供帳務使用。\n\n請輸入會員編號 ${m.id} 確認：`);
+  if(c===null)return;
+  if(c.trim()!==m.id){toast("編號不符，已取消");return;}
+  try{
+    await api({action:"admin_member_delete",phone:m.phone,confirm:c.trim(),reason:$("mdDelReason").value.trim()||"依當事人要求"});
+    toast("已刪除（匿名化）");closeMember();await loadMembers();
+  }catch(e){toast("刪除失敗："+e.message);}
 }
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("memModal").hidden)closeMember();});
 

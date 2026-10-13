@@ -181,6 +181,9 @@
   .mc-row{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:.96rem;align-items:flex-start}
   .mc-row.first{border-top:1px solid var(--line)}
   .mc-row .k{color:var(--ink-45);min-width:76px;letter-spacing:.06em;flex:none}
+  .chk{display:flex;gap:9px;align-items:flex-start;font-size:.84rem;color:var(--ink-70);line-height:1.6;margin:-4px 0 16px;cursor:pointer}
+  .chk input{margin-top:5px;flex:none;width:auto}
+  .priv{font-size:.76rem;color:var(--ink-45);line-height:1.7;margin:14px 0 0}
   .mc-sec{margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
   .mc-sec h4{margin:0 0 12px;font-family:var(--serif);font-size:1.05rem;color:var(--pine);letter-spacing:.04em}
   .mc-sec-p{font-size:.86rem;color:var(--ink-70);line-height:1.7;margin:0 0 14px}
@@ -795,6 +798,22 @@ let member=null;      // {name, phone, city}
 function $(id){return document.getElementById(id);}
 function val(id){const e=$(id);return e?e.value.trim():"";}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+/* 首次來源（first-touch）：網址的 src／utm_source，或 QR 貼紙（?p=），或從哪個網站連進來；只記第一次，加入會員時一併送出。
+   用來比較各管道帶來的客人品質。 */
+function captureSource(){
+  try{
+    if(localStorage.getItem("xn_src"))return;
+    const q=new URLSearchParams(location.search);
+    let s=(q.get("src")||q.get("utm_source")||"").trim();
+    if(!s&&q.get("p"))s="QR貼紙";
+    if(!s&&document.referrer){
+      let h="";try{h=new URL(document.referrer).hostname.replace(/^www\./,"");}catch(e){}
+      if(h&&h!==location.hostname)s=/line\./.test(h)?"LINE":/facebook|fb\./.test(h)?"Facebook":/instagram/.test(h)?"Instagram":/threads/.test(h)?"Threads":/google\./.test(h)?"Google搜尋":h;
+    }
+    localStorage.setItem("xn_src",(s||"直接進站").slice(0,30));
+  }catch(e){}
+}
+function getSource(){try{return localStorage.getItem("xn_src")||"";}catch(e){return "";}}
 function saveSession(){try{localStorage.setItem("xn_member",JSON.stringify(member));}catch(e){}}
 function loadSession(){try{const s=localStorage.getItem("xn_member");if(s)member=JSON.parse(s);}catch(e){}loadToken();}
 
@@ -1013,8 +1032,10 @@ function renderMember(){
         <div class="field"><label for="mName">姓名</label><input id="mName" type="text" placeholder="怎麼稱呼你" autocomplete="name"></div>
         <div class="field"><label for="mPhone">手機</label><input id="mPhone" type="tel" inputmode="numeric" placeholder="09xx-xxx-xxx" autocomplete="tel"></div>
         <div class="field"><label for="mAddr">所在地區</label><select id="mAddr"><option value="">請選擇縣市</option><option value="台北市">台北市</option><option value="新北市">新北市</option><option value="基隆市">基隆市</option><option value="桃園市">桃園市</option><option value="新竹市">新竹市</option><option value="新竹縣">新竹縣</option><option value="苗栗縣">苗栗縣</option><option value="台中市">台中市</option><option value="彰化縣">彰化縣</option><option value="南投縣">南投縣</option><option value="雲林縣">雲林縣</option><option value="嘉義市">嘉義市</option><option value="嘉義縣">嘉義縣</option><option value="台南市">台南市</option><option value="高雄市">高雄市</option><option value="屏東縣">屏東縣</option><option value="宜蘭縣">宜蘭縣</option><option value="花蓮縣">花蓮縣</option><option value="台東縣">台東縣</option><option value="澎湖縣">澎湖縣</option><option value="金門縣">金門縣</option><option value="連江縣">連江縣</option></select></div>
-        <div class="field"><label for="mEmail">Email（選填）</label><input id="mEmail" type="email" placeholder="想收到新品上架通知可以填寫" autocomplete="email"></div>
+        <div class="field"><label for="mEmail">Email（選填）</label><input id="mEmail" type="email" placeholder="用來收驗證碼，也可收新品通知" autocomplete="email"></div>
+        <label class="chk"><input type="checkbox" id="mConsent"><span>我同意收到新品上架、最後預購通知（需填 Email，隨時可以取消）</span></label>
         <button class="btn btn-primary form-btn" id="joinBtn" onclick="submitJoin()">加入會員</button>
+        <p class="priv">我們蒐集你的姓名、手機、所在地區與 Email，用於處理訂單、會員集點與聯繫；經你勾選同意，才會寄新品與預購通知。你可隨時在「會員中心」更正資料、取消通知，或聯絡我們要求刪除。</p>
         <p class="form-note" id="joinNote"></p></div>`;
   }
 }
@@ -1040,12 +1061,14 @@ async function login(){
 }
 async function submitJoin(){
   const name=val("mName"),phone=val("mPhone"),addr=val("mAddr"),email=val("mEmail");const note=$("joinNote");
+  const consent=!!($("mConsent")&&$("mConsent").checked);
+  if(consent&&!email){note.textContent="要收新品通知，請先填寫 Email。";return;}
   if(!name||!phone||!addr){note.textContent="請填寫姓名、手機，並選擇所在地區。";return;}
   const btn=$("joinBtn");btn.disabled=true;btn.textContent="送出中…";
   try{
     let existed=false;
     if(API_URL){
-      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"join",name,phone,city:addr,email})});
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"join",name,phone,city:addr,email,consent,source:getSource()})});
       let r=null;try{r=await res.json();}catch(e){}
       if(r&&r.ok===false){
         note.textContent=r.error==="rate_limited"?"這支手機剛剛已送出過，請一分鐘後再試。":r.error==="bad input"?"姓名或手機格式不正確，請再確認。":"目前加入人數較多，請稍後再試。";
@@ -1142,6 +1165,7 @@ function renderEditBox(msg){
         <p class="mc-sec-p" style="margin:6px 0 0">更換手機後，要用新號碼登入；你的訂單、點數、評分紀錄會一併轉到新號碼。</p></div>
       <div class="field"><label for="pfCity">所在地區</label><select id="pfCity"><option value="">請選擇縣市</option>${CITIES.map(c=>`<option value="${c}"${c===d.city?" selected":""}>${c}</option>`).join("")}</select></div>
       <div class="field"><label for="pfEmail">Email</label><input id="pfEmail" type="email" maxlength="80" placeholder="name@example.com" value="${esc(d.email)}"></div>
+      <label class="chk"><input type="checkbox" id="pfConsent"${d.consent?" checked":""}><span>我同意收到新品上架、最後預購通知（需有 Email，隨時可以取消）</span></label>
       <button class="btn btn-primary form-btn" id="pfSave" onclick="secureSave()">儲存變更</button>
       <p class="form-note" id="secNote">${esc(msg||"")}</p>
       <p class="form-note"><button class="linklike" onclick="secureLock()">鎖定個人資料（共用裝置建議使用）</button></p>`;
@@ -1194,20 +1218,22 @@ async function secureSave(){
   }
   const btn=$("pfSave");btn.disabled=true;secureNote("儲存中…");
   try{
-    const payload={action:"member_update",token:memberToken,name,city,email};
+    const consent=$("pfConsent").checked;
+    if(consent&&!email){secureNote("要收新品通知，請先填寫 Email。");$("pfSave").disabled=false;return;}
+    const payload={action:"member_update",token:memberToken,name,city,email,consent};
     if(phoneChanged)payload.phone=phoneDigits;
     const r=await secureApi(payload);
     if(r.ok){
-      secureData=Object.assign({},secureData,{name,city,email});
+      secureData=Object.assign({},secureData,{name,city,email,consent});
       member.name=name;member.city=city;member.email=email;
       if(r.phone){   // 手機換了：舊憑證作廢，換新憑證；購買紀錄用新號碼重抓
-        member.phone=r.phone;secureData.phone=r.phone;saveToken(r.token);secureData=Object.assign({},secureData,{name,city,email,phone:r.phone});ordersData=null;
+        member.phone=r.phone;secureData.phone=r.phone;saveToken(r.token);secureData=Object.assign({},secureData,{name,city,email,consent,phone:r.phone});ordersData=null;
       }
       saveSession();updateAccountUI();
       renderMember();showToast(r.changed?(r.phone?"資料已更新，請用新手機號碼登入":"資料已更新"):"資料沒有變動");return;
     }
     if(r.error==="auth"){saveToken("");renderEditBox("驗證已過期，請重新驗證。");return;}
-    secureNote(({bad_email:"Email 格式不正確。",bad_phone:"手機格式不正確。",bad_name:"姓名不能空白。",
+    secureNote(({bad_email:"Email 格式不正確。",bad_phone:"手機格式不正確。",bad_name:"姓名不能空白。",consent_needs_email:"要收新品通知，請先填寫 Email。",
       phone_taken:"這支手機已經是其他會員，無法改成這個號碼。",
       phone_has_history:"這支手機已有其他紀錄，請用 LINE 聯絡我們協助更換。",
       rate_limited:"操作太快，請稍後再試。"})[r.error]||"儲存失敗，請稍後再試。");
@@ -1723,7 +1749,7 @@ function maybeShowWelcome(){
   setTimeout(()=>{if(!member)$("welcomeModal").classList.add("open");},700);
 }
 $("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
-loadSession();updateAccountUI();renderCart();route();maybeShowWelcome();
+captureSource();loadSession();updateAccountUI();renderCart();route();maybeShowWelcome();
 ensureProducts();   // 不等切到產品頁，一進站就先在背景抓商品資料
 setTimeout(()=>{ensureReviews();if(typeof renderShare==="function"&&API_URL&&SHARE_POSTS===null){try{const c=JSON.parse(localStorage.getItem("xtr_posts_v1")||"null");if(!c)fetch(API_URL+"?action=posts&site="+SHARE_SITE).then(r=>r.json()).then(a=>{if(Array.isArray(a))localStorage.setItem("xtr_posts_v1",JSON.stringify(a));}).catch(()=>{});}catch(e){}}},1500);   // 稍後在背景預抓風味評分與分享文章
 </script>
