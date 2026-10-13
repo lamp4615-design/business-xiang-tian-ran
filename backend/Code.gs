@@ -92,28 +92,21 @@ function safeText_(s, max){
   return /^[=+\-@]/.test(s) ? "'" + s : s;
 }
 
-/* 同一個 key 在 seconds 秒內只放行一次（用 CacheService，免費） */
+/* 同一個 key 在 seconds 秒內只放行一次（用 CacheService，免費）。
+   刻意不用 LockService：這只是防洗版計數，極端同時請求多放行一次無妨；搶全站鎖反而會讓一般請求互相卡住。 */
 function rateLimit_(key, seconds){
-  const lock = LockService.getScriptLock();
-  lock.waitLock(5000);
-  try{
-    const cache = CacheService.getScriptCache();
-    if (cache.get(key)) return false;
-    cache.put(key, "1", seconds);
-    return true;
-  } finally { lock.releaseLock(); }
+  const cache = CacheService.getScriptCache();
+  if (cache.get(key)) return false;
+  cache.put(key, "1", seconds);
+  return true;
 }
-/* 全站總量上限：seconds 秒內最多 max 次，避免有人灌爆你的信箱與試算表 */
+/* 全站總量上限：seconds 秒內最多 max 次，避免有人灌爆你的信箱與試算表（同上，不搶鎖，數字是近似值） */
 function globalCap_(key, max, seconds){
-  const lock = LockService.getScriptLock();
-  lock.waitLock(5000);
-  try{
-    const cache = CacheService.getScriptCache();
-    const n = Number(cache.get(key) || 0);
-    if (n >= max) return false;
-    cache.put(key, String(n + 1), seconds);
-    return true;
-  } finally { lock.releaseLock(); }
+  const cache = CacheService.getScriptCache();
+  const n = Number(cache.get(key) || 0);
+  if (n >= max) return false;
+  cache.put(key, String(n + 1), seconds);
+  return true;
 }
 
 /* ========================= 會員資料欄位升級：會員編號／行銷同意／來源／狀態 =========================
@@ -163,32 +156,31 @@ function ensureMemberSchema_(ss, locked){
   return memberCols_(sh);
 }
 
-/* 既有會員補齊：編號、狀態；行銷同意——加入表單當初就寫明「填 Email＝想收新品上架通知」，所以有有效 Email 的視為已同意 */
+/* 既有會員補齊：編號、狀態；行銷同意——加入表單當初就寫明「填 Email＝想收新品上架通知」，所以有有效 Email 的視為已同意。
+   整欄一次寫入（setValues），不逐格呼叫：資料再多也只要幾次試算表操作，不會長時間佔著鎖。 */
 function migrateMembers_(ss, sh, cols){
   if (sh.getLastRow() < 2) return;
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  const n = sh.getLastRow() - 1;
+  const rows = sh.getRange(2, 1, n, sh.getLastColumn()).getValues();
+  const idI = cols["會員編號"] - 1, stI = cols["狀態"] - 1, cI = cols["行銷同意"] - 1, tI = cols["同意時間"] - 1;
   let nextN = 0;
-  rows.forEach(r => { const m = /^M(\d+)$/.exec(String(r[cols["會員編號"] - 1] || "").trim()); if (m) nextN = Math.max(nextN, Number(m[1])); });
+  rows.forEach(r => { const m = /^M(\d+)$/.exec(String(r[idI] || "").trim()); if (m) nextN = Math.max(nextN, Number(m[1])); });
   let granted = 0;
-  rows.forEach((r, i) => {
-    const row = i + 2;
+  rows.forEach(r => {
     if (!r[0] && !r[1] && !r[2]) return;   // 空列
-    if (!String(r[cols["會員編號"] - 1] || "").trim()){
-      nextN++;
-      sh.getRange(row, cols["會員編號"]).setValue("M" + ("000" + nextN).slice(-Math.max(4, String(nextN).length)));
-    }
-    if (!String(r[cols["狀態"] - 1] || "").trim()) sh.getRange(row, cols["狀態"]).setValue("正常");
-    const cur = r[cols["行銷同意"] - 1];
-    if (cur === "" || cur == null){
+    if (!String(r[idI] || "").trim()){ nextN++; r[idI] = "M" + ("000" + nextN).slice(-Math.max(4, String(nextN).length)); }
+    if (!String(r[stI] || "").trim()) r[stI] = "正常";
+    if (r[cI] === "" || r[cI] == null){
       const ok = EMAIL_RE.test(String(r[4] || "").trim());
-      sh.getRange(row, cols["行銷同意"]).setValue(ok);
-      if (ok){ sh.getRange(row, cols["同意時間"]).setValue(r[0] || new Date()); granted++; }
+      r[cI] = ok;
+      if (ok){ r[tI] = r[0] || new Date(); granted++; }
     }
   });
+  [idI, stI, cI, tI].forEach(ci => sh.getRange(2, ci + 1, n, 1).setValues(rows.map(r => [r[ci]])));
   if (granted) logChange_(ss, "", "行銷同意", "", "既有 " + granted + " 位會員自動補登為同意", "系統", "加入表單註明填 Email 即同意收新品通知；會員可隨時取消");
 }
 
-/* 把訂單補上會員編號（依手機對應）；之後新訂單會自己帶 */
+/* 把訂單補上會員編號（依手機對應）；之後新訂單會自己帶。整欄一次寫入。 */
 function stampOrderIds_(ss){
   const msh = ss.getSheetByName(MEMBERS_TAB), osh = ss.getSheetByName(ORDERS_TAB);
   if (!msh || !osh || osh.getLastRow() < 2) return;
@@ -199,11 +191,15 @@ function stampOrderIds_(ss){
   const head = rows[0].map(h => String(h).trim());
   const pI = head.indexOf("手機"), idI = head.indexOf("會員編號");
   if (pI < 0 || idI < 0) return;
+  let changed = false;
+  const col = [];
   for (let i = 1; i < rows.length; i++){
-    if (String(rows[i][idI] || "").trim()) continue;
-    const id = idByKey[normPhone_(rows[i][pI])];
-    if (id) osh.getRange(i + 1, idI + 1).setValue(id);
+    const cur = String(rows[i][idI] || "").trim();
+    const id = cur || idByKey[normPhone_(rows[i][pI])] || "";
+    if (id && !cur) changed = true;
+    col.push([id || rows[i][idI] || ""]);
   }
+  if (changed) osh.getRange(2, idI + 1, col.length, 1).setValues(col);
 }
 
 /* 手動執行一次也可以（Apps Script 選 setupMemberFields → 執行）：補齊欄位、編號、同意紀錄 */
@@ -416,7 +412,7 @@ function verifyCode(d){
   const code = String(d.code || "").replace(/\D/g, "");
   if (key.length < 8 || key.length > 12 || code.length !== 6) return { ok:false, error:"bad_code" };
   const lock = LockService.getScriptLock();
-  lock.waitLock(5000);
+  try{ lock.waitLock(5000); }catch(err){ return { ok:false, error:"busy" }; }
   try{
     const c = CacheService.getScriptCache();
     const n = Number(c.get("otpn_" + key) || 0);

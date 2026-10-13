@@ -1089,7 +1089,13 @@ async function submitJoin(){
    驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後修改都帶憑證。 */
 const CITIES=["台北市","新北市","基隆市","桃園市","新竹市","新竹縣","苗栗縣","台中市","彰化縣","南投縣","雲林縣","嘉義市","嘉義縣","台南市","高雄市","屏東縣","宜蘭縣","花蓮縣","台東縣","澎湖縣","金門縣","連江縣"];
 const LINE_URL="https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
-let memberToken="",secureData=null,secureLoading=false,ordersData=null,ordersFor="",ordersLoading=false;
+let memberToken="",secureData=null,secureLoading=false,ordersData=null,ordersFor="",ordersLoading=false,ordersStale=false,ordersAuto=false;
+let ORDERS_RETRY_MS=2500;   // 讀取失敗（Google 伺服器偶爾很慢或暫時出錯）時自動重試的間隔
+const ordersCacheKey=k=>"xn_orders_"+k;
+function readOrdersCache(k){try{const a=JSON.parse(localStorage.getItem(ordersCacheKey(k))||"null");return Array.isArray(a)?a:null;}catch(e){return null;}}
+function saveOrdersCache(k,a){try{localStorage.setItem(ordersCacheKey(k),JSON.stringify(a));}catch(e){}}
+function clearOrdersCache(){try{Object.keys(localStorage).filter(k=>k.indexOf("xn_orders_")===0).forEach(k=>localStorage.removeItem(k));}catch(e){}}
+function resetOrders(){ordersData=null;ordersStale=false;ordersAuto=false;}
 const normPhoneJs=s=>String(s||"").replace(/\D/g,"").replace(/^0+/,"");
 function loadToken(){try{memberToken=localStorage.getItem("xn_token")||"";}catch(e){}}
 function saveToken(t){memberToken=t||"";if(!t)secureData=null;try{t?localStorage.setItem("xn_token",t):localStorage.removeItem("xn_token");}catch(e){}}
@@ -1112,31 +1118,45 @@ function renderSecure(msg){
   renderEditBox(msg);
 }
 
-/* ----- 購買紀錄（免驗證）----- */
+/* ----- 購買紀錄（免驗證）-----
+   Google 伺服器偶爾很慢或暫時出錯，所以：先顯示上次存在這台裝置的紀錄、讀取失敗自動重試 3 次、都失敗也不會卡死。 */
 function renderOrdersBox(){
   const box=$("mcOrders");if(!box)return;
   const mine=normPhoneJs(member.phone);
-  if(ordersData!==null&&ordersFor!==mine)ordersData=null;   // 換了帳號，重抓
+  if(ordersData!==null&&ordersFor!==mine)resetOrders();   // 換了帳號，重抓
   if(ordersData===null){
-    box.innerHTML='<h4>購買紀錄</h4><p class="mc-sec-p">讀取中…</p>';
-    if(!ordersLoading)loadOrders();
+    const c=readOrdersCache(mine);
+    if(c){ordersData=c;ordersFor=mine;ordersStale=true;}   // 先顯示上次的紀錄，背景再更新
+  }
+  if(ordersData===null){
+    box.innerHTML='<h4>購買紀錄</h4><p class="mc-sec-p">讀取中…（Google 伺服器偶爾較慢，請稍候）</p>';
+    if(!ordersLoading&&!ordersAuto)loadOrders();
     return;
   }
-  box.innerHTML='<h4>購買紀錄</h4>'+(ordersData.length?ordersData.map(o=>`<div class="ord"><div class="ord-top"><span class="ord-d">${esc(fmtDate(o.time))}</span><span class="ord-s ${ORD_CLS[o.status]||"wait"}">${esc(o.status)}</span></div>
+  const note=ordersStale?(ordersLoading?'<p class="mc-sec-p">更新中…</p>':'<p class="mc-sec-p">目前顯示上次載入的紀錄，<button class="linklike" onclick="loadOrders()">重新整理</button></p>'):"";
+  box.innerHTML='<h4>購買紀錄</h4>'+note+(ordersData.length?ordersData.map(o=>`<div class="ord"><div class="ord-top"><span class="ord-d">${esc(fmtDate(o.time))}</span><span class="ord-s ${ORD_CLS[o.status]||"wait"}">${esc(o.status)}</span></div>
       <div class="ord-i">${esc(o.items)}</div><div class="ord-t">NT$ ${Number(o.total).toLocaleString()}</div></div>`).join(""):'<p class="mc-sec-p">還沒有購買紀錄。</p>');
+  if(ordersStale&&!ordersLoading&&!ordersAuto)loadOrders();
 }
-async function loadOrders(){
-  ordersLoading=true;
+async function loadOrders(attempt){
+  attempt=typeof attempt==="number"?attempt:0;
+  ordersLoading=true;ordersAuto=true;
   const mine=normPhoneJs(member.phone);
+  if(attempt===0&&ordersData!==null)renderOrdersBox();   // 重新整理時，把「更新中…」顯示出來
+  let fail="";
   try{
     const r=await secureApi({action:"member_orders",phone:member.phone});
-    if(r.ok){ordersData=r.orders||[];ordersFor=mine;ordersLoading=false;renderOrdersBox();return;}
-    ordersLoading=false;
-    const box=$("mcOrders");if(box)box.innerHTML=`<h4>購買紀錄</h4><p class="mc-sec-p">${r.error==="rate_limited"||r.error==="busy"?"目前查詢人數較多，":"讀取失敗，"}請<button class="linklike" onclick="renderOrdersBox()">再試一次</button>。</p>`;
-  }catch(e){
-    ordersLoading=false;
-    const box=$("mcOrders");if(box)box.innerHTML=`<h4>購買紀錄</h4><p class="mc-sec-p">讀取失敗，請<button class="linklike" onclick="renderOrdersBox()">再試一次</button>。</p>`;
+    if(r.ok){ordersData=r.orders||[];ordersFor=mine;ordersStale=false;ordersLoading=false;saveOrdersCache(mine,ordersData);renderOrdersBox();return;}
+    fail=r.error||"fail";
+  }catch(e){fail="net";}
+  if(attempt<2){   // 稍等再試，最多 3 次；等的時候畫面維持「讀取中／更新中」
+    setTimeout(()=>{if(member&&normPhoneJs(member.phone)===mine)loadOrders(attempt+1);},ORDERS_RETRY_MS*(attempt+1));
+    return;
   }
+  ordersLoading=false;
+  if(ordersData!==null){renderOrdersBox();return;}   // 手上有舊紀錄就繼續顯示，並提示是上次的
+  const box=$("mcOrders");
+  if(box)box.innerHTML=`<h4>購買紀錄</h4><p class="mc-sec-p">暫時讀取不到（${fail==="rate_limited"||fail==="busy"?"目前查詢人數較多":"Google 伺服器忙碌"}），請<button class="linklike" onclick="loadOrders()">再試一次</button>。</p>`;
 }
 
 /* ----- 修改資料（需驗證）----- */
@@ -1227,7 +1247,7 @@ async function secureSave(){
       secureData=Object.assign({},secureData,{name,city,email,consent});
       member.name=name;member.city=city;member.email=email;
       if(r.phone){   // 手機換了：舊憑證作廢，換新憑證；購買紀錄用新號碼重抓
-        member.phone=r.phone;secureData.phone=r.phone;saveToken(r.token);secureData=Object.assign({},secureData,{name,city,email,consent,phone:r.phone});ordersData=null;
+        member.phone=r.phone;secureData.phone=r.phone;saveToken(r.token);secureData=Object.assign({},secureData,{name,city,email,consent,phone:r.phone});resetOrders();clearOrdersCache();
       }
       saveSession();updateAccountUI();
       renderMember();showToast(r.changed?(r.phone?"資料已更新，請用新手機號碼登入":"資料已更新"):"資料沒有變動");return;
@@ -1242,7 +1262,7 @@ async function secureSave(){
 }
 function secureLock(){saveToken("");renderEditBox();showToast("已鎖定個人資料");}
 function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();}
-function logout(){member=null;saveToken("");ordersData=null;try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
+function logout(){member=null;saveToken("");resetOrders();clearOrdersCache();try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
   const lbl=$("accountLabel");if(lbl)lbl.textContent=member?member.name:"會員";
   const m=$("menuAccount");if(m)m.innerHTML=member?`${esc(member.name)} · <button class="linklike" onclick="logout()">登出</button>`:"尚未登入";
