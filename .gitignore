@@ -1,0 +1,14 @@
+# 工作用素材與工具：不是網站的一部分，不要上傳到公開的 GitHub Pages
+# （裡面有 39MB 的原始圖、貼紙排版工具，輸出資料夾還可能有客人姓名的檔案）
+/咖啡標籤/
+/咖啡QRcode/
+/貼紙排版/
+/分享天地/
+
+# 套件與暫存
+node_modules/
+*.zip
+*.docx
+Thumbs.db
+desktop.ini
+.DS_Store
