@@ -270,6 +270,70 @@ function stampOrderIds_(ss){
   if (changed) osh.getRange(2, idI + 1, col.length, 1).setValues(col);
 }
 
+/* 資料健檢（只讀不寫）：找出重複的手機、格式不對的手機、沒有手機的會員。
+   手機是登入帳號，重複會讓兩個人互相看到對方的資料，格式不對則查不到購買紀錄。 */
+function memberWarnings_(ss){
+  const sh = ss.getSheetByName(MEMBERS_TAB);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const rows = sh.getDataRange().getValues();
+  const head = rows[0].map(h => String(h).trim());
+  const ix = n => head.indexOf(n);
+  const out = [], seen = {};
+  for (let i = 1; i < rows.length; i++){
+    const r = rows[i];
+    if (!r[0] && !r[1] && !r[2]) continue;
+    if (ix("狀態") > -1 && String(r[ix("狀態")]).trim() === "已刪除") continue;
+    const idv = ix("會員編號") > -1 ? String(r[ix("會員編號")] || "") : "";
+    const label = String(r[1] || "(沒有姓名)") + (/^M\d+$/.test(idv) ? "（" + idv + "）" : "");
+    const key = normPhone_(r[2]);
+    if (!key){ out.push({ type:"no_phone", text: label + " 沒有手機號碼" }); continue; }
+    if (key.length < 8 || key.length > 12) out.push({ type:"bad_phone", text: label + " 的手機「" + r[2] + "」格式不正確（需 8～12 碼，不含開頭的 0）" });
+    (seen[key] = seen[key] || []).push(label);
+  }
+  Object.keys(seen).forEach(k => { if (seen[k].length > 1) out.push({ type:"dup_phone", text: "手機重複：" + seen[k].join("、") + " 用了同一個號碼（請改成不同的手機）" }); });
+  return out;
+}
+
+/* 結構健檢（只讀不寫），回傳文字清單；給 repairMembers 與除錯用 */
+function diagnoseMembers_(ss){
+  const out = [];
+  const sh = ss.getSheetByName(MEMBERS_TAB);
+  if (!sh){ out.push("找不到 members 分頁"); return out; }
+  const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].map(h => String(h).trim());
+  out.push("members 標題列：" + head.join(" | "));
+  if (head[4] === "會員編號") out.push("⚠ 第 5 欄（原本放 Email）的標題是「會員編號」：舊版把編號寫進了 Email 欄，需要修復");
+  const idI = head.indexOf("會員編號");
+  if (idI > -1 && sh.getLastRow() > 1){
+    const vals = sh.getRange(2, idI + 1, sh.getLastRow() - 1, 1).getValues().map(r => String(r[0] || "").trim()).filter(Boolean);
+    const bad = vals.filter(v => !/^M\d+$/.test(v)).length;
+    out.push("會員編號欄共 " + vals.length + " 筆，其中 " + bad + " 筆不是 M 開頭的編號" + (bad ? "（多半是 Email 被蓋掉）" : ""));
+  }
+  const osh = ss.getSheetByName(ORDERS_TAB);
+  if (osh && osh.getLastRow() > 1){
+    const oh = osh.getRange(1, 1, 1, Math.max(osh.getLastColumn(), 1)).getValues()[0].map(h => String(h).trim());
+    const oi = oh.indexOf("會員編號");
+    if (oi < 0) out.push("orders 還沒有會員編號欄");
+    else {
+      const bad = osh.getRange(2, oi + 1, osh.getLastRow() - 1, 1).getValues().map(r => String(r[0] || "").trim()).filter(v => v && !/^M\d+$/.test(v)).length;
+      out.push("orders 會員編號欄：" + bad + " 筆不是 M 開頭的編號" + (bad ? "（需要修復）" : "，正常"));
+    }
+  }
+  memberWarnings_(ss).forEach(w => out.push("⚠ " + w.text));
+  return out;
+}
+
+/* 手動執行（Apps Script 編輯器上方選 repairMembers → 按「執行」）：檢查並修復會員欄位，
+   結果寫在下方「執行記錄」。可重複執行，已經正常的資料不會被動到。 */
+function repairMembers(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const before = diagnoseMembers_(ss);
+  Logger.log("===== 修復前 =====\n" + before.join("\n"));
+  ensureMemberSchema_(ss, false);
+  const after = diagnoseMembers_(ss);
+  Logger.log("===== 修復後 =====\n" + after.join("\n"));
+  return after.join("\n");
+}
+
 /* 手動執行一次也可以（Apps Script 選 setupMemberFields → 執行）：補齊欄位、編號、同意紀錄 */
 function setupMemberFields(){ ensureMemberSchema_(SpreadsheetApp.openById(SHEET_ID), false); }
 
@@ -1069,7 +1133,7 @@ function adminHandle(d){
     // 一次回傳後台需要的全部資料（原本要連線 3 次，現在 1 次）
     if (d.action === "admin_all") return { ok:true, orders:adminListOrders(ss), costs:adminListCosts(ss), posts:listPosts(ss, "", false) };
     if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
-    if (d.action === "admin_members") { ensureMemberSchema_(ss, false); return { ok:true, members:adminMembers(ss) }; }
+    if (d.action === "admin_members") { ensureMemberSchema_(ss, false); return { ok:true, members:adminMembers(ss), warnings:memberWarnings_(ss) }; }
     if (d.action === "admin_member_detail") { ensureMemberSchema_(ss, false); return adminMemberDetail(ss, d); }
     if (d.action === "admin_member_update") return adminMemberUpdate(ss, d);
     if (d.action === "admin_note_add") return adminNoteAdd(ss, d);

@@ -51,6 +51,8 @@ h3{margin:18px 0 8px;font-size:16px}
 .toast.show{opacity:1}
 @media (prefers-color-scheme:dark){.toast{color:#10211a}}
 .sub{color:var(--mute);font-size:13px}
+.warnbox{border:1px solid var(--red);background:rgba(180,69,47,.08);border-radius:12px;padding:12px 16px;margin-bottom:14px;line-height:1.7}
+.warnbox b{color:var(--red)}.warnbox ul{margin:6px 0 0;padding-left:20px}
 .seg-vip{color:#a8741a;border-color:#a8741a}.seg-active{color:var(--ok);border-color:var(--ok)}.seg-watch{color:var(--orange);border-color:var(--orange)}.seg-dormant{color:var(--red);border-color:var(--red)}.seg-never{color:var(--mute)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:auto}
 .modal[hidden]{display:none}
@@ -140,6 +142,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
   </section>
 
   <section class="panel" id="t-members" hidden>
+    <div id="memWarn"></div>
     <div class="cards" id="memCards"></div>
     <div class="tools">
       <input id="memSearch" placeholder="搜尋姓名／手機／Email／地區" oninput="renderMembers()" style="min-width:220px">
@@ -488,7 +491,7 @@ async function delCost(row){
             ＋ member_log（資料異動紀錄）＋ member_notes（客服紀錄）。會員以「會員編號」識別，手機只是登入帳號。
    分類：活躍＝60 天內有下單；觀望＝61～90 天；沉睡＝超過 90 天沒下單；從未購買＝註冊後沒有任何（未取消的）訂單；
         高價值回購客＝已完成 3 單以上、而且近 90 天還有買。 */
-let MEMBERS=[],MEM_LOADED=false,MEM_CUR=null,MEM_DETAIL=null,NOTE_CATS=["物流配送","商品品質","使用方式","退款退貨","訂單問題","其他","一般備註"];
+let MEMBERS=[],MEM_WARN=[],MEM_LOADED=false,MEM_CUR=null,MEM_DETAIL=null,NOTE_CATS=["物流配送","商品品質","使用方式","退款退貨","訂單問題","其他","一般備註"];
 const DAY=86400000;
 const mDate=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")}`:"—";};
 const mDateTime=iso=>{const d=iso?new Date(iso):null;return d&&!isNaN(d)?mDate(iso)+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"):"—";};
@@ -503,10 +506,11 @@ const SEG_LABEL={never:"從未購買",active:"活躍",watch:"觀望",dormant:"�
 const srcOf=m=>m.source||"未記錄";
 async function loadMembers(){
   $("memSum").textContent="讀取中…";
-  try{const d=await api({action:"admin_members"});MEMBERS=d.members||[];MEM_LOADED=true;renderMembers();}
+  try{const d=await api({action:"admin_members"});MEMBERS=d.members||[];MEM_WARN=d.warnings||[];MEM_LOADED=true;renderMembers();}
   catch(e){$("memSum").textContent="";toast("讀取會員失敗："+e.message);}
 }
 function renderMembers(){
+  $("memWarn").innerHTML=MEM_WARN.length?`<div class="warnbox"><b>⚠ 有 ${MEM_WARN.length} 項會員資料需要處理</b><ul>${MEM_WARN.map(w=>`<li>${esc(w.text)}</li>`).join("")}</ul><div class="sub">手機是登入帳號：重複的號碼會讓兩個人互相看到對方的資料，格式不對則查不到購買紀錄。請在該會員的「詳情」裡把手機改成正確且不重複的號碼。</div></div>`:"";
   const now=new Date(),cur=ym(now);
   const card=(k,v,sub="")=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="sub">${sub}</div>`:""}</div>`;
   const total=MEMBERS.length,withEmail=MEMBERS.filter(m=>m.email).length,consent=MEMBERS.filter(m=>m.consent).length;
