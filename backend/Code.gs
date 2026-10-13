@@ -136,6 +136,70 @@ function nextMemberId_(sh, idCol){
   return "M" + ("000" + (max + 1)).slice(-Math.max(4, String(max + 1).length));
 }
 
+/* members 前 5 欄是固定的核心欄位；標題若是空白（例如 Email 欄沒寫標題）就補上，才不會被誤認成空欄 */
+const MEMBER_CORE_HEADERS = ["建立時間", "姓名", "手機", "所在地區", "Email"];
+function ensureCoreHeaders_(sh){
+  const head = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), MEMBER_CORE_HEADERS.length)).getValues()[0].map(h => String(h).trim());
+  MEMBER_CORE_HEADERS.forEach((h, i) => { if (!head[i]) sh.getRange(1, i + 1).setValue(h); });
+}
+
+/* 修復：舊版把「會員編號」欄放到第 5 欄（Email 欄）的情形。
+   ① 第 5 欄標題還原成 Email；② 編號搬到獨立的新欄（原本就是 M 開頭編號的沿用，其餘依序補）；
+   ③ 第 5 欄裡的編號清掉，Email 原樣保留；④ 訂單／客服紀錄上被蓋成 Email 的會員編號，依手機／Email 換成新編號。整段都是整欄一次寫入。 */
+function repairMemberIdColumn_(ss){
+  const sh = ss.getSheetByName(MEMBERS_TAB);
+  const lastCol = sh.getLastColumn(), n = sh.getLastRow() - 1;
+  const rows = n > 0 ? sh.getRange(2, 1, n, lastCol).getValues() : [];
+  const pad = k => "M" + ("000" + k).slice(-Math.max(4, String(k).length));
+  let maxN = 0;
+  rows.forEach(r => { const m = /^M(\d+)$/.exec(String(r[4]).trim()); if (m) maxN = Math.max(maxN, Number(m[1])); });
+  const emailCol = [], idCol = [], emailToId = {}, phoneToId = {};
+  rows.forEach(r => {
+    const v = String(r[4] == null ? "" : r[4]).trim(), isId = /^M\d+$/.test(v), has = r[0] || r[1] || r[2];
+    let id = "";
+    if (isId) id = v;
+    else if (has){ maxN++; id = pad(maxN); if (v) emailToId[v.toLowerCase()] = id; }
+    emailCol.push([isId ? "" : (r[4] == null ? "" : r[4])]);
+    idCol.push([id]);
+    const k = normPhone_(r[2]);
+    if (k && id) phoneToId[k] = id;
+  });
+  const newCol = lastCol + 1;
+  sh.getRange(1, 5).setValue("Email");
+  sh.getRange(1, newCol).setValue("會員編號");
+  if (n > 0){
+    sh.getRange(2, 5, n, 1).setValues(emailCol);
+    sh.getRange(2, newCol, n, 1).setValues(idCol);
+  }
+  // 訂單：會員編號不是 M 開頭的（被蓋成 Email 或空白），依手機重蓋
+  const osh = ss.getSheetByName(ORDERS_TAB);
+  if (osh && osh.getLastRow() > 1){
+    const orows = osh.getDataRange().getValues();
+    const oh = orows[0].map(h => String(h).trim());
+    const pI = oh.indexOf("手機"), iI = oh.indexOf("會員編號");
+    if (pI > -1 && iI > -1){
+      let changed = false;
+      const col = orows.slice(1).map(r => {
+        const cur = String(r[iI] || "").trim();
+        if (/^M\d+$/.test(cur)) return [cur];
+        const id = phoneToId[normPhone_(r[pI])] || "";
+        if (id !== cur) changed = true;
+        return [id];
+      });
+      if (changed) osh.getRange(2, iI + 1, col.length, 1).setValues(col);
+    }
+  }
+  // 客服紀錄：會員編號欄若記成了 Email，換成新編號
+  const nsh = ss.getSheetByName(NOTES_TAB);
+  if (nsh && nsh.getLastRow() > 1){
+    const nrows = nsh.getRange(2, 2, nsh.getLastRow() - 1, 1).getValues();
+    let changed = false;
+    const col = nrows.map(r => { const v = String(r[0] || "").trim(); const id = emailToId[v.toLowerCase()]; if (id){ changed = true; return [id]; } return [r[0]]; });
+    if (changed) nsh.getRange(2, 2, col.length, 1).setValues(col);
+  }
+  logChange_(ss, "", "會員編號欄位修復", "", "已把會員編號從 Email 欄移到獨立欄位，Email 原樣保留", "系統", "舊版欄位位置有誤");
+}
+
 /* 確保欄位齊全；缺的就補、既有會員一次補齊。locked=true 表示呼叫端已經在鎖裡（Apps Script 的鎖不能巢狀）。
    回傳欄位對照表。 */
 function ensureMemberSchema_(ss, locked){
@@ -143,10 +207,14 @@ function ensureMemberSchema_(ss, locked){
   if (!sh) return null;
   const orders = ss.getSheetByName(ORDERS_TAB);
   let cols = memberCols_(sh);
-  if (MEMBER_FIELDS.every(n => cols[n]) && (!orders || hasHeader_(orders, "會員編號"))) return cols;
+  const coreOk = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 5)).getValues()[0].slice(0, 5).every(h => String(h).trim());
+  const misplaced = cols["會員編號"] === 5;   // 舊版錯誤：編號欄被放到 Email 欄
+  if (coreOk && !misplaced && MEMBER_FIELDS.every(n => cols[n]) && (!orders || hasHeader_(orders, "會員編號"))) return cols;
   const lock = locked ? null : LockService.getScriptLock();
   if (lock) lock.waitLock(20000);
   try{
+    if (misplaced) repairMemberIdColumn_(ss);
+    ensureCoreHeaders_(sh);
     MEMBER_FIELDS.forEach(n => ensureCol_(sh, n));
     if (orders) ensureCol_(orders, "會員編號");
     cols = memberCols_(sh);
@@ -666,7 +734,7 @@ function ensureCol_(sh, name){
   const head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
   const i = head.indexOf(name);
   if (i > -1) return { col: i + 1, created: false };
-  const col = head.filter(String).length + 1;
+  const col = sh.getLastColumn() + 1;   // 永遠接在最後一個有內容的欄右邊，不會蓋到既有資料
   sh.getRange(1, col).setValue(name);
   return { col: col, created: true };
 }

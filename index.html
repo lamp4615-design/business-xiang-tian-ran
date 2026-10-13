@@ -1148,6 +1148,12 @@ async function loadOrders(attempt){
     const r=await secureApi({action:"member_orders",phone:member.phone});
     if(r.ok){ordersData=r.orders||[];ordersFor=mine;ordersStale=false;ordersLoading=false;saveOrdersCache(mine,ordersData);renderOrdersBox();return;}
     fail=r.error||"fail";
+    if(fail==="bad phone"){   // 這支手機號碼格式不對（例如舊的測試帳號只有 5 碼），重試也沒用
+      ordersLoading=false;
+      const bx=$("mcOrders");
+      if(bx)bx.innerHTML=`<h4>購買紀錄</h4><p class="mc-sec-p">這個帳號登記的手機號碼格式不正確，沒辦法查詢購買紀錄。請<a href="${LINE_URL}" target="_blank" rel="noopener">用 LINE 聯絡我們</a>，幫你更正成正確的手機號碼。</p>`;
+      return;
+    }
   }catch(e){fail="net";}
   if(attempt<2){   // 稍等再試，最多 3 次；等的時候畫面維持「讀取中／更新中」
     setTimeout(()=>{if(member&&normPhoneJs(member.phone)===mine)loadOrders(attempt+1);},ORDERS_RETRY_MS*(attempt+1));
