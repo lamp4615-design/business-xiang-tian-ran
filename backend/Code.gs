@@ -145,6 +145,7 @@ function doPost(e){
     if (d.action === "review") return json(addReview(d));
     if (d.action === "member_code_request") return json(requestCode(d));
     if (d.action === "member_code_verify")  return json(verifyCode(d));
+    if (d.action === "member_orders")       return json(memberOrders(d));
     if (d.action === "member_profile")      return json(memberProfile(d));
     if (d.action === "member_update")       return json(memberUpdate(d));
     if (String(d.action || "").indexOf("admin_") === 0) return json(adminHandle(d));
@@ -308,6 +309,19 @@ function readOrders_(ss){
 }
 const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags });
 
+/* 登入後看自己的購買紀錄（不需驗證碼）：只回傳訂單內容，不含姓名／地址／Email。
+   加上限速，避免有人拿一堆手機號碼來批次探測。 */
+function memberOrders(d){
+  const key = normPhone_(d.phone);
+  if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
+  if (!rateLimit_("mo_" + key, 3)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("mo_all", 120, 600)) return { ok:false, error:"busy" };
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  if (!lookupMember_(ss, d.phone)) return { ok:true, orders:[] };
+  const orders = readOrders_(ss).filter(o => o.key === key).sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 100).map(orderView_);
+  return { ok:true, orders:orders };
+}
+
 /* 會員本人：取得完整資料＋購買紀錄＋點數 */
 function memberProfile(d){
   const key = verifyToken_(d.token);
@@ -331,7 +345,36 @@ function logChange_(ss, phone, field, oldV, newV, by, note){
   setTextCell(sh, sh.getLastRow(), 2, phone);
 }
 
-/* 套用資料變更（姓名／地區／Email），回傳實際有變動的欄位數；本人與管理者共用 */
+/* 某支手機（去 0 後的 key）在 orders／points／reviews 是否已有紀錄 */
+function phoneHasHistory_(ss, key){
+  const spots = [[ORDERS_TAB, "手機"], [POINTS_TAB, 0], [REVIEWS_TAB, 1]];
+  for (let i = 0; i < spots.length; i++){
+    const sh = ss.getSheetByName(spots[i][0]);
+    if (!sh || sh.getLastRow() < 2) continue;
+    const rows = sh.getDataRange().getValues();
+    const col = typeof spots[i][1] === "number" ? spots[i][1] : rows[0].map(h => String(h).trim()).indexOf(spots[i][1]);
+    if (col < 0) continue;
+    for (let r = 1; r < rows.length; r++) if (normPhone_(rows[r][col]) === key) return true;
+  }
+  return false;
+}
+/* 把這支手機名下所有紀錄改成新號碼（訂單、點數、評分、異動紀錄），歷史才不會斷掉 */
+function movePhone_(ss, oldKey, newPhone){
+  const spots = [[ORDERS_TAB, "手機"], [POINTS_TAB, 0], [REVIEWS_TAB, 1], [MEMBER_LOG_TAB, 1]];
+  spots.forEach(sp => {
+    const sh = ss.getSheetByName(sp[0]);
+    if (!sh || sh.getLastRow() < 2) return;
+    const rows = sh.getDataRange().getValues();
+    const col = typeof sp[1] === "number" ? sp[1] : rows[0].map(h => String(h).trim()).indexOf(sp[1]);
+    if (col < 0) return;
+    for (let r = 1; r < rows.length; r++){
+      if (normPhone_(rows[r][col]) === oldKey) setTextCell(sh, r + 1, col + 1, newPhone);
+    }
+  });
+}
+
+/* 套用資料變更（姓名／地區／Email／手機），回傳實際有變動的欄位數；本人與管理者共用。
+   手機是帳號：換號碼時，名下的訂單、點數、評分會一併轉移；新號碼若已是別人的會員就擋下。 */
 function applyMemberEdit_(ss, key, d, by){
   const sh = ss.getSheetByName(MEMBERS_TAB);
   const row = findMemberRow_(sh, key);
@@ -340,9 +383,28 @@ function applyMemberEdit_(ss, key, d, by){
   if (!name) return { ok:false, error:"bad_name" };
   if (email && !EMAIL_RE.test(email)) return { ok:false, error:"bad_email" };
   const old = sh.getRange(row, 1, 1, 5).getValues()[0];
-  const phone = String(old[2]);
+  let phone = String(old[2]);
+  // 先把所有檢查做完，再開始寫入（避免做一半失敗）
+  let newPhone = "";
+  if (d.phone != null && String(d.phone).trim() !== ""){
+    const digits = String(d.phone).replace(/\D/g, "");
+    const nk = normPhone_(digits);
+    if (nk !== key){
+      if (nk.length < 8 || nk.length > 12) return { ok:false, error:"bad_phone" };
+      if (findMemberRow_(sh, nk)) return { ok:false, error:"phone_taken" };
+      if (by !== "管理者" && phoneHasHistory_(ss, nk)) return { ok:false, error:"phone_has_history" };   // 新號碼已有別人的紀錄：請店家協助
+      newPhone = digits;
+    }
+  }
   const changes = [["姓名", String(old[1] || ""), name, 2], ["所在地區", String(old[3] || ""), city, 4], ["Email", String(old[4] || ""), email, 5]];
   let n = 0;
+  if (newPhone){
+    movePhone_(ss, key, newPhone);
+    setTextCell(sh, row, 3, newPhone);
+    logChange_(ss, newPhone, "手機", phone, newPhone, by);
+    phone = newPhone;
+    n++;
+  }
   changes.forEach(c => {
     if (c[1] === c[2]) return;
     sh.getRange(row, c[3]).setNumberFormat("@").setValue(c[2]);
@@ -350,7 +412,7 @@ function applyMemberEdit_(ss, key, d, by){
     n++;
   });
   if (n) sh.getRange(row, ensureCol_(sh, "更新時間").col).setValue(new Date());
-  return { ok:true, changed:n };
+  return newPhone ? { ok:true, changed:n, phone:newPhone } : { ok:true, changed:n };
 }
 
 /* 會員本人修改：姓名／所在地區／Email（手機是帳號，不能自己改） */
@@ -360,7 +422,11 @@ function memberUpdate(d){
   if (!rateLimit_("mu_" + key, 3)) return { ok:false, error:"rate_limited" };
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
-  try{ return applyMemberEdit_(SpreadsheetApp.openById(SHEET_ID), key, d, "會員本人"); }
+  try{
+    const r = applyMemberEdit_(SpreadsheetApp.openById(SHEET_ID), key, d, "會員本人");
+    if (r.ok && r.phone) r.token = signToken_(normPhone_(r.phone));   // 換了號碼，憑證要跟著換
+    return r;
+  }
   finally { lock.releaseLock(); }
 }
 
@@ -891,7 +957,8 @@ function adminMemberDetail(ss, d){
 function adminMemberUpdate(ss, d){
   const key = normPhone_(d.phone);
   if (!key) return { ok:false, error:"bad phone" };
-  return applyMemberEdit_(ss, key, d, "管理者");
+  // d.phone 是「要找的會員」；要改成的新號碼用 d.newPhone
+  return applyMemberEdit_(ss, key, Object.assign({}, d, { phone: d.newPhone }), "管理者");
 }
 
 function adminMemberCode(ss, d){

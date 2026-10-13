@@ -556,11 +556,12 @@ async function openMember(i){
     <h3>修改資料</h3>
     <div class="form">
       <label>姓名<input id="mdName" value="${esc(m.name)}" maxlength="40"></label>
+      <label>手機（登入帳號）<input id="mdPhone" value="${esc(m.phone)}" maxlength="20" inputmode="numeric"></label>
       <label>所在地區<input id="mdCity" value="${esc(m.city)}" maxlength="60"></label>
       <label>Email<input id="mdEmail" value="${esc(m.email)}" maxlength="80"></label>
       <button class="pri" onclick="saveMember()">儲存</button>
     </div>
-    <p class="sub">手機是會員帳號，這裡不能改（要換手機請直接在試算表 members 分頁處理）。每次修改都會記錄在下方「資料異動紀錄」。</p>
+    <p class="sub">換手機時，這位會員的訂單、點數、評分、異動紀錄會一併轉到新號碼（新號碼已是別的會員會被擋下）。每次修改都會記錄在下方「資料異動紀錄」。</p>
 
     <h3>協助會員驗證／調整點數</h3>
     <div class="tools">
@@ -588,10 +589,16 @@ function closeMember(){$("memModal").hidden=true;MEM_CUR=null;}
 async function saveMember(){
   const m=MEM_CUR;if(!m)return;
   try{
-    const r=await api({action:"admin_member_update",phone:m.phone,name:$("mdName").value,city:$("mdCity").value,email:$("mdEmail").value.trim()});
+    const newPhone=$("mdPhone").value.replace(/\D/g,"");
+    const phoneChanged=newPhone&&newPhone.replace(/^0+/,"")!==String(m.phone).replace(/\D/g,"").replace(/^0+/,"");
+    if(phoneChanged&&!confirm(`把 ${m.name} 的手機從 ${m.phone} 改成 ${newPhone}？\n訂單、點數、評分會一併轉到新號碼。`))return;
+    const payload={action:"admin_member_update",phone:m.phone,name:$("mdName").value,city:$("mdCity").value,email:$("mdEmail").value.trim()};
+    if(phoneChanged)payload.newPhone=newPhone;
+    const r=await api(payload);
     toast(r.changed?`已更新 ${r.changed} 個欄位`:"資料沒有變動");
-    await loadMembers();const i=MEMBERS.findIndex(x=>x.phone===m.phone);if(i>-1)openMember(i);
-  }catch(e){toast(({bad_email:"Email 格式不正確",bad_name:"姓名不能空白"})[e.message]||"儲存失敗："+e.message);}
+    const keep=r.phone||m.phone;
+    await loadMembers();const i=MEMBERS.findIndex(x=>x.phone===keep);if(i>-1)openMember(i);
+  }catch(e){toast(({bad_email:"Email 格式不正確",bad_name:"姓名不能空白",bad_phone:"手機格式不正確",phone_taken:"這支手機已是其他會員"})[e.message]||"儲存失敗："+e.message);}
 }
 async function issueCode(){
   const m=MEM_CUR;if(!m)return;

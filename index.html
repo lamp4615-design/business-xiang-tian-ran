@@ -1059,12 +1059,14 @@ async function submitJoin(){
     member={name,phone,city:addr,email};saveSession();afterAuth("歡迎加入，"+name);
   }catch(e){note.textContent="送出失敗，請稍後再試。";if($("joinBtn")){btn.disabled=false;btn.textContent="加入會員";}}
 }
-/* ---------- 會員資料安全區：購買紀錄／修改資料／補登 Email（需先驗證身分）----------
-   登入只靠手機號碼，所以要看個資得再驗證：① 寄驗證碼到會員登記的 Email；② 沒有 Email 時由店家給碼。
-   驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後查看／修改都帶憑證。 */
+/* ---------- 會員中心：購買紀錄（登入就看得到）＋ 修改資料（需先驗證身分）----------
+   購買紀錄：登入後直接顯示，只顯示訂單內容，不含地址／Email。
+   修改資料（姓名、手機、地區、Email）：登入只靠手機，所以要先驗證身分 ——
+     ① 寄驗證碼到會員登記的 Email；② 沒有 Email 時由店家給碼。
+   驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後修改都帶憑證。 */
 const CITIES=["台北市","新北市","基隆市","桃園市","新竹市","新竹縣","苗栗縣","台中市","彰化縣","南投縣","雲林縣","嘉義市","嘉義縣","台南市","高雄市","屏東縣","宜蘭縣","花蓮縣","台東縣","澎湖縣","金門縣","連江縣"];
 const LINE_URL="https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
-let memberToken="",secureData=null,secureLoading=false;
+let memberToken="",secureData=null,secureLoading=false,ordersData=null,ordersFor="",ordersLoading=false;
 const normPhoneJs=s=>String(s||"").replace(/\D/g,"").replace(/^0+/,"");
 function loadToken(){try{memberToken=localStorage.getItem("xn_token")||"";}catch(e){}}
 function saveToken(t){memberToken=t||"";if(!t)secureData=null;try{t?localStorage.setItem("xn_token",t):localStorage.removeItem("xn_token");}catch(e){}}
@@ -1080,36 +1082,69 @@ function secureNote(msg){const n=$("secNote");if(n)n.textContent=msg||"";}
 
 function renderSecure(msg){
   const box=$("mcSecure");if(!box||!member)return;
-  if(memberToken&&String(memberToken).split(".")[0]!==normPhoneJs(member.phone))saveToken("");   // 憑證不是這支手機的（換帳號登入）
   if(!API_URL){box.innerHTML="";return;}
+  if(memberToken&&String(memberToken).split(".")[0]!==normPhoneJs(member.phone))saveToken("");   // 憑證不是這支手機的（換帳號登入）
+  box.innerHTML='<div class="mc-sec" id="mcOrders"></div><div class="mc-sec" id="mcEdit"></div>';
+  renderOrdersBox();
+  renderEditBox(msg);
+}
+
+/* ----- 購買紀錄（免驗證）----- */
+function renderOrdersBox(){
+  const box=$("mcOrders");if(!box)return;
+  const mine=normPhoneJs(member.phone);
+  if(ordersData!==null&&ordersFor!==mine)ordersData=null;   // 換了帳號，重抓
+  if(ordersData===null){
+    box.innerHTML='<h4>購買紀錄</h4><p class="mc-sec-p">讀取中…</p>';
+    if(!ordersLoading)loadOrders();
+    return;
+  }
+  box.innerHTML='<h4>購買紀錄</h4>'+(ordersData.length?ordersData.map(o=>`<div class="ord"><div class="ord-top"><span class="ord-d">${esc(fmtDate(o.time))}</span><span class="ord-s ${ORD_CLS[o.status]||"wait"}">${esc(o.status)}</span></div>
+      <div class="ord-i">${esc(o.items)}</div><div class="ord-t">NT$ ${Number(o.total).toLocaleString()}</div></div>`).join(""):'<p class="mc-sec-p">還沒有購買紀錄。</p>');
+}
+async function loadOrders(){
+  ordersLoading=true;
+  const mine=normPhoneJs(member.phone);
+  try{
+    const r=await secureApi({action:"member_orders",phone:member.phone});
+    if(r.ok){ordersData=r.orders||[];ordersFor=mine;ordersLoading=false;renderOrdersBox();return;}
+    ordersLoading=false;
+    const box=$("mcOrders");if(box)box.innerHTML=`<h4>購買紀錄</h4><p class="mc-sec-p">${r.error==="rate_limited"||r.error==="busy"?"目前查詢人數較多，":"讀取失敗，"}請<button class="linklike" onclick="renderOrdersBox()">再試一次</button>。</p>`;
+  }catch(e){
+    ordersLoading=false;
+    const box=$("mcOrders");if(box)box.innerHTML=`<h4>購買紀錄</h4><p class="mc-sec-p">讀取失敗，請<button class="linklike" onclick="renderOrdersBox()">再試一次</button>。</p>`;
+  }
+}
+
+/* ----- 修改資料（需驗證）----- */
+function renderEditBox(msg){
+  const box=$("mcEdit");if(!box)return;
   if(!memberToken){
-    box.innerHTML=`<div class="mc-sec"><h4>我的資料與購買紀錄</h4>
-      <p class="mc-sec-p">為了保護你的個資，查看購買紀錄、修改資料或補登 Email 前，需要先驗證身分。</p>
+    box.innerHTML=`<h4>修改資料</h4>
+      <p class="mc-sec-p">要修改姓名、手機、所在地區，或補登 Email，需要先驗證身分，保護你的個資。</p>
       <button class="btn btn-primary form-btn" id="secSendBtn" onclick="secureSendCode()">寄驗證碼到我的 Email</button>
       <div class="field" style="margin-top:14px"><label for="secCode">收到驗證碼了？輸入 6 碼</label>
         <div class="sec-row"><input id="secCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code"><button class="btn btn-ghost" id="secVerifyBtn" onclick="secureVerify()">驗證</button></div></div>
       <p class="form-note" id="secNote">${esc(msg||"")}</p>
-      <p class="form-note">沒有登記 Email、或收不到信？<a href="${LINE_URL}" target="_blank" rel="noopener">用 LINE 聯絡我們</a>，我們會給你驗證碼。</p></div>`;
+      <p class="form-note">沒有登記 Email、或收不到信？<a href="${LINE_URL}" target="_blank" rel="noopener">用 LINE 聯絡我們</a>，我們會給你驗證碼。</p>`;
     return;
   }
   if(!secureData){
-    box.innerHTML=`<div class="mc-sec"><h4>我的資料與購買紀錄</h4><p class="mc-sec-p">讀取中…</p></div>`;
+    box.innerHTML='<h4>修改資料</h4><p class="mc-sec-p">讀取中…</p>';
     if(!secureLoading)secureLoad();
     return;
   }
   const d=secureData;
-  const orders=d.orders.length?d.orders.map(o=>`<div class="ord"><div class="ord-top"><span class="ord-d">${esc(fmtDate(o.time))}</span><span class="ord-s ${ORD_CLS[o.status]||"wait"}">${esc(o.status)}</span></div>
-      <div class="ord-i">${esc(o.items)}</div><div class="ord-t">NT$ ${Number(o.total).toLocaleString()}</div></div>`).join(""):`<p class="mc-sec-p">還沒有購買紀錄。</p>`;
-  box.innerHTML=`<div class="mc-sec"><h4>購買紀錄</h4>${orders}</div>
-    <div class="mc-sec"><h4>會員資料</h4>
+  box.innerHTML=`<h4>修改資料</h4>
       ${d.email?"":`<p class="mc-hint" style="margin-top:0">你還沒有登記 Email，補上後可以收到新品上架通知，之後也能用 Email 收驗證碼。</p>`}
       <div class="field"><label for="pfName">姓名</label><input id="pfName" type="text" maxlength="40" value="${esc(d.name)}"></div>
-      <div class="field"><label>手機（登入帳號）</label><input type="text" value="${esc(maskPhone(d.phone))}" disabled><p class="mc-sec-p" style="margin-top:6px">手機是你的帳號，無法自行修改；需要更換請聯絡我們。</p></div>
+      <div class="field"><label for="pfPhone">手機（登入帳號）</label><input id="pfPhone" type="tel" inputmode="numeric" maxlength="20" value="${esc(d.phone)}">
+        <p class="mc-sec-p" style="margin:6px 0 0">更換手機後，要用新號碼登入；你的訂單、點數、評分紀錄會一併轉到新號碼。</p></div>
       <div class="field"><label for="pfCity">所在地區</label><select id="pfCity"><option value="">請選擇縣市</option>${CITIES.map(c=>`<option value="${c}"${c===d.city?" selected":""}>${c}</option>`).join("")}</select></div>
       <div class="field"><label for="pfEmail">Email</label><input id="pfEmail" type="email" maxlength="80" placeholder="name@example.com" value="${esc(d.email)}"></div>
       <button class="btn btn-primary form-btn" id="pfSave" onclick="secureSave()">儲存變更</button>
       <p class="form-note" id="secNote">${esc(msg||"")}</p>
-      <p class="form-note"><button class="linklike" onclick="secureLock()">鎖定個人資料（共用裝置建議使用）</button></p></div>`;
+      <p class="form-note"><button class="linklike" onclick="secureLock()">鎖定個人資料（共用裝置建議使用）</button></p>`;
 }
 async function secureSendCode(){
   const btn=$("secSendBtn");btn.disabled=true;secureNote("寄送中…");
@@ -1125,7 +1160,7 @@ async function secureVerify(){
   const btn=$("secVerifyBtn");btn.disabled=true;secureNote("驗證中…");
   try{
     const r=await secureApi({action:"member_code_verify",phone:member.phone,code});
-    if(r.ok){saveToken(r.token);renderSecure();return;}
+    if(r.ok){saveToken(r.token);renderEditBox();return;}
     secureNote(r.error==="too_many"?"錯誤次數太多，請重新寄送驗證碼。":"驗證碼不正確或已過期，請再確認。");
   }catch(e){secureNote("連線失敗，請稍後再試。");}
   btn.disabled=false;
@@ -1141,31 +1176,47 @@ async function secureLoad(){
       if(r.points!=null){member.points=r.points;member.pointsExpiry=r.pointsExpiry||"";}
       secureLoading=false;renderMember();return;
     }
-    if(r.error==="auth"){secureLoading=false;saveToken("");renderSecure("驗證已過期，請重新驗證。");return;}
+    if(r.error==="auth"){secureLoading=false;saveToken("");renderEditBox("驗證已過期，請重新驗證。");return;}
   }catch(e){}
   secureLoading=false;
-  const box=$("mcSecure");if(box)box.innerHTML=`<div class="mc-sec"><h4>我的資料與購買紀錄</h4><p class="mc-sec-p">讀取失敗，請<button class="linklike" onclick="secureData=null;renderSecure()">再試一次</button>。</p></div>`;
+  const box=$("mcEdit");if(box)box.innerHTML=`<h4>修改資料</h4><p class="mc-sec-p">讀取失敗，請<button class="linklike" onclick="secureData=null;renderEditBox()">再試一次</button>。</p>`;
 }
 async function secureSave(){
-  const name=($("pfName").value||"").trim(),city=$("pfCity").value,email=($("pfEmail").value||"").trim();
+  const name=($("pfName").value||"").trim(),city=$("pfCity").value,email=($("pfEmail").value||"").trim(),phoneRaw=($("pfPhone").value||"").trim();
   if(!name){secureNote("姓名不能空白。");return;}
   if(email&&!/^[A-Za-z0-9][A-Za-z0-9._%+\-]*@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/.test(email)){secureNote("Email 格式不正確。");return;}
+  const phoneDigits=phoneRaw.replace(/\D/g,"");
+  const phoneChanged=normPhoneJs(phoneDigits)!==normPhoneJs(secureData.phone);
+  if(phoneChanged){
+    const k=normPhoneJs(phoneDigits);
+    if(k.length<8||k.length>12){secureNote("手機格式不正確。");return;}
+    if(!confirm(`確定把登入手機改成 ${phoneDigits}？\n之後請用新號碼登入，你的訂單、點數、評分會一併轉過去。`))return;
+  }
   const btn=$("pfSave");btn.disabled=true;secureNote("儲存中…");
   try{
-    const r=await secureApi({action:"member_update",token:memberToken,name,city,email});
+    const payload={action:"member_update",token:memberToken,name,city,email};
+    if(phoneChanged)payload.phone=phoneDigits;
+    const r=await secureApi(payload);
     if(r.ok){
       secureData=Object.assign({},secureData,{name,city,email});
-      member.name=name;member.city=city;member.email=email;saveSession();updateAccountUI();
-      renderMember();showToast(r.changed?"資料已更新":"資料沒有變動");return;
+      member.name=name;member.city=city;member.email=email;
+      if(r.phone){   // 手機換了：舊憑證作廢，換新憑證；購買紀錄用新號碼重抓
+        member.phone=r.phone;secureData.phone=r.phone;saveToken(r.token);secureData=Object.assign({},secureData,{name,city,email,phone:r.phone});ordersData=null;
+      }
+      saveSession();updateAccountUI();
+      renderMember();showToast(r.changed?(r.phone?"資料已更新，請用新手機號碼登入":"資料已更新"):"資料沒有變動");return;
     }
-    if(r.error==="auth"){saveToken("");renderSecure("驗證已過期，請重新驗證。");return;}
-    secureNote(r.error==="bad_email"?"Email 格式不正確。":r.error==="rate_limited"?"操作太快，請稍後再試。":"儲存失敗，請稍後再試。");
+    if(r.error==="auth"){saveToken("");renderEditBox("驗證已過期，請重新驗證。");return;}
+    secureNote(({bad_email:"Email 格式不正確。",bad_phone:"手機格式不正確。",bad_name:"姓名不能空白。",
+      phone_taken:"這支手機已經是其他會員，無法改成這個號碼。",
+      phone_has_history:"這支手機已有其他紀錄，請用 LINE 聯絡我們協助更換。",
+      rate_limited:"操作太快，請稍後再試。"})[r.error]||"儲存失敗，請稍後再試。");
   }catch(e){secureNote("連線失敗，請稍後再試。");}
   btn.disabled=false;
 }
-function secureLock(){saveToken("");renderSecure();showToast("已鎖定個人資料");}
+function secureLock(){saveToken("");renderEditBox();showToast("已鎖定個人資料");}
 function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();}
-function logout(){member=null;saveToken("");try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
+function logout(){member=null;saveToken("");ordersData=null;try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
   const lbl=$("accountLabel");if(lbl)lbl.textContent=member?member.name:"會員";
   const m=$("menuAccount");if(m)m.innerHTML=member?`${esc(member.name)} · <button class="linklike" onclick="logout()">登出</button>`:"尚未登入";
