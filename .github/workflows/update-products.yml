@@ -1,11 +1,15 @@
 name: 更新商品清單
 
 # 每 15 分鐘從 Apps Script 抓商品、風味評分、分享文章，存成靜態 json（網站載入時優先讀這些靜態檔，速度快很多）
+# 接著用這些資料替每個商品、每篇文章各產生一個獨立網頁並更新 sitemap.xml（build-seo.js），讓 Google 能分別收錄。
 # 任何一項抓不到，就保留原本的檔案不覆蓋，也不影響其他項目。
 on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ["build-seo.js"]   # 改了產生網頁的程式，就重新產生一次
 
 permissions:
   contents: write
@@ -36,9 +40,11 @@ jobs:
           fetch_json "action=reviews" reviews.json 0 || fail=1
           fetch_json "action=posts&site=xiang" posts.json 0 || fail=1
           [ "$fail" = 0 ] || echo "::warning::有項目抓取失敗，已保留原檔"
+      - name: 產生 SEO 靜態頁與 sitemap
+        run: node build-seo.js
       - name: 有變動才 commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A products.json reviews.json posts.json
-          git diff --cached --quiet || (git commit -m "自動更新商品／評分／文章資料" && git pull -q --rebase && git push)
+          git add -A
+          git diff --cached --quiet || (git commit -m "自動更新商品／評分／文章資料與 SEO 網頁" && git pull -q --rebase && git push)
