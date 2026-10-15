@@ -153,6 +153,28 @@ const breadcrumb = (items) => ({ "@context": "https://schema.org", "@type": "Bre
 const cardOf = (p) => `<li class="card"><a href="${p._url}"><div class="ci">${p.image ? `<img src="${esc(p.image)}" alt="${esc(p.name)} 咖啡豆" loading="lazy" width="400" height="300">` : ""}</div><div class="cb"><h3>${esc(p.name)}</h3><p>${esc(p.subtitle)}${specOf(p, "處理法") ? "・" + esc(specOf(p, "處理法")) : ""}</p><p>${money(p.price)}${p.unit ? " / " + esc(p.unit) : ""}</p></div></a></li>`;
 const postLi = (a) => `<li><a href="${a._url}">${esc(a.title)}</a>${a.summary ? `<small>${esc(cut(a.summary, 60))}</small>` : ""}</li>`;
 
+/* 商品頁的「怎麼沖」與常見問題：由處理法、烘焙度、風味自動帶入，只寫通用的咖啡知識與建議範圍，
+ * 不寫運費、出貨、退換貨等店家規定（要寫請另外在這裡加）。 */
+const PROCESS_INFO = {
+  "日曬": ["日曬處理是讓咖啡果實連著果肉一起曬乾，果肉的糖分與香氣會滲進豆子裡，所以風味通常偏向莓果、熟果的甜感，口感較圓潤。", "88～91°C"],
+  "水洗": ["水洗處理是先去除果肉再發酵、清洗後曬乾，風味比較乾淨透亮，能清楚喝到產區的花香、柑橘與酸甜感。", "90～93°C"],
+  "蜜處理": ["蜜處理是保留部分果膠黏液一起曬乾，風味介於日曬與水洗之間，常有蜂蜜、紅糖般的甜感與圓潤的口感。", "89～92°C"],
+};
+const guideOf = (p, process_, roast, pack) => {
+  const info = PROCESS_INFO[process_] || ["", "88～93°C"];
+  const tagText = (p.tags || []).join("、");
+  const qa = [
+    process_ && info[0] ? [`${process_}處理的咖啡有什麼特色？`, info[0]] : null,
+    tagText ? [`${p.name}喝起來是什麼風味？`, `${p.name}來自${p.subtitle}，${roast ? roast + "，" : ""}風味帶有${tagText}。每個人的味覺感受不同，也可以參考其他人喝過的風味評分。`] : null,
+    ["咖啡豆要怎麼保存？", "開封後請密封、避光、放在室溫陰涼處，不建議放冰箱（取出時容易受潮）。烘焙後約 2～4 週內風味最好，建議在這段時間內喝完。"],
+    [`買${pack ? "「" + pack + "」" : "回去"}的豆子可以沖幾杯？`, "以一杯 15 公克咖啡粉計算，半磅（227 公克）大約可以沖 15 杯左右，實際依個人濃度喜好而定。"],
+  ].filter(Boolean);
+  return `<section class="guide"><h2>${esc(p.name)}怎麼沖比較好喝？</h2>
+<p>手沖濾杯、聖誕壺、愛樂壓都適合。可以先從「水溫 ${info[1]}、粉水比約 1:15、總萃取時間約 2 分 30 秒」開始，覺得偏酸就把水溫調高一點或研磨稍細，覺得偏苦就反過來調整。</p>
+<h2>常見問題</h2>
+${qa.map((x) => `<h3>${esc(x[0])}</h3><p>${esc(x[1])}</p>`).join("\n")}</section>`;
+};
+
 /* ---------- 先替每筆資料決定網址 ---------- */
 products.forEach((p) => { p._slug = slugOf("p:" + p.id).replace(/^p-/, ""); p._url = urlOf("products", p._slug); });
 posts.forEach((a) => { a._url = urlOf("articles", a.id); });
@@ -184,6 +206,7 @@ products.forEach((p) => {
   </div>
 </article>
 ${rate ? `<section class="rate"><h2>大家喝過的風味評價</h2><p>共 ${rate.n} 則品飲評分，下表是各面向的眾數（1～5 分）。</p><table><tbody>${rate.axes.map((a) => `<tr><th scope="row">${a.label}</th><td><div class="bar"><span style="width:${(a.v / 5) * 100}%"></span></div></td><td>${a.v % 1 ? a.v.toFixed(1) : a.v}</td></tr>`).join("")}</tbody></table></section>` : ""}
+${guideOf(p, process_, roast, pack)}
 <section><h2>其他咖啡豆</h2><ul class="cards">${others.map(cardOf).join("")}</ul></section>
 ${posts.length ? `<section><h2>延伸閱讀</h2><ul class="list">${posts.slice(0, 4).map(postLi).join("")}</ul></section>` : ""}`;
   const ld = [{

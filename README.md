@@ -47,6 +47,27 @@ C:\github\翔天然\
 - 試算表新分頁（自動建立）：`member_log`（資料異動）、`member_notes`（客服紀錄）。**不要手動改 members 的新欄位**（會員編號、行銷同意、同意時間、來源、狀態）
 - 後台密碼：Apps Script →「專案設定」→「指令碼屬性」新增 `ADMIN_KEY`；`SESSION_SECRET` 會自動產生，**不要刪**（刪了所有會員的驗證憑證會失效）
 
+## SEO 優化紀錄與現況（改網站前先看這裡，不用重新檢查）
+**已完成**
+- 首頁：title／description／OG 分享圖（og-image.png）／Twitter 卡／Organization＋WebSite 結構化資料／canonical；頁尾有 `explore/` 連結
+- `build-seo.js` 自動產生：商品頁（Product＋BreadcrumbList）、文章頁（Article）、`explore/` 總覽、`sitemap.xml`（16 個網址）
+- 商品頁多一段「怎麼沖比較好喝＋常見問題」（`guideOf()`，由處理法／烘焙度／風味自動帶入；只寫通用知識，不寫運費、出貨、退換貨）
+- 2026-10-15 健檢：sitemap 16 個網址全部 200、標題無重複、robots 正確、首頁圖片都有 alt
+
+**Search Console 現況（2026-10-15）**：首頁與 `explore/` 已收錄；商品頁即時測試通過、Product 資料有效；sitemap 狀態顯示「無法擷取」是 GSC 常見假象，頁面已被收錄，**不用重新提交**
+
+**不要動**
+- 商品頁網址用舊的商品代號（例：`/products/黑糖月光/` 其實是「琥珀法月」）。改網址會讓已收錄的連結失效，除非要做轉址，否則別改
+- 不要手動改 `products/`、`articles/`、`explore/`、`sitemap.xml`（Actions 會覆蓋）
+
+**待辦（依效益排序）**
+1. 文章補到 800 字以上（目前約 400 字，容易被視為內容薄）——需要店家自己寫
+2. 每款豆子加「自己的故事」（農場、海拔、選豆原因）——需要店家提供
+3. 商品圖改用 Cloudinary（目前部分還是 Google 雲端硬碟縮圖，慢且社群分享常讀不到）
+4. 首頁有 2 個 H1（單頁應用切換畫面造成），之後可整理成只留一個
+5. 評估購買專屬網域（綁定 GitHub Pages；換網址要先規劃轉址）
+6. 建立 Google 商家檔案、從 FB／IG 導連結過來
+
 ## 注意
 - 不要在公開的 GitHub 放客人資料、後台密碼、Cloudinary 的 API Secret
 - Apps Script 偶爾冷啟動很慢，所以網站優先讀靜態 json，再背景向 Apps Script 更新
