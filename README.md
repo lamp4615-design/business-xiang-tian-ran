@@ -2,19 +2,25 @@
 
 網站：https://lamp4615-design.github.io/business-xiang-tian-ran/　後台：[admin.html](admin.html)
 
-## 資料夾說明
-**會公開上傳到網站的（GitHub Pages）**
+## 翔天然整體資料夾結構（以翔天然為主軸）
+這個專案（官網）放在 `C:\github\翔天然\` 底下，和翔天然相關的東西都集中在那一層：
+```
+C:\github\翔天然\
+├─ 1-官網\          ← 你正在看的這個專案（GitHub：business-xiang-tian-ran，網站只放這裡的檔案）
+├─ 2-分享天地\      ← 行銷推廣站（GitHub：share-corner，獨立的專案與網址）
+├─ 3-行銷站範本\    ← 行銷站範本（目前只有本機，沒有 GitHub 遠端）
+└─ 4-素材與工具\    ← 不屬於任何網站的工作檔：咖啡標籤（原圖）、咖啡QRcode、貼紙排版
+```
+三個網站專案各自是獨立的 Git 專案、各有各的網址，**不要合併成同一個專案**（合併會讓網址和已印好的 QR 貼紙失效）。
+`4-素材與工具` 不會上傳到 GitHub，也不在 OneDrive 裡，請定期自己備份；其中「貼紙排版」用相對路徑讀同一層的「咖啡標籤」「咖啡QRcode」，**這三個資料夾要放在一起**；輸出檔可能含客人姓名，別放進網站。
+
+## 這個專案（官網）的檔案
 - `index.html`：前台網站（商品、風味輪、分享天地、會員中心）
 - `admin.html`：管理後台（需 `ADMIN_KEY` 密碼）
 - `backend/Code.gs`：Google Apps Script 後端。**修改後要貼進 Apps Script →「部署」→「管理部署作業」→ 編輯 → 版本選「新版本」**，網址才不會變
 - `products.json`／`reviews.json`／`posts.json`：商品、風味評分、文章的靜態備份，由 `.github/workflows/update-products.yml` 自動從 Apps Script 抓（讓網站載入更快），**不要手動改**
-- `images/`、`og-image.svg`、`sitemap.xml`、`robots.txt`、`googlebd…html`：網站素材與 SEO
-
-**工作用、不會上傳**（已寫進 `.gitignore`）
-- `咖啡標籤/`：各品項的標籤原圖
-- `咖啡QRcode/`：每個品項的 QR code 與列印貼紙（連結格式 `網址/?p=商品名稱#flavor`）
-- `貼紙排版/`：貼紙排版小工具（`node layout.js 品項名…`），它用相對路徑讀 `咖啡標籤/`、`咖啡QRcode/`，**這兩個資料夾不要搬位置**；輸出檔可能含客人姓名，別放進網站
-- `分享天地/`：另一個獨立的小專案
+- `build-seo.js`：替每個商品、每篇文章產生獨立網頁（`products/`、`articles/`、`explore/`）與 `sitemap.xml`，由上面的 Actions 自動執行，**這幾個資料夾與 sitemap 不要手動改**
+- `images/`、`og-image.png`、`robots.txt`、`googlebd…html`：網站素材與 SEO
 
 ## 日常操作
 **新增商品**
@@ -22,7 +28,7 @@
 2. 試算表 `products` 分頁新增一列：`id`、`name`、`price`、`image`（貼網址）、`active=true`（建議先 false，確認好再改 true）
 3. 約 15 分鐘內網站會自動更新；急的話到 GitHub → Actions →「更新商品清單」→ Run workflow
 4. 新品通知、最後預購、下架通知：觸發條件請設 `notifyProductChanges`（每小時）。`last_call` 填 TRUE＝寄最後預購；`active` 改 FALSE＝寄下架通知。只會寄給**同意收行銷通知**的會員，信尾有一鍵取消
-5. 為新商品做 QR code：參考 `咖啡QRcode/連結清單.txt` 的格式
+5. 為新商品做 QR code：參考 `4-素材與工具\咖啡QRcode\連結清單.txt` 的格式
 
 **集點流程**（出貨後在後台確認）
 訂單進來是「待處理」→ 後台把狀態改「已完成」→ 自動依包數加點（一包一點，滿 10 點折 100，效期為最後消費起 3 個月）；改包數會補差額，改回待處理／已取消會扣回。
