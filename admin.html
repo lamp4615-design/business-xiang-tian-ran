@@ -39,7 +39,7 @@ td.num,th.num{text-align:right;white-space:nowrap}
 .pos{color:var(--ok)}.neg{color:var(--red)}
 .axbar{display:flex;align-items:center;gap:6px;min-width:84px}
 .axbar .bar{flex:1}
-.axbar .n{font-size:12px;color:var(--mute);width:20px;text-align:right}
+.axbar .n{font-size:12px;color:var(--mute);min-width:20px;text-align:right;white-space:nowrap}
 h3{margin:18px 0 8px;font-size:16px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;align-items:end}
 .form label{display:flex;flex-direction:column;font-size:13px;color:var(--mute);gap:3px}
@@ -123,6 +123,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 <nav>
   <button data-t="orders" class="on">訂單</button>
   <button data-t="members">會員</button>
+  <button data-t="flavor">風味評分</button>
   <button data-t="costs">成本</button>
   <button data-t="report">盈餘報表</button>
   <button data-t="posts">內容</button>
@@ -177,6 +178,18 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
   </section>
 
   <div id="memModal" class="modal" hidden onclick="if(event.target===this)closeMember()"><div class="modal-box"><button class="sm modal-x" onclick="closeMember()">關閉 ✕</button><div id="memModalBody"></div></div></div>
+
+  <section class="panel" id="t-flavor" hidden>
+    <div class="tools">
+      <button class="sm" onclick="loadFlavorSummary()">重新整理</button>
+      <span class="sub" id="flavorSum"></span>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr><th>品項</th><th class="num">評分次數</th><th>香氣</th><th>酸質</th><th>甜感</th><th>醇厚度</th><th>苦味</th><th class="num">填喜歡人次</th><th>平均喜歡</th><th>喜歡佔比(4~5星)</th></tr></thead>
+      <tbody id="flavorBody"></tbody>
+    </table></div>
+    <p class="sub">五軸是全部評分（含訪客）取眾數；「喜歡程度」只有登入會員評分才會填，用來看這支豆子討不討喜，訪客評分不計入。</p>
+  </section>
 
   <section class="panel" id="t-costs" hidden>
     <h3 style="margin-top:0">登記花費</h3>
@@ -360,8 +373,9 @@ try{const k=sessionStorage.getItem("xn_admin");if(k){$("pw").value=k;doLogin();}
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
-  ["orders","members","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  ["orders","members","flavor","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
   if(b.dataset.t==="members"&&!MEM_LOADED)loadMembers();
+  if(b.dataset.t==="flavor"&&!FLAVOR_LOADED)loadFlavorSummary();
 });
 
 function initUi(){
@@ -584,6 +598,25 @@ function renderMembers(){
 function exportMembers(){
   downloadCsv("會員.csv",[["會員編號","姓名","手機","所在地區","Email","行銷同意","來源","加入日","首購日","最近下單","訂單數(已完成)","取消單數","累計消費","客單價","包數","常購品項","平均購買間隔(天)","近90天訂單","分類","高價值","點數","點數到期","評分次數","喜歡評分(4~5星)","風味偏好","資料更新","異動次數","待追蹤客服"]]
     .concat(MEMBERS.map(m=>[m.id,m.name,m.phone,m.city,m.email,m.consent?"同意":"不同意",srcOf(m),mDate(m.joined),m.firstOrder?mDate(m.firstOrder):"",m.lastOrder?mDate(m.lastOrder):"",m.done,m.cancelled,m.spent,m.avg,m.bags,m.topItems,m.gapDays||"",m.orders90,SEG_LABEL[memSeg(m)],isVip(m)?"是":"",m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.likedReviews||0,m.flavorPref||"",m.updated?mDate(m.updated):"",m.changes,m.openNotes])));
+}
+
+/* ---------- 風味評分總覽（每支豆子，不是每個會員） ---------- */
+let FLAVOR_ITEMS=[],FLAVOR_LOADED=false;
+async function loadFlavorSummary(){
+  $("flavorSum").textContent="讀取中…";
+  try{const d=await api({action:"admin_flavor_summary"});FLAVOR_ITEMS=d.items||[];FLAVOR_LOADED=true;renderFlavorSummary();}
+  catch(e){$("flavorSum").textContent="";toast("讀取風味評分失敗："+e.message);}
+}
+function renderFlavorSummary(){
+  $("flavorSum").textContent=`${FLAVOR_ITEMS.length} 款有評分紀錄`;
+  $("flavorBody").innerHTML=FLAVOR_ITEMS.length?FLAVOR_ITEMS.map(it=>`<tr>
+    <td>${esc(it.product)}</td>
+    <td class="num">${it.count}</td>
+    ${AX_KEYS.map(k=>`<td>${axCell(it.axes[k])}</td>`).join("")}
+    <td class="num">${it.likedCount}</td>
+    <td>${it.likedCount?`<span class="pos">${it.likedAvg.toFixed(1)}</span><span class="sub"> / 5</span>`:'<span class="sub">—</span>'}</td>
+    <td>${it.likedCount?`<div class="axbar"><div class="bar"><span style="width:${it.likedHighPct}%"></span></div><span class="n">${it.likedHighPct}%</span></div>`:'<span class="sub">—</span>'}</td>
+  </tr>`).join(""):'<tr><td colspan="10" class="empty">還沒有任何風味評分</td></tr>';
 }
 
 /* ----- 會員詳情視窗 ----- */

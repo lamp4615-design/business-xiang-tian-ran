@@ -911,6 +911,48 @@ const FLAVOR_AXES = ["aroma","acidity","sweetness","body","bitterness"];
 // 「喜歡程度」(liked, 1~5星)：只有登入會員評分時才會填，訪客評分這欄是 0。
 // 跟五軸不一樣——五軸是客觀描述豆子的風味，liked 是這位會員自己喜不喜歡，用來算「你可能會喜歡」推薦。
 
+/* 眾數（跟前台 index.html 的 mode()、build-seo.js 的 modeOf 算法一致）：
+   出現次數最多的分數；並列時取那幾個的平均，才會有一個明確的代表值。 */
+function modeOf_(nums){
+  if (!nums.length) return 0;
+  const f = {};
+  nums.forEach(n => { f[n] = (f[n] || 0) + 1; });
+  const max = Math.max.apply(null, Object.keys(f).map(k => f[k]));
+  const top = Object.keys(f).filter(k => f[k] === max).map(Number);
+  return top.reduce((s, n) => s + n, 0) / top.length;
+}
+
+/* 後台用：每一支豆子的風味評分總覽——五軸眾數、評分次數、喜歡程度分布。
+   給店家一眼看出「大家覺得這支豆子怎麼樣」，不用一筆一筆會員資料去拼。 */
+function adminFlavorSummary(ss){
+  const sh = ss.getSheetByName(REVIEWS_TAB);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const rows = sh.getDataRange().getValues().slice(1);
+  const byProduct = {};
+  rows.forEach(r => {
+    const product = String(r[2] || "").trim();
+    if (!product) return;
+    const o = byProduct[product] || (byProduct[product] = { count:0, axes:{ aroma:[], acidity:[], sweetness:[], body:[], bitterness:[] }, likedVals:[] });
+    o.count++;
+    FLAVOR_AXES.forEach((axis, i) => { const v = Number(r[3 + i]) || 0; if (v > 0) o.axes[axis].push(v); });
+    const liked = Number(r[8]) || 0;
+    if (liked > 0) o.likedVals.push(liked);
+  });
+  return Object.keys(byProduct).map(name => {
+    const o = byProduct[name];
+    const axes = {};
+    FLAVOR_AXES.forEach(axis => { axes[axis] = modeOf_(o.axes[axis]); });
+    const likedN = o.likedVals.length;
+    const likedAvg = likedN ? o.likedVals.reduce((s, n) => s + n, 0) / likedN : 0;
+    const likedHigh = o.likedVals.filter(n => n >= 4).length;
+    return {
+      product:name, count:o.count, axes:axes,
+      likedCount:likedN, likedAvg:Math.round(likedAvg * 10) / 10,
+      likedHighPct: likedN ? Math.round(likedHigh / likedN * 100) : 0
+    };
+  }).sort((a, b) => b.count - a.count);
+}
+
 function getReviews(){
   const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
   if (!sh) return [];
@@ -1164,6 +1206,7 @@ function adminHandle(d){
     if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
     if (d.action === "admin_members") { ensureMemberSchema_(ss, false); return { ok:true, members:adminMembers(ss), warnings:memberWarnings_(ss) }; }
     if (d.action === "admin_member_detail") { ensureMemberSchema_(ss, false); return adminMemberDetail(ss, d); }
+    if (d.action === "admin_flavor_summary") return { ok:true, items:adminFlavorSummary(ss) };
     if (d.action === "admin_member_update") return adminMemberUpdate(ss, d);
     if (d.action === "admin_note_add") return adminNoteAdd(ss, d);
     if (d.action === "admin_note_status") return adminNoteStatus(ss, d);
