@@ -37,6 +37,9 @@ td.num,th.num{text-align:right;white-space:nowrap}
 .card{border:1px solid var(--line);border-radius:12px;padding:12px}
 .card .k{color:var(--mute);font-size:13px}.card .v{font-size:22px;font-weight:700}
 .pos{color:var(--ok)}.neg{color:var(--red)}
+.axbar{display:flex;align-items:center;gap:6px;min-width:84px}
+.axbar .bar{flex:1}
+.axbar .n{font-size:12px;color:var(--mute);width:20px;text-align:right}
 h3{margin:18px 0 8px;font-size:16px}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;align-items:end}
 .form label{display:flex;flex-direction:column;font-size:13px;color:var(--mute);gap:3px}
@@ -504,6 +507,8 @@ function memSeg(m){
 const isVip=m=>m.done>=3&&m.orders90>=1;
 const SEG_LABEL={never:"從未購買",active:"活躍",watch:"觀望",dormant:"沉睡"};
 const srcOf=m=>m.source||"未記錄";
+const AX_KEYS=["aroma","acidity","sweetness","body","bitterness"];
+const axCell=v=>{v=Number(v)||0;return `<div class="axbar"><div class="bar"><span style="width:${v/5*100}%"></span></div><span class="n">${v||"—"}</span></div>`;};
 async function loadMembers(){
   $("memSum").textContent="讀取中…";
   try{const d=await api({action:"admin_members"});MEMBERS=d.members||[];MEM_WARN=d.warnings||[];MEM_LOADED=true;renderMembers();}
@@ -577,8 +582,8 @@ function renderMembers(){
   $("srcBody").innerHTML=ks.length?ks.map(k=>{const o=by[k];return `<tr><td>${esc(k)}</td><td class="num">${o.n}</td><td class="num">${o.buy}<div class="sub">${(o.buy/o.n*100).toFixed(0)}%</div></td><td class="num">${o.rep}<div class="sub">${o.buy?(o.rep/o.buy*100).toFixed(0)+"%":"—"}</div></td><td class="num">${money(o.rev)}</td><td class="num">${money(o.rev/o.n)}</td></tr>`;}).join(""):'<tr><td colspan="6" class="empty">還沒有會員</td></tr>';
 }
 function exportMembers(){
-  downloadCsv("會員.csv",[["會員編號","姓名","手機","所在地區","Email","行銷同意","來源","加入日","首購日","最近下單","訂單數(已完成)","取消單數","累計消費","客單價","包數","常購品項","平均購買間隔(天)","近90天訂單","分類","高價值","點數","點數到期","評分次數","資料更新","異動次數","待追蹤客服"]]
-    .concat(MEMBERS.map(m=>[m.id,m.name,m.phone,m.city,m.email,m.consent?"同意":"不同意",srcOf(m),mDate(m.joined),m.firstOrder?mDate(m.firstOrder):"",m.lastOrder?mDate(m.lastOrder):"",m.done,m.cancelled,m.spent,m.avg,m.bags,m.topItems,m.gapDays||"",m.orders90,SEG_LABEL[memSeg(m)],isVip(m)?"是":"",m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.updated?mDate(m.updated):"",m.changes,m.openNotes])));
+  downloadCsv("會員.csv",[["會員編號","姓名","手機","所在地區","Email","行銷同意","來源","加入日","首購日","最近下單","訂單數(已完成)","取消單數","累計消費","客單價","包數","常購品項","平均購買間隔(天)","近90天訂單","分類","高價值","點數","點數到期","評分次數","喜歡評分(4~5星)","風味偏好","資料更新","異動次數","待追蹤客服"]]
+    .concat(MEMBERS.map(m=>[m.id,m.name,m.phone,m.city,m.email,m.consent?"同意":"不同意",srcOf(m),mDate(m.joined),m.firstOrder?mDate(m.firstOrder):"",m.lastOrder?mDate(m.lastOrder):"",m.done,m.cancelled,m.spent,m.avg,m.bags,m.topItems,m.gapDays||"",m.orders90,SEG_LABEL[memSeg(m)],isVip(m)?"是":"",m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.likedReviews||0,m.flavorPref||"",m.updated?mDate(m.updated):"",m.changes,m.openNotes])));
 }
 
 /* ----- 會員詳情視窗 ----- */
@@ -591,14 +596,15 @@ async function openMember(i){
   const m=MEMBERS[i];if(!m)return;MEM_CUR=m;MEM_DETAIL=null;
   $("memModal").hidden=false;
   $("memModalBody").innerHTML=`<h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.phone)}</span></h3><p class="sub">讀取中…</p>`;
-  let det={orders:[],log:[],notes:[],profile:null};
+  let det={orders:[],log:[],notes:[],profile:null,reviews:[]};
   try{det=await api({action:"admin_member_detail",phone:m.phone});}catch(e){toast("讀取詳情失敗："+e.message);}
   if(MEM_CUR!==m)return;
   MEM_DETAIL=det;
   const s=memSeg(m),pf=det.profile||{};
   $("memModalBody").innerHTML=`
     <h3 style="margin-top:0">${esc(m.name)}　<span class="sub">${esc(m.id||"—")}・${esc(m.phone)}</span> <span class="tag seg-${s}">${SEG_LABEL[s]}</span>${isVip(m)?' <span class="tag seg-vip">高價值</span>':""}</h3>
-    <p class="sub">加入 ${mDate(m.joined)}・來源：${esc(srcOf(m))}・首購 ${m.firstOrder?mDate(m.firstOrder):"—"}・已完成 ${m.done} 單・取消 ${m.cancelled} 單・累計 ${money(m.spent)}・評分 ${m.reviews} 次・點數 ${m.points}${m.pointsExpiry&&m.points?"（到 "+mDate(m.pointsExpiry)+"）":""}${m.topItems?"・常買："+esc(m.topItems):""}</p>
+    <p class="sub">加入 ${mDate(m.joined)}・來源：${esc(srcOf(m))}・首購 ${m.firstOrder?mDate(m.firstOrder):"—"}・已完成 ${m.done} 單・取消 ${m.cancelled} 單・累計 ${money(m.spent)}・評分 ${m.reviews} 次${m.likedReviews?`（喜歡 ${m.likedReviews} 支）`:""}・點數 ${m.points}${m.pointsExpiry&&m.points?"（到 "+mDate(m.pointsExpiry)+"）":""}${m.topItems?"・常買："+esc(m.topItems):""}</p>
+    ${m.flavorPref?`<p class="sub">風味偏好　<span class="tag" style="color:var(--orange);border-color:var(--orange);font-weight:600">${esc(m.flavorPref)}</span>　<span style="font-size:12px">依他打 4～5 星的豆子算出，面對面或 LINE 推薦時可以參考</span></p>`:""}
     <p class="sub">行銷通知：${m.consent?`<b class="pos">同意</b>（${mDate(pf.consentAt||m.consentAt)}）`:"<b>不同意</b>（不會寄新品／預購通知）"}</p>
 
     <h3>修改資料</h3>
@@ -633,6 +639,11 @@ async function openMember(i){
     </div>
     <div class="wrap"><table><thead><tr><th>時間</th><th>分類</th><th>內容</th><th>狀態</th><th></th></tr></thead><tbody>
       ${det.notes.length?det.notes.map(n=>`<tr><td>${mDateTime(n.time)}</td><td><span class="tag">${esc(n.category)}</span></td><td>${esc(n.text)}</td><td class="${n.status==="待處理"?"neg":""}">${esc(n.status)}${n.doneAt?`<div class="sub">${mDate(n.doneAt)}</div>`:""}</td><td>${n.status==="待處理"?`<button class="sm" onclick="doneNote(${n.row})">標記已處理</button>`:""}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">沒有客服紀錄</td></tr>'}
+    </tbody></table></div>
+
+    <h3>風味評分紀錄（${det.reviews.length}）</h3>
+    <div class="wrap"><table><thead><tr><th>品項</th><th>香氣</th><th>酸質</th><th>甜感</th><th>醇厚度</th><th>苦味</th><th>喜歡程度</th></tr></thead><tbody>
+      ${det.reviews.length?det.reviews.map(r=>`<tr><td>${esc(r.product)}</td>${AX_KEYS.map(k=>`<td>${axCell(r[k])}</td>`).join("")}<td>${r.liked?`<span class="pos" style="letter-spacing:1px">${"★".repeat(r.liked)}</span><span class="sub">${"☆".repeat(5-r.liked)}</span>`:'<span class="sub">未填（訪客評分）</span>'}</td></tr>`).join(""):'<tr><td colspan="7" class="empty">還沒有評分紀錄</td></tr>'}
     </tbody></table></div>
 
     <h3>購買紀錄（${det.orders.length}）</h3>
@@ -705,7 +716,7 @@ async function doneNote(row){
 }
 function exportMember(){
   const m=MEM_CUR,d=MEM_DETAIL;if(!m||!d)return;
-  const blob=new Blob([JSON.stringify({匯出時間:new Date().toISOString(),會員資料:d.profile,購買紀錄:d.orders,客服紀錄:d.notes.map(n=>({時間:n.time,分類:n.category,內容:n.text,狀態:n.status})),資料異動紀錄:d.log},null,2)],{type:"application/json;charset=utf-8"});
+  const blob=new Blob([JSON.stringify({匯出時間:new Date().toISOString(),會員資料:d.profile,購買紀錄:d.orders,風味評分紀錄:d.reviews,客服紀錄:d.notes.map(n=>({時間:n.time,分類:n.category,內容:n.text,狀態:n.status})),資料異動紀錄:d.log},null,2)],{type:"application/json;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`會員資料_${m.id||"member"}.json`;document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
 }

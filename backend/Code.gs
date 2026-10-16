@@ -1205,6 +1205,21 @@ function parseItems_(text){
   return out;
 }
 
+/* 跟前端 index.html 的 describePref() 算法一致：用「喜歡(4~5星)的豆子」五軸平均，
+   找出明顯偏高／偏低的面向，讓店家在後台一眼看出這位會員大概喜歡什麼風味。 */
+const AXIS_LABEL_ = { aroma:"香氣", acidity:"酸質", sweetness:"甜感", body:"醇厚度", bitterness:"苦味" };
+function describePref_(sums, n){
+  if (!n) return "";
+  const rows = FLAVOR_AXES.map(k => ({ label: AXIS_LABEL_[k], dev: (sums[k] / n) - 3 }));
+  rows.sort((a, b) => b.dev - a.dev);
+  const high = rows.filter(r => r.dev >= 0.4).slice(0, 2).map(r => r.label);
+  const low = rows.filter(r => r.dev <= -0.4).slice(-2).map(r => r.label);
+  const parts = [];
+  if (high.length) parts.push("偏" + high.join("、"));
+  if (low.length) parts.push("低" + low.join("、"));
+  return parts.length ? parts.join("、") : "口味均衡";
+}
+
 function adminMembers(ss){
   const msh = ss.getSheetByName(MEMBERS_TAB);
   if (!msh || msh.getLastRow() < 2) return [];
@@ -1220,10 +1235,17 @@ function adminMembers(ss){
   if (psh && psh.getLastRow() > 1) psh.getDataRange().getValues().slice(1).forEach(r => {
     const k = normPhone_(r[0]); if (k) pts[k] = { points:Number(r[1]) || 0, expiry:r[2] ? new Date(r[2]) : null };
   });
-  const rv = {};
+  const rv = {};   // {手機: {count, likedCount, likedSums:{五軸}}}，給「評分次數」與「風味偏好」用
   const rsh = ss.getSheetByName(REVIEWS_TAB);
   if (rsh && rsh.getLastRow() > 1) rsh.getDataRange().getValues().slice(1).forEach(r => {
-    const k = normPhone_(r[1]); if (k) rv[k] = (rv[k] || 0) + 1;
+    const k = normPhone_(r[1]); if (!k) return;
+    const o = rv[k] || (rv[k] = { count:0, likedCount:0, likedSums:{ aroma:0, acidity:0, sweetness:0, body:0, bitterness:0 } });
+    o.count++;
+    const liked = Number(r[8]) || 0;
+    if (liked >= 4){
+      o.likedCount++;
+      FLAVOR_AXES.forEach((axis, i) => { o.likedSums[axis] += Number(r[3 + i]) || 0; });
+    }
   });
   const lg = {};
   const lsh = ss.getSheetByName(MEMBER_LOG_TAB);
@@ -1273,7 +1295,9 @@ function adminMembers(ss){
       orders90: done.filter(o => now - o.time <= 90 * 86400000).length,       // 近 90 天已完成訂單數
       firstOrder: first ? first.toISOString() : "", lastOrder: last ? last.toISOString() : "",
       points: expired ? 0 : p.points, pointsExpiry: p.expiry ? p.expiry.toISOString() : "",
-      reviews: rv[key] || 0, openNotes: openNotes[id] || 0,
+      reviews: rv[key] ? rv[key].count : 0, likedReviews: rv[key] ? rv[key].likedCount : 0,
+      flavorPref: rv[key] ? describePref_(rv[key].likedSums, rv[key].likedCount) : "",
+      openNotes: openNotes[id] || 0,
       changes: lg[key] ? lg[key].n : 0, lastChange: lg[key] && lg[key].last ? lg[key].last.toISOString() : ""
     });
   }
@@ -1306,7 +1330,7 @@ function adminMemberDetail(ss, d){
   const profile = { id:m.id, name:m.name, phone:String(v[2]), city:m.city, email:m.email, joined: v[0] ? new Date(v[0]).toISOString() : "",
     consent:m.consent, consentAt: cols["同意時間"] && v[cols["同意時間"] - 1] ? new Date(v[cols["同意時間"] - 1]).toISOString() : "",
     source: cols["來源"] ? String(v[cols["來源"] - 1] || "") : "", status: cols["狀態"] ? String(v[cols["狀態"] - 1] || "正常") : "正常" };
-  return { ok:true, profile:profile, orders:orders, log:log.slice(0, 100), notes:notes };
+  return { ok:true, profile:profile, orders:orders, log:log.slice(0, 100), notes:notes, reviews:getMyReviews(d.phone) };
 }
 
 function adminNoteAdd(ss, d){
@@ -1634,7 +1658,13 @@ function setupSheets(){
   }
 
   let rv = ss.getSheetByName(REVIEWS_TAB) || ss.insertSheet(REVIEWS_TAB);
-  if (rv.getLastRow() === 0) rv.appendRow(["建立時間","手機","品項","香氣","酸質","甜感","醇厚度","苦味"]);
+  if (rv.getLastRow() === 0) {
+    rv.appendRow(["建立時間","手機","品項","香氣","酸質","甜感","醇厚度","苦味","喜歡程度"]);
+  } else {
+    // 既有的 reviews 分頁（2026-10 以前建立）：補上「喜歡程度」欄位標題，不動既有資料
+    const rh = rv.getRange(1, 1, 1, rv.getLastColumn()).getValues()[0].map(x => String(x).trim());
+    if (rh.indexOf("喜歡程度") < 0) rv.getRange(1, rv.getLastColumn() + 1).setValue("喜歡程度");
+  }
 
   // 集點：每位會員的點數餘額（訂單「已完成」時自動累積）
   let pt = ss.getSheetByName(POINTS_TAB) || ss.insertSheet(POINTS_TAB);
