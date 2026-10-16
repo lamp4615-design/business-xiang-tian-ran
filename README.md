@@ -58,7 +58,7 @@ C:\github\翔天然\
 
 **不要動**
 - 商品頁網址用舊的商品代號（例：`/products/黑糖月光/` 其實是「琥珀法月」）。改網址會讓已收錄的連結失效，除非要做轉址，否則別改
-- 不要手動改 `products/`、`articles/`、`explore/`、`sitemap.xml`（Actions 會覆蓋）
+- 不要手動改 `products/`、`articles/`、`explore/`、`sitemap.xml`、`product-urls.json`（Actions 會覆蓋）
 
 **待辦（依效益排序）**
 1. 文章補到 800 字以上（目前約 400 字，容易被視為內容薄）——需要店家自己寫

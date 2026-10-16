@@ -64,6 +64,7 @@ const shareImg = (u) => (u && !/drive\.google\.com/.test(u) ? u : OG_DEFAULT);
 
 /* 風味評價：和官網一樣取「眾數」，並列時取平均 */
 const AXES = [["aroma", "香氣"], ["acidity", "酸質"], ["sweetness", "甜感"], ["body", "醇厚度"], ["bitterness", "苦味"]];
+const AXIS_ICON = { "香氣": "👃", "酸質": "🍋", "甜感": "🍯", "醇厚度": "🍫", "苦味": "☕" };
 const modeOf = (nums) => {
   if (!nums.length) return 0;
   const f = {}; nums.forEach((n) => (f[n] = (f[n] || 0) + 1));
@@ -97,8 +98,11 @@ h2{font-family:var(--serif);color:var(--pine);font-size:1.35rem;margin:2em 0 .6e
 .tags{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;padding:0;list-style:none}.tags li{border:1px solid var(--line);border-radius:99px;padding:2px 14px;font-size:.9rem;background:#fff}
 .price{font-family:var(--serif);font-size:1.8rem;color:var(--pine);margin:6px 0 16px}.price small{font-size:.95rem;color:var(--ink-45);margin-left:4px}
 .btn{display:inline-block;background:var(--dawn);color:var(--ink);font-weight:700;text-decoration:none;padding:11px 24px;border-radius:99px;margin:0 8px 8px 0}.btn.ghost{background:transparent;border:1px solid var(--pine-mid);color:var(--pine)}
-.rate table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden}.rate th,.rate td{text-align:left;padding:10px 16px;border-bottom:1px solid var(--line)}.rate td:last-child{width:60%}
+.rate-list{list-style:none;margin:0;padding:0;background:#fff;border-radius:14px;overflow:hidden}
+.rate-list li{display:grid;grid-template-columns:30px 70px 1fr 34px;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--line)}.rate-list li:last-child{border-bottom:0}
+.rate-list .ico{font-size:1.2rem;text-align:center}.rate-list .rl-label{color:var(--ink-70);font-size:.92rem}.rate-list .rl-score{text-align:right;font-weight:700;color:var(--pine)}
 .bar{height:10px;background:var(--paper-2);border-radius:6px;overflow:hidden}.bar span{display:block;height:100%;background:var(--dawn)}
+.atc-msg{min-height:1.3em;font-size:.9rem;color:var(--pine-mid);margin:0 0 8px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px;list-style:none;padding:0;margin:0}.card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 22px rgba(36,28,21,.08)}
 .card a{display:block;color:inherit;text-decoration:none}.card .ci{aspect-ratio:4/3;background:var(--paper-2)}.card .ci img{width:100%;height:100%;object-fit:cover;display:block}.card .cb{padding:14px 16px}
 .card h3{margin:0 0 2px;font-family:var(--serif);color:var(--pine);font-size:1.1rem}.card p{margin:0;color:var(--ink-70);font-size:.9rem;line-height:1.6}
@@ -144,6 +148,30 @@ ${body}
 </main>
 <footer class="foot"><div class="wrap"><p><strong>${BRAND}，翔自在。</strong>為食材把關，把乾淨、無負擔的好物，帶到你的每一天。</p>
 <p><a href="${SITE}">回到官網首頁</a>・<a href="${SITE}explore/">全部咖啡豆與文章</a></p><p>© ${new Date().getFullYear()} ${BRAND}</p></div></footer>
+<script>
+/* 這個頁面本身沒有在跑官網的程式，「加入購物袋」只做一件事：把商品寫進和官網共用的
+   localStorage 購物袋（key 跟 index.html 的 CART_KEY 一致），回到官網時購物袋就看得到。
+   不要改這個 key，不然兩邊的購物袋會對不起來。 */
+(function(){
+  var KEY="xn_cart";
+  function load(){try{var a=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(a)?a:[];}catch(e){return [];}}
+  function save(c){try{localStorage.setItem(KEY,JSON.stringify(c));}catch(e){}}
+  document.querySelectorAll("[data-atc]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var id=btn.getAttribute("data-atc");
+      var cart=load();
+      var item=cart.find(function(c){return String(c.id)===String(id);});
+      if(item)item.qty++;else cart.push({id:id,qty:1});
+      save(cart);
+      btn.textContent="已加入購物袋 ✓";
+      var msg=document.getElementById("atc-msg");
+      if(msg)msg.textContent="已加入購物袋，前往官網即可結帳。";
+      var link=document.getElementById("cartlink");
+      if(link)link.style.display="";
+    });
+  });
+})();
+</script>
 </body>
 </html>
 `;
@@ -179,6 +207,9 @@ ${qa.map((x) => `<h3>${esc(x[0])}</h3><p>${esc(x[1])}</p>`).join("\n")}</section
 products.forEach((p) => { p._slug = slugOf("p:" + p.id).replace(/^p-/, ""); p._url = urlOf("products", p._slug); });
 posts.forEach((a) => { a._url = urlOf("articles", a.id); });
 
+/* product-urls.json：商品 id → 介紹頁網址，給官網（index.html）抓，讓產品卡可以直接連到介紹頁 */
+fs.writeFileSync(path.join(ROOT, "product-urls.json"), JSON.stringify(Object.fromEntries(products.map((p) => [String(p.id), p._url]))));
+
 /* ---------- 清掉舊的產出（下架的商品、取消發佈的文章就不會留著）---------- */
 ["products", "articles", "explore"].forEach((d) => fs.rmSync(path.join(ROOT, d), { recursive: true, force: true }));
 const write = (rel, html) => { const f = path.join(ROOT, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, html); };
@@ -202,10 +233,11 @@ products.forEach((p) => {
     <dl class="specs">${(p.specs || []).map((s) => `<div><dt>${esc(s.label)}</dt><dd>${esc(s.value)}</dd></div>`).join("")}</dl>
     ${(p.tags || []).length ? `<ul class="tags" aria-label="風味">${p.tags.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
     <div class="price">${money(p.price)}${p.unit ? `<small>／ ${esc(p.unit)}</small>` : ""}</div>
-    <p><a class="btn" href="${SITE}#products">到官網選購</a><a class="btn ghost" href="${SITE}?p=${encodeURIComponent(p.name)}#flavor">看風味評分</a></p>
+    <p><button type="button" class="btn" data-atc="${esc(p.id)}">加入購物袋</button><a class="btn ghost" id="cartlink" href="${SITE}#products" style="display:none">前往購物袋結帳 →</a></p>
+    <p class="atc-msg" id="atc-msg"></p>
   </div>
 </article>
-${rate ? `<section class="rate"><h2>大家喝過的風味評價</h2><p>共 ${rate.n} 則品飲評分，下表是各面向的眾數（1～5 分）。</p><table><tbody>${rate.axes.map((a) => `<tr><th scope="row">${a.label}</th><td><div class="bar"><span style="width:${(a.v / 5) * 100}%"></span></div></td><td>${a.v % 1 ? a.v.toFixed(1) : a.v}</td></tr>`).join("")}</tbody></table></section>` : ""}
+${rate ? `<section class="rate"><h2>大家喝過的風味評價</h2><p>共 ${rate.n} 則品飲評分，下表是各面向的眾數（1～5 分）。</p><ul class="rate-list">${rate.axes.map((a) => `<li><span class="ico" aria-hidden="true">${AXIS_ICON[a.label] || "●"}</span><span class="rl-label">${a.label}</span><div class="bar"><span style="width:${(a.v / 5) * 100}%"></span></div><span class="rl-score">${a.v % 1 ? a.v.toFixed(1) : a.v}</span></li>`).join("")}</ul></section>` : ""}
 ${guideOf(p, process_, roast, pack)}
 <section><h2>其他咖啡豆</h2><ul class="cards">${others.map(cardOf).join("")}</ul></section>
 ${posts.length ? `<section><h2>延伸閱讀</h2><ul class="list">${posts.slice(0, 4).map(postLi).join("")}</ul></section>` : ""}`;

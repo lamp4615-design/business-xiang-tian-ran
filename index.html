@@ -683,7 +683,7 @@
         <a class="navlink" onclick="go('products')">產品</a>
         <a class="navlink" onclick="go('flavor')">風味</a>
         <a class="navlink" onclick="go('member')">會員</a>
-        <a class="navlink" href="explore/">全部咖啡豆與文章</a>
+        <p style="margin:14px 0 0;font-size:.85rem;opacity:.75">想一次看完所有咖啡豆介紹和文章？<br><a href="explore/" style="text-decoration:underline">前往完整列表 →</a></p>
       </div>
       <div class="foot-col social">
         <h4>加入社群</h4>
@@ -803,8 +803,14 @@ function findProductForDeepLink(key){
 }
 
 let PRODUCTS_CACHE=[]; let productsLoaded=false; let productsLoading=false;
+let PRODUCT_URLS={};  // {商品id: 獨立介紹頁網址}，供點擊商品直接前往介紹頁
 let cart=[];          // {id, qty}
 let member=null;      // {name, phone, city}
+/* 購物袋存 localStorage，這樣在商品介紹頁（products/.../index.html）按「加入購物袋」後，
+   回到官網也看得到同一個購物袋（商品介紹頁沒有在跑官網的程式，只會直接寫這個 key）。 */
+const CART_KEY="xn_cart";
+function loadCart(){try{const a=JSON.parse(localStorage.getItem(CART_KEY)||"[]");if(Array.isArray(a))cart=a;}catch(e){}}
+function saveCart(){try{localStorage.setItem(CART_KEY,JSON.stringify(cart));}catch(e){}}
 
 /* ---------- 小工具 ---------- */
 function $(id){return document.getElementById(id);}
@@ -887,15 +893,26 @@ function renderProducts(){
     <div class="prod-group"><div class="group-title">${esc(cat)}<span class="count">${items.length} 款</span></div>
       <div class="prod-grid">${items.map(card).join("")}</div></div>`).join("");
 }
+async function loadProductUrls(){
+  try{
+    const r=await fetch("product-urls.json");
+    if(r.ok){const j=await r.json();if(j&&typeof j==="object"){PRODUCT_URLS=j;if(productsLoaded)renderProducts();}}
+  }catch(e){}
+}
+/* 點商品圖／名稱：有獨立介紹頁就直接過去（完整介紹＋買法），還沒抓到對照表就先開風味輪小視窗 */
+function openProductDetail(id){
+  const url=PRODUCT_URLS[id];
+  if(url){location.href=url;}else{openFlavorView(id);}
+}
 function card(p){
   return `<article class="prod-card">
-    <div class="prod-visual" onclick="openFlavorView('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
-    <div class="prod-body"><h3>${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
+    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
+    <div class="prod-body"><h3 onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
       <div class="prod-meta">${(p.specs||[]).map(s=>`<div class="meta-row"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join("")}</div>
       <div class="prod-tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>
-      <button class="fv-trigger" onclick="openFlavorView('${esc(p.id)}')">看風味輪，跟大家比比看 →</button>
+      <button class="fv-trigger" onclick="event.stopPropagation();openFlavorView('${esc(p.id)}')">看風味輪，跟大家比比看 →</button>
       <div class="prod-foot"><div class="price">NT$ ${Number(p.price).toLocaleString()}${p.unit?`<small>/ ${esc(p.unit)}</small>`:""}</div>
-        <button class="add-btn" onclick="addToCart('${esc(p.id)}')">加入購物袋</button></div>
+        <button class="add-btn" onclick="event.stopPropagation();addToCart('${esc(p.id)}')">加入購物袋</button></div>
     </div></article>`;
 }
 
@@ -944,10 +961,10 @@ function syncProductUrl(productName){
 function addToCart(id){
   const f=cart.find(c=>String(c.id)===String(id));
   if(f)f.qty++;else cart.push({id,qty:1});
-  renderCart();const p=findProduct(id);showToast(`已加入「${p?p.name:"商品"}」`);
+  saveCart();renderCart();const p=findProduct(id);showToast(`已加入「${p?p.name:"商品"}」`);
 }
-function changeQty(id,d){const c=cart.find(x=>String(x.id)===String(id));if(!c)return;c.qty+=d;if(c.qty<=0)cart=cart.filter(x=>String(x.id)!==String(id));renderCart();}
-function removeItem(id){cart=cart.filter(x=>String(x.id)!==String(id));renderCart();}
+function changeQty(id,d){const c=cart.find(x=>String(x.id)===String(id));if(!c)return;c.qty+=d;if(c.qty<=0)cart=cart.filter(x=>String(x.id)!==String(id));saveCart();renderCart();}
+function removeItem(id){cart=cart.filter(x=>String(x.id)!==String(id));saveCart();renderCart();}
 function renderCart(){
   const body=$("cartBody");
   const count=cart.reduce((s,c)=>s+c.qty,0);
@@ -986,7 +1003,7 @@ async function confirmPurchase(){
         btn.disabled=false;btn.textContent=old;return;
       }
     }else{await new Promise(r=>setTimeout(r,600));}
-    cart=[];renderCart();
+    cart=[];saveCart();renderCart();
     $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！<br>我們會盡快透過 LINE 或電話與你聯繫。<br>訂單處理完成後，點數會自動加到會員中心。</div>';
     showToast("訂單已送出，謝謝你");
     fetchMyStats();
@@ -1787,8 +1804,9 @@ function maybeShowWelcome(){
   setTimeout(()=>{if(!member)$("welcomeModal").classList.add("open");},700);
 }
 $("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
-captureSource();loadSession();updateAccountUI();renderCart();route();maybeShowWelcome();
+captureSource();loadSession();loadCart();updateAccountUI();renderCart();route();maybeShowWelcome();
 ensureProducts();   // 不等切到產品頁，一進站就先在背景抓商品資料
+loadProductUrls();  // 背景抓「商品 → 介紹頁網址」對照表，讓產品卡可以直接連到介紹頁
 setTimeout(()=>{ensureReviews();if(typeof renderShare==="function"&&API_URL&&SHARE_POSTS===null){try{const c=JSON.parse(localStorage.getItem("xtr_posts_v1")||"null");if(!c)fetch(API_URL+"?action=posts&site="+SHARE_SITE).then(r=>r.json()).then(a=>{if(Array.isArray(a))localStorage.setItem("xtr_posts_v1",JSON.stringify(a));}).catch(()=>{});}catch(e){}}},1500);   // 稍後在背景預抓風味評分與分享文章
 </script>
 </body>
