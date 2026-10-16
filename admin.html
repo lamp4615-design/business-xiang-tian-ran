@@ -522,7 +522,8 @@ const isVip=m=>m.done>=3&&m.orders90>=1;
 const SEG_LABEL={never:"從未購買",active:"活躍",watch:"觀望",dormant:"沉睡"};
 const srcOf=m=>m.source||"未記錄";
 const AX_KEYS=["aroma","acidity","sweetness","body","bitterness"];
-const axCell=v=>{v=Number(v)||0;return `<div class="axbar"><div class="bar"><span style="width:${v/5*100}%"></span></div><span class="n">${v||"—"}</span></div>`;};
+const ax1=v=>v%1?v.toFixed(1):String(v);
+const axCell=v=>{v=Number(v)||0;return `<div class="axbar"><div class="bar"><span style="width:${v/5*100}%"></span></div><span class="n">${v?ax1(v):"—"}</span></div>`;};
 async function loadMembers(){
   $("memSum").textContent="讀取中…";
   try{const d=await api({action:"admin_members"});MEMBERS=d.members||[];MEM_WARN=d.warnings||[];MEM_LOADED=true;renderMembers();}
