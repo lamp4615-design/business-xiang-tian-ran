@@ -34,6 +34,7 @@ function doGet(e){
   if (action === "login")    return json(findMember(p.phone));
   if (action === "reviews")  return json(getReviews());
   if (action === "mystats")  return json(getMyStats(p.phone));
+  if (action === "myreviews")return json(getMyReviews(p.phone));
   if (action === "posts")    return json(getPosts(p.site));
   if (action === "unsub")    return unsubscribe_(p);
   return json({ ok:false, error:"unknown action" });
@@ -906,7 +907,9 @@ function notifyProductChanges(){
 
 /* ========================= 風味評分（五軸） ========================= */
 const FLAVOR_AXES = ["aroma","acidity","sweetness","body","bitterness"];
-// 對應 reviews 分頁欄位順序：建立時間/手機/品項/香氣/酸質/甜感/醇厚度/苦味
+// 對應 reviews 分頁欄位順序：建立時間/手機/品項/香氣/酸質/甜感/醇厚度/苦味/喜歡程度
+// 「喜歡程度」(liked, 1~5星)：只有登入會員評分時才會填，訪客評分這欄是 0。
+// 跟五軸不一樣——五軸是客觀描述豆子的風味，liked 是這位會員自己喜不喜歡，用來算「你可能會喜歡」推薦。
 
 function getReviews(){
   const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
@@ -923,7 +926,7 @@ function getReviews(){
       sweetness: Number(rows[i][5]) || 0,
       body:      Number(rows[i][6]) || 0,
       bitterness:Number(rows[i][7]) || 0
-      // 手機不回傳給前端，只用來後台防重複評分／辨識，保護隱私
+      // 手機、喜歡程度都不回傳給前端的公開清單，只用來後台防重複評分／算個人推薦，保護隱私
     });
   }
   return out;
@@ -937,9 +940,35 @@ function addReview(d){
   if (!globalCap_("rv_all", 120, 600)) return { ok:false, error:"busy" };
   const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
   const v = n => Math.min(5, Math.max(0, Number(n) || 0));   // 評分限 0～5
-  sh.appendRow([ new Date(), "", product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness) ]);
+  const liked = key ? Math.min(5, Math.max(0, Math.round(Number(d.liked) || 0))) : 0;   // 只有登入會員才記「喜歡程度」
+  sh.appendRow([ new Date(), "", product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked ]);
   setTextCell(sh, sh.getLastRow(), 2, String(d.phone || "").slice(0, 20));   // 手機存完整（文字），只在後台看得到
   return { ok:true };
+}
+
+/* 這位會員自己評過的豆子（五軸＋喜歡程度），給「你可能會喜歡」推薦用。
+   只比對手機，回傳給本人，不公開。 */
+function getMyReviews(phone){
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
+  const norm = s => String(s || "").replace(/\D/g, "").replace(/^0+/, "");
+  const key = norm(phone);
+  if (!sh || !key) return [];
+  const rows = sh.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < rows.length; i++){
+    if (norm(rows[i][1]) !== key) continue;
+    if (!rows[i][2]) continue;
+    out.push({
+      product:   String(rows[i][2]),
+      aroma:     Number(rows[i][3]) || 0,
+      acidity:   Number(rows[i][4]) || 0,
+      sweetness: Number(rows[i][5]) || 0,
+      body:      Number(rows[i][6]) || 0,
+      bitterness:Number(rows[i][7]) || 0,
+      liked:     Number(rows[i][8]) || 0
+    });
+  }
+  return out;
 }
 
 /* ========================= 抽獎券 / 抽獎 ========================= */

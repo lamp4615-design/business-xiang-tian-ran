@@ -366,6 +366,22 @@
   .slider-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--dawn);border:3px solid var(--card);box-shadow:0 2px 8px rgba(36,28,21,.25);cursor:pointer;margin-top:-8px}
   .slider-row input[type=range]::-moz-range-track{width:100%;height:6px;border-radius:100px;background:var(--paper-2)}
   .slider-row input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:var(--dawn);border:3px solid var(--card);box-shadow:0 2px 8px rgba(36,28,21,.25);cursor:pointer}
+  .like-box{margin:4px 0 26px;padding:16px 18px;background:var(--paper-2);border-radius:14px;border:1px dashed var(--pine-mid)}
+  .like-box .lb-title{font-weight:700;color:var(--pine);margin:0 0 4px}
+  .like-box .lb-sub{font-size:.85rem;color:var(--ink-70);margin:0 0 12px;line-height:1.7}
+  .like-stars{display:flex;gap:6px}
+  .like-stars button{background:none;border:0;font-size:1.7rem;line-height:1;padding:2px;cursor:pointer;opacity:.35;filter:grayscale(1);transition:opacity .15s,filter .15s}
+  .like-stars button.on{opacity:1;filter:none}
+  .rec-box{margin:18px 0 0;padding:20px;background:var(--card);border:1px solid var(--line);border-radius:18px}
+  .rec-box h4{margin:0 0 4px;color:var(--pine);font-family:var(--serif,inherit)}
+  .rec-box .rb-sub{font-size:.88rem;color:var(--ink-70);margin:0 0 14px}
+  .rec-list{display:grid;gap:12px}
+  .rec-item{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:14px;cursor:pointer}
+  .rec-item:hover{border-color:var(--pine-mid)}
+  .rec-item .ri-thumb{width:56px;height:56px;border-radius:10px;overflow:hidden;flex:none;background:var(--paper-2)}
+  .rec-item .ri-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .rec-item .ri-name{font-weight:700;color:var(--pine);margin:0 0 2px}
+  .rec-item .ri-why{font-size:.82rem;color:var(--ink-70);margin:0}
   @media (max-width:760px){.flavor-top{grid-template-columns:1fr;gap:28px}}
   .share-modal{position:fixed;inset:0;z-index:140;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(36,28,21,.62);opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
   .share-modal.open{opacity:1;visibility:visible}
@@ -1047,10 +1063,12 @@ function renderMember(){
       ${pointsPanelHtml()}
       <div class="mc-row"><span class="k">抽獎券</span><span>${member.tickets!=null?member.tickets+" 張":"計算中…"}</span></div>
       <p class="mc-hint">每評一支沒評過的豆子 +1 張抽獎券，未來將舉辦抽獎送好禮。</p>
+      <div class="rec-box"><h4>你可能會喜歡</h4><div id="recBox"><p class="rb-sub">整理推薦中…</p></div></div>
       <div class="mc-secure" id="mcSecure"></div>
       <button class="btn btn-primary form-btn" style="margin-top:22px" onclick="go('products')">開始選購</button>
       <p class="form-note"><button class="linklike" onclick="logout()">登出</button></p>`;
     renderSecure();
+    renderRecommend();
   }else{
     el.innerHTML=`<div class="mtabs"><button class="mtab active" id="tabLogin" onclick="memberTab('login')">登入</button><button class="mtab" id="tabJoin" onclick="memberTab('join')">加入會員</button></div>
       <div id="viewLogin"><p class="sub">輸入註冊時的手機號碼即可登入。</p>
@@ -1296,7 +1314,7 @@ async function secureSave(){
   btn.disabled=false;
 }
 function secureLock(){saveToken("");renderEditBox();showToast("已鎖定個人資料");}
-function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();}
+function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();fetchMyReviews();}
 function logout(){member=null;saveToken("");resetOrders();clearOrdersCache();try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
   const lbl=$("accountLabel");if(lbl)lbl.textContent=member?member.name:"會員";
@@ -1329,7 +1347,8 @@ const SAMPLE_REVIEWS=[
 let REVIEWS_CACHE=[]; let reviewsLoaded=false; let reviewsLoading=false;
 let flavorFilterProduct="__all__";
 let rateVals={aroma:3,acidity:3,sweetness:3,body:3,bitterness:3};
-let myRatings={};
+let rateLiked=0;   // 1-5：只有登入會員評分才會問，用來知道他「多喜歡」這支豆子（跟五軸的客觀風味分開記）
+let myRatings={};  // {商品: {...五軸, liked}}，liked 只有自己評過才有值
 
 function normalizeReview(r){
   const o={phone:String(r.phone||""),product:String(r.product||"")};
@@ -1393,6 +1412,66 @@ function aggregateProduct(product){
   return {vals,count:list.length};
 }
 
+/* ---------- 「你可能會喜歡」：用會員自己打高分(4~5顆星)的豆子，算出他的風味偏好，
+   跟其他還沒喝過、但有公開評分的豆子做比對，找風味最接近的推薦 ---------- */
+function describePref(pref){
+  const rows=AXES.map(a=>({label:a.label,dev:(pref[a.key]||0)-3}));
+  rows.sort((a,b)=>b.dev-a.dev);
+  const high=rows.filter(r=>r.dev>=0.4).slice(0,2).map(r=>r.label);
+  const low=rows.filter(r=>r.dev<=-0.4).slice(-2).map(r=>r.label);
+  const parts=[];
+  if(high.length)parts.push("偏"+high.join("、"));
+  if(low.length)parts.push("低"+low.join("、"));
+  return parts.length?parts.join("、"):"口味均衡";
+}
+function computeRecommendations(){
+  const keys=AXES.map(a=>a.key);
+  const liked=Object.entries(myRatings).filter(([,v])=>v&&v.liked>=4);
+  if(!liked.length)return {state:"need-more-likes"};
+  const pref={};keys.forEach(k=>{pref[k]=liked.reduce((s,[,v])=>s+(v[k]||0),0)/liked.length;});
+  const tried=new Set(Object.keys(myRatings));
+  const scored=PRODUCTS_CACHE.filter(p=>!tried.has(p.name)).map(p=>{
+    const {vals,count}=aggregateProduct(p.name);
+    if(!count)return null;
+    const dist=Math.sqrt(keys.reduce((s,k)=>s+Math.pow((vals[k]||0)-pref[k],2),0));
+    return {p,dist};
+  }).filter(Boolean);
+  if(!scored.length)return {state:"not-enough-data"};
+  scored.sort((a,b)=>a.dist-b.dist);
+  return {state:"ok",why:describePref(pref),items:scored.slice(0,3).map(s=>s.p)};
+}
+async function renderRecommend(){
+  if(!$("recBox"))return;
+  if(!productsLoaded||!reviewsLoaded||!myReviewsLoaded){
+    $("recBox").innerHTML='<p class="rb-sub">整理推薦中…</p>';
+    if(!productsLoaded)ensureProducts();
+    if(!reviewsLoaded)ensureReviews();
+    while(!productsLoaded||!reviewsLoaded||!myReviewsLoaded){
+      await new Promise(r=>setTimeout(r,120));
+      if(!member||!$("recBox"))return;   // 這段等待期間登出了，或會員頁已經重畫掉（換頁、再次 renderMember）
+    }
+  }
+  const box=$("recBox");if(!box)return;
+  const r=computeRecommendations();
+  if(r.state==="need-more-likes"){
+    box.innerHTML=`<p class="rb-sub">幫喝過的豆子打星星（4～5 顆＝喜歡），評越多支，推薦就越準。</p><button class="btn btn-primary form-btn" onclick="go('flavor')">去評分</button>`;
+    return;
+  }
+  if(r.state==="not-enough-data"){
+    box.innerHTML=`<p class="rb-sub">目前還沒有其他豆子有足夠的公開評分可以比對，等大家多評一些再回來看看。</p>`;
+    return;
+  }
+  box.innerHTML=`<p class="rb-sub">你喜歡的豆子通常${esc(r.why)}，這幾支也相近：</p>
+    <div class="rec-list">${r.items.map(p=>{
+      const url=PRODUCT_URLS[p.id];
+      const open=url?`location.href='${esc(url)}'`:`openFlavorView('${esc(p.id)}')`;
+      return `<div class="rec-item" onclick="${open}">
+        <div class="ri-thumb">${thumb(p)}</div>
+        <div><p class="ri-name">${esc(p.name)}</p><p class="ri-why">${esc(p.subtitle||"")}${(p.tags||[]).length?"・"+esc(p.tags.slice(0,2).join("、")):""}</p></div>
+      </div>`;
+    }).join("")}</div>`;
+}
+
 function renderFlavorPage(){renderFlavorFilter();renderRadar();renderRateForm();}
 
 function renderFlavorFilter(){
@@ -1451,18 +1530,27 @@ function renderRateForm(){
   const w=$("rateFormWrap");if(!w)return;
   if(!PRODUCTS_CACHE.length){w.innerHTML="";return;}
   const prevMine=myRatings[flavorFilterProduct];
-  rateVals=prevMine?{...prevMine}:{aroma:3,acidity:3,sweetness:3,body:3,bitterness:3};
+  rateVals=prevMine?{aroma:prevMine.aroma,acidity:prevMine.acidity,sweetness:prevMine.sweetness,body:prevMine.body,bitterness:prevMine.bitterness}:{aroma:3,acidity:3,sweetness:3,body:3,bitterness:3};
+  rateLiked=member&&prevMine?(prevMine.liked||0):0;
   const opts=PRODUCTS_CACHE.map(p=>`<option value="${esc(p.name)}" ${p.name===flavorFilterProduct?"selected":""}>${esc(p.name)}</option>`).join("");
   w.innerHTML=`<div class="rate-form">
     ${member
       ? `<p class="rf-intro">登入會員評分，每評一支<strong>沒評過的豆子</strong>就 +1 張抽獎券${member.tickets!=null?`（目前 ${member.tickets} 張）`:""}。選你喝的豆子，五個面向各給 1–5 分。</p>`
-      : `<p class="rf-intro">訪客也能評分。<button class="linklike" onclick="go('member')">登入會員</button>後評分，還能累積抽獎券、未來抽好禮。五個面向各給 1–5 分。</p>`}
+      : `<p class="rf-intro">訪客也能評分。<button class="linklike" onclick="go('member')">登入會員</button>後評分，還能累積抽獎券、未來抽好禮，也才能解鎖「你可能會喜歡」的專屬推薦。五個面向各給 1–5 分。</p>`}
     <div class="field"><label>品項</label><select id="rateProduct" onchange="onRateProductChange(this.value)">${opts}</select></div>
     <div id="sliderRows"></div>
+    ${member?`<div class="like-box"><p class="lb-title">這支豆子你喜歡嗎？</p>
+      <p class="lb-sub">小遊戲規則：五個面向是客觀描述豆子的風味，這裡的星星才是「你喜不喜歡」。常常打高分（4〜5 顆星）的風味，我們就會記住，下次在會員中心幫你挑類似風味、你還沒喝過的豆子。</p>
+      <div class="like-stars" id="likeStars">${[1,2,3,4,5].map(n=>`<button type="button" class="${n<=rateLiked?"on":""}" data-n="${n}" onclick="onStarClick(${n})" aria-label="${n} 顆星">★</button>`).join("")}</div></div>`:""}
     <button class="btn btn-primary form-btn" id="rateBtn" onclick="submitRating()">送出評分</button>
     <p class="form-note" id="rateNote"></p>
   </div>`;
   renderSliders();
+}
+function onStarClick(n){
+  rateLiked=(rateLiked===n)?0:n;   // 再點一次同一顆星可以取消
+  const box=$("likeStars");if(!box)return;
+  Array.from(box.children).forEach(b=>b.classList.toggle("on",Number(b.dataset.n)<=rateLiked));
 }
 function onRateProductChange(v){flavorFilterProduct=v;renderFlavorFilter();renderRadar();renderRateForm();}
 function renderSliders(){
@@ -1495,8 +1583,9 @@ async function submitRating(){
   const product=val("rateProduct")||flavorFilterProduct;
   if(!product){if(note)note.textContent="請選擇品項。";return;}
   const vals={...rateVals};   // 先保存這次的評分，待會用來畫分享卡片
+  const liked=member?rateLiked:0;
   const btn=$("rateBtn");if(btn){btn.disabled=true;btn.textContent="送出中…";}
-  const payload={action:"review",phone:(member?member.phone:""),product,...rateVals};
+  const payload={action:"review",phone:(member?member.phone:""),product,...rateVals,liked};
   try{
     if(API_URL){await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});}
     else{await new Promise(r=>setTimeout(r,500));}
@@ -1517,9 +1606,10 @@ async function submitRating(){
     }
 
     flavorFilterProduct=product;
-    myRatings[product]={...vals};
+    myRatings[product]={...vals,liked};
     renderFlavorPage();
     updateAccountUI();
+    if(member)renderMember();   // 評分可能影響「你可能會喜歡」推薦，會員中心同步刷新
     showToast(member?reward:"謝謝你的評分！");
     showShareCard(product, vals, reward, !member);   // 送出後自動產生分享卡片
   }catch(e){note=$("rateNote");if(note)note.textContent="送出失敗，請稍後再試。";}
@@ -1537,6 +1627,23 @@ async function fetchMyStats(){
     else{member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}
   saveSession();renderMember();flavorRefresh();
+}
+
+/* 讀回這位會員自己評過的五軸分數＋喜歡程度（換裝置、換瀏覽器登入也看得到），
+   用來算「你可能會喜歡」推薦。myRatings 原本只在當次評分後才有值，這裡補成登入就抓。 */
+let myReviewsLoaded=false;
+async function fetchMyReviews(){
+  if(!member)return;
+  if(!API_URL){myReviewsLoaded=true;renderMember();return;}   // 展示模式沒有後端，只能靠當次評分
+  myReviewsLoaded=false;
+  try{
+    const res=await fetch(API_URL+"?action=myreviews&phone="+encodeURIComponent(member.phone));
+    const list=await res.json();
+    if(Array.isArray(list)){
+      list.forEach(r=>{if(r&&r.product)myRatings[r.product]={aroma:Number(r.aroma)||0,acidity:Number(r.acidity)||0,sweetness:Number(r.sweetness)||0,body:Number(r.body)||0,bitterness:Number(r.bitterness)||0,liked:Number(r.liked)||0};});
+    }
+  }catch(e){}
+  myReviewsLoaded=true;renderMember();flavorRefresh();
 }
 
 /* ---------- 分享卡片（Instagram 限動用） ---------- */
@@ -1807,6 +1914,7 @@ $("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)clo
 captureSource();loadSession();loadCart();updateAccountUI();renderCart();route();maybeShowWelcome();
 ensureProducts();   // 不等切到產品頁，一進站就先在背景抓商品資料
 loadProductUrls();  // 背景抓「商品 → 介紹頁網址」對照表，讓產品卡可以直接連到介紹頁
+if(member)fetchMyReviews();   // 已登入過（手機存在這台裝置）：背景抓回自己的評分，才能馬上算推薦
 setTimeout(()=>{ensureReviews();if(typeof renderShare==="function"&&API_URL&&SHARE_POSTS===null){try{const c=JSON.parse(localStorage.getItem("xtr_posts_v1")||"null");if(!c)fetch(API_URL+"?action=posts&site="+SHARE_SITE).then(r=>r.json()).then(a=>{if(Array.isArray(a))localStorage.setItem("xtr_posts_v1",JSON.stringify(a));}).catch(()=>{});}catch(e){}}},1500);   // 稍後在背景預抓風味評分與分享文章
 </script>
 </body>
