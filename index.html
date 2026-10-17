@@ -1009,19 +1009,23 @@ async function confirmPurchase(){
   const items=cart.map(c=>{const p=findProduct(c.id);return `${p.name} x${c.qty}`;}).join("、");
   const total=cart.reduce((s,c)=>{const p=findProduct(c.id);return s+p.price*c.qty;},0);
   const bags=cart.reduce((s,c)=>s+c.qty,0);   // 總包數，供集點用
+  const lines=cart.map(c=>({id:c.id,qty:c.qty}));   // 2026-10-17：金額由後端依商品價格表重算，這裡送商品代號與數量
   const btn=$("confirmBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="送出中…";
+  let orderId="",finalTotal=total;
   try{
     if(API_URL){
-      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags})});
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags,lines})});
       let r=null;try{r=await res.json();}catch(e){}
       if(r&&r.ok===false){
-        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":"訂單送出失敗，請稍後再試或聯絡我們");
+        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":r.error==="product_unavailable"?"有商品已下架或更新，請重新整理頁面後再下單":"訂單送出失敗，請稍後再試或聯絡我們");
         btn.disabled=false;btn.textContent=old;return;
       }
+      if(r&&r.orderId)orderId=String(r.orderId);   // 舊版後端沒有訂單編號，就不顯示
+      if(r&&Number(r.total)>0)finalTotal=Number(r.total);
     }else{await new Promise(r=>setTimeout(r,600));}
     cart=[];saveCart();renderCart();
-    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！<br>我們會盡快透過 LINE 或電話與你聯繫。<br>訂單處理完成後，點數會自動加到會員中心。</div>';
-    showToast("訂單已送出，謝謝你");
+    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！'+(orderId?'<br>訂單編號：<strong>'+esc(orderId)+'</strong>（詢問訂單時請提供）':'')+(finalTotal!==total?'<br>訂單金額以 NT$ '+finalTotal.toLocaleString()+' 為準（價格已更新）':'')+'<br>我們會盡快透過 LINE 或電話與你聯繫。<br>訂單處理完成後，點數會自動加到會員中心。</div>';
+    showToast(orderId?"訂單已送出，編號 "+orderId:"訂單已送出，謝謝你");
     fetchMyStats();
   }catch(e){showToast("送出失敗，請稍後再試");}
   finally{btn.disabled=false;btn.textContent=member?"確認購買":"登入後購買";}

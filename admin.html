@@ -444,7 +444,7 @@ function buildPeriodSelects(){
 /* ---------- 訂單 ---------- */
 function renderOrders(){
   const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
-  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
+  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
   const pend=list.filter(o=>o.status==="待處理");
   $("ordersSum").textContent=`${list.length} 筆`+(pend.length?`・待處理 ${pend.length} 筆（${money(pend.reduce((s,o)=>s+o.total,0))}）`:"");
   if(!list.length){$("ordersBody").innerHTML='<tr><td colspan="8" class="empty">沒有訂單</td></tr>';return;}
@@ -452,7 +452,7 @@ function renderOrders(){
     const d=o.time?new Date(o.time):null;
     const t=d?`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`:"";
     return `<tr>
-      <td>${t}</td>
+      <td>${t}${o.orderId?`<div class="sub">${esc(o.orderId)}</div>`:""}</td>
       <td>${esc(o.name)}<div class="sub">${esc(o.phone)}・${esc(o.city)}</div></td>
       <td>${esc(o.items)}</td>
       <td class="num">${money(o.total)}</td>
@@ -465,9 +465,11 @@ function renderOrders(){
 async function saveOrder(row,btn){
   btn.disabled=true;
   try{
-    await api({action:"admin_update_order",row,status:$("s"+row).value,bags:$("b"+row).value});
+    // 以訂單編號定位（後端寫入前會再核對）；還沒補編號的舊訂單才用列號＋訂購內容核對。舊版後端會忽略 orderId／items，照舊用列號
+    const o=ORDERS.find(x=>x.row===row)||{};
+    const r=await api({action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value});
     toast("已儲存，點數已同步");await loadAll();
-  }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;}
+  }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;if(/重新整理/.test(e.message))loadAll();}
 }
 
 /* ---------- 成本 ---------- */
@@ -516,8 +518,8 @@ function exportCosts(){
 }
 function exportOrders(){
   const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
-  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
-  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","狀態"]].concat(list.map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.status])));
+  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
+  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","狀態","訂單編號"]].concat(list.map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.status,o.orderId||""])));
 }
 async function addCost(){
   const item=$("cItem").value.trim(),amount=Number($("cAmt").value);

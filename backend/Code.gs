@@ -450,30 +450,155 @@ function addMember(d){
   return { ok:true, token:signToken_(key) };   // 帳號是他剛建立的，直接給憑證，加入後馬上能看自己的資料
 }
 
+/* ----- 訂單編號（2026-10-17）：O + 下單日期 + 當天流水號，例如 O20261017-001 -----
+   寫在 orders 分頁最右邊的「訂單編號」欄（第一次用到會自動補標題，不動既有欄位與資料）。
+   既有訂單請在 Apps Script 執行一次 backfillOrderIds() 補編號。 */
+const ORDER_ID_COL = "訂單編號";
+function orderIdPrefix_(date){ return "O" + Utilities.formatDate(date || new Date(), "Asia/Taipei", "yyyyMMdd") + "-"; }
+function nextOrderId_(sh, idCol, date){
+  const prefix = orderIdPrefix_(date);
+  let max = 0;
+  const n = sh.getLastRow() - 1;
+  if (n > 0) sh.getRange(2, idCol, n, 1).getValues().forEach(r => {
+    const v = String(r[0] || "");
+    if (v.indexOf(prefix) === 0){ const k = Number(v.slice(prefix.length)); if (k > max) max = k; }
+  });
+  return prefix + ("00" + (max + 1)).slice(-Math.max(3, String(max + 1).length));
+}
+/* 依訂單編號找列號（找不到回 0） */
+function findOrderRow_(sh, orderId){
+  orderId = String(orderId || "").trim();
+  if (!orderId || sh.getLastRow() < 2) return 0;
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const c = head.indexOf(ORDER_ID_COL);
+  if (c < 0) return 0;
+  const vals = sh.getRange(2, c + 1, sh.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < vals.length; i++) if (String(vals[i][0]).trim() === orderId) return i + 2;
+  return 0;
+}
+
+/* 商品價格表（只算上架中的商品）：{ byId:{id:{name,price}}, byName:{name:{id,price}} } */
+function priceTable_(){
+  const byId = {}, byName = {};
+  getProducts().forEach(p => { byId[p.id] = { name:p.name, price:p.price }; byName[p.name] = { id:p.id, price:p.price }; });
+  return { byId:byId, byName:byName };
+}
+/* 依 products 分頁的單價重算訂單：
+   新版前台送 lines:[{id, qty}]；舊版前台只送文字「名稱 x數量、…」，就照名稱對。
+   任何一項對不到上架中的商品（已下架、改名、亂填）就整張拒收，避免被改價或下到不存在的商品。
+   回傳 { ok, items（後端重組的訂購內容）, total, bags } 或 { ok:false, error } */
+function priceOrder_(d){
+  const t = priceTable_();
+  const lines = [];
+  if (Array.isArray(d.lines) && d.lines.length){
+    for (let i = 0; i < d.lines.length && i < 50; i++){
+      const l = d.lines[i] || {}, p = t.byId[String(l.id || "")];
+      const qty = Math.floor(Number(l.qty));
+      if (!p) return { ok:false, error:"product_unavailable" };
+      if (!(qty >= 1 && qty <= 100)) return { ok:false, error:"bad order" };
+      lines.push({ name:p.name, price:p.price, qty:qty });
+    }
+  } else {
+    const parsed = parseItems_(d.items);
+    const names = Object.keys(parsed);
+    if (!names.length) return { ok:false, error:"bad order" };
+    for (let i = 0; i < names.length; i++){
+      const p = t.byName[names[i]], qty = parsed[names[i]];
+      if (!p) return { ok:false, error:"product_unavailable" };
+      if (!(qty >= 1 && qty <= 100)) return { ok:false, error:"bad order" };
+      lines.push({ name:names[i], price:p.price, qty:qty });
+    }
+  }
+  // 同一商品出現兩次就合併
+  const merged = {}, order = [];
+  lines.forEach(l => { if (!merged[l.name]){ merged[l.name] = { name:l.name, price:l.price, qty:0 }; order.push(l.name); } merged[l.name].qty += l.qty; });
+  const list = order.map(n => merged[n]);
+  const total = list.reduce((s, l) => s + l.price * l.qty, 0);
+  const bags = list.reduce((s, l) => s + l.qty, 0);
+  if (!(total > 0) || total > 1000000) return { ok:false, error:"bad order" };
+  return { ok:true, items:safeText_(list.map(l => l.name + " x" + l.qty).join("、"), 500), total:total, bags:Math.min(1000, bags) };
+}
+
 function addOrder(d){
   const key = normPhone_(d.phone);
   if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
-  const items = safeText_(d.items, 500);
-  const total = Number(d.total) || 0;
-  if (!items || !(total > 0) || total > 1000000) return { ok:false, error:"bad order" };
+  const clientTotal = Number(d.total) || 0;
   if (!rateLimit_("ord_" + key, 60)) return { ok:false, error:"rate_limited" };   // 同一支手機一分鐘只能下一張
   if (!globalCap_("ord_all", 20, 600)) return { ok:false, error:"busy" };          // 全站 10 分鐘最多 20 張
+  const priced = priceOrder_(d);   // 金額一律由後端依 products 單價重算，前端送的 total 只拿來比對
+  if (!priced.ok) return priced;
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  ensureMemberSchema_(ss, false);
-  const sh = ss.getSheetByName(ORDERS_TAB);
-  // 會員的姓名／地區以試算表為準（前台只有遮罩後的姓名）；查不到才用前台送來的
+  ensureMemberSchema_(ss, false);   // 自己會視需要上鎖，所以放在下面的鎖之外
+  // 會員的姓名／地區以試算表為準（前台不持有完整個資）；查不到才用前台送來的
   const m = lookupMember_(ss, d.phone);
   const name = m ? m.name : safeText_(d.name, 40);
   const city = m ? m.city : safeText_(d.city, 60);
-  const bags = Math.min(1000, Math.max(0, Math.floor(Number(d.bags)) || parseBags(items)));
-  // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點
-  // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
-  sh.appendRow([ new Date(), name, "", city, items, total, "待處理", bags, 0 ]);
-  setTextCell(sh, sh.getLastRow(), 3, String(d.phone).slice(0, 20));
-  if (m && m.id) sh.getRange(sh.getLastRow(), ensureCol_(sh, "會員編號").col).setValue(m.id);   // 訂單記會員編號，換手機也對得上
-  notifyOrder({ name:name, phone:String(d.phone).slice(0, 20), city:city, items:items, total:total });   // 寄 Email 通知
-  return { ok:true };
+  const phoneText = String(d.phone).slice(0, 20);
+  const now = new Date();
+  let orderId = "";
+  const lock = LockService.getScriptLock();
+  try{ lock.waitLock(15000); }catch(err){ return { ok:false, error:"busy" }; }
+  try{
+    // 整列一次寫入（不再 appendRow 之後才用 getLastRow 回填，兩張單同時進來也不會填錯列）
+    const sh = ss.getSheetByName(ORDERS_TAB);
+    const idCol = ensureCol_(sh, ORDER_ID_COL).col;
+    const memCol = ensureCol_(sh, "會員編號").col;
+    orderId = nextOrderId_(sh, idCol, now);
+    const width = sh.getLastColumn();
+    const row = new Array(width).fill("");
+    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點（＋最右邊的會員編號、訂單編號…）
+    // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
+    [now, name, phoneText, city, priced.items, priced.total, "待處理", priced.bags, 0].forEach((v, i) => { row[i] = v; });
+    row[memCol - 1] = m && m.id ? m.id : "";   // 訂單記會員編號，換手機也對得上
+    row[idCol - 1] = orderId;
+    const r = sh.getLastRow() + 1;
+    sh.getRange(r, 3).setNumberFormat("@");   // 手機存成文字，開頭的 0 才不會被吃掉
+    sh.getRange(r, 1, 1, width).setValues([row]);
+  } finally { lock.releaseLock(); }
+  const diff = clientTotal && clientTotal !== priced.total;
+  if (diff) adminLog_(ss, "訂單金額差異", "前端 " + clientTotal + "／後端依價格表 " + priced.total + "（以後端為準）", orderId);
+  notifyOrder({ orderId:orderId, name:name, phone:phoneText, city:city, items:priced.items, total:priced.total,
+                note: diff ? "網頁送來的金額是 NT$ " + clientTotal + "，已依商品價格表改為 NT$ " + priced.total + "（可能是客人的網頁價格還沒更新）" : "" });   // 寄 Email 通知
+  return { ok:true, orderId:orderId, total:priced.total, items:priced.items };
+}
+
+/* 手動執行一次（Apps Script 選 backfillOrderIds → 執行）：幫還沒有訂單編號的既有訂單補上編號。
+   依「建立時間」的日期編號，接在當天已有的流水號後面；已有編號的不會動。可重複執行。 */
+function backfillOrderIds(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let n = 0;
+  try{
+    const sh = ss.getSheetByName(ORDERS_TAB);
+    if (!sh || sh.getLastRow() < 2){ Logger.log("orders 沒有資料"); return 0; }
+    const idCol = ensureCol_(sh, ORDER_ID_COL).col;
+    const rows = sh.getDataRange().getValues();
+    const head = rows[0].map(h => String(h).trim());
+    const tI = head.indexOf("建立時間"), iI = head.indexOf("訂購內容"), aI = head.indexOf("金額");
+    const max = {};
+    rows.slice(1).forEach(r => {
+      const v = String(r[idCol - 1] || "");
+      const m = /^(O\d{8}-)(\d+)$/.exec(v);
+      if (m) max[m[1]] = Math.max(max[m[1]] || 0, Number(m[2]));
+    });
+    const col = rows.slice(1).map(r => {
+      const cur = String(r[idCol - 1] || "").trim();
+      if (cur) return [cur];
+      if (!r[iI] && !r[aI]) return [""];   // 空列
+      const dt = r[tI] ? new Date(r[tI]) : new Date();
+      const prefix = orderIdPrefix_(isNaN(dt) ? new Date() : dt);
+      const k = (max[prefix] || 0) + 1;
+      max[prefix] = k;
+      n++;
+      return [prefix + ("00" + k).slice(-Math.max(3, String(k).length))];
+    });
+    if (n) sh.getRange(2, idCol, col.length, 1).setValues(col);
+  } finally { lock.releaseLock(); }
+  adminLog_(ss, "補訂單編號", "補了 " + n + " 筆", "");
+  Logger.log("已補 " + n + " 筆訂單編號");
+  return n;
 }
 
 /* ========================= 會員驗證 / 個人資料（會員中心） =========================
@@ -763,9 +888,10 @@ function memberUpdate(d){
 /* 新訂單 Email 通知 */
 function notifyOrder(d){
   try{
-    var subject = "【翔天然】新訂單 — " + (d.name || "");
+    var subject = "【翔天然】新訂單 " + (d.orderId || "") + " — " + (d.name || "");
     var lines = [
       "你有一筆新訂單：", "",
+      "訂單編號：" + (d.orderId || "（無）"),
       "姓名：" + (d.name || ""),
       "手機：" + (d.phone || ""),
       "地區：" + (d.city || ""),
@@ -774,6 +900,7 @@ function notifyOrder(d){
       "時間：" + new Date().toLocaleString("zh-TW"), "",
       "— 訂單也已存入試算表 orders 分頁。"
     ];
+    if (d.note) lines.splice(lines.length - 1, 0, "⚠ " + d.note, "");
     MailApp.sendEmail(NOTIFY_EMAIL, subject, lines.join("\n"));
   }catch(err){ /* 寄信失敗不影響訂單寫入 */ }
 }
@@ -1633,6 +1760,7 @@ function adminListOrders(ss){
     if (!r[at("訂購內容")] && !r[at("金額")]) continue;
     out.push({
       row: i + 1,
+      orderId: at(ORDER_ID_COL) > -1 ? String(r[at(ORDER_ID_COL)] || "") : "",
       time: r[at("建立時間")] ? new Date(r[at("建立時間")]).toISOString() : "",
       name: String(r[at("姓名")] || ""),
       phone: String(r[at("手機")] || ""),
@@ -1647,11 +1775,28 @@ function adminListOrders(ss){
   return out.reverse();   // 新的在前
 }
 
+/* 後台改單（2026-10-17）：以「訂單編號」定位，不再只靠列號（試算表排序或刪列後列號會變，可能改錯單、加錯點）。
+   寫入前再核對一次那一列的編號；對不上就拒絕，請店主重新整理。
+   還沒補編號的舊訂單（沒跑 backfillOrderIds 前）才退回用列號，並核對訂購內容一致。 */
+const ORDER_STALE = "資料已變動，請重新整理後再改";
 function adminUpdateOrder(ss, d){
   const sh = ss.getSheetByName(ORDERS_TAB);
-  const row = Number(d.row);
-  if (!sh || !row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+  if (!sh) return { ok:false, error:"bad row" };
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const idI = headers.indexOf(ORDER_ID_COL);
+  let row;
+  if (d.orderId){
+    row = findOrderRow_(sh, d.orderId);
+    if (!row) return { ok:false, error:ORDER_STALE };
+    if (String(sh.getRange(row, idI + 1).getValue()).trim() !== String(d.orderId).trim()) return { ok:false, error:ORDER_STALE };   // 寫入前核對
+  } else {
+    row = Number(d.row);
+    if (!row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+    // 這列已經有編號，代表後台畫面是舊的（或是舊版後台頁）：請重新整理，改用編號定位
+    if (idI > -1 && String(sh.getRange(row, idI + 1).getValue()).trim()) return { ok:false, error:ORDER_STALE };
+    const iI = headers.indexOf("訂購內容");
+    if (d.items !== undefined && iI > -1 && String(sh.getRange(row, iI + 1).getValue()) !== String(d.items)) return { ok:false, error:ORDER_STALE };
+  }
   if (d.status !== undefined){
     if (ORDER_STATUSES.indexOf(d.status) < 0) return { ok:false, error:"bad status" };
     sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
@@ -1830,6 +1975,8 @@ function setupSheets(){
     if (oh.indexOf("包數") < 0)   o.getRange(1, o.getLastColumn() + 1).setValue("包數");
     if (oh.indexOf("已加點") < 0) o.getRange(1, o.getLastColumn() + 1).setValue("已加點");
   }
+  // 2026-10-17：訂單編號（補在最右邊，不動既有欄位；既有訂單請再執行 backfillOrderIds()）
+  ensureCol_(o, ORDER_ID_COL);
 
   let rv = ss.getSheetByName(REVIEWS_TAB) || ss.insertSheet(REVIEWS_TAB);
   if (rv.getLastRow() === 0) {
