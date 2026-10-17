@@ -1610,14 +1610,29 @@ async function submitRating(){
   const liked=member?rateLiked:0;
   const btn=$("rateBtn");if(btn){btn.disabled=true;btn.textContent="送出中…";}
   const payload={action:"review",phone:(member?member.phone:""),product,...rateVals,liked};
+  const tk=member&&API_URL?myToken():"";
+  if(tk)payload.token=tk;   // 2026-10-17：有驗證過就帶憑證；同一支豆子再評一次＝更新，需要驗證過才能覆蓋
+  let updated=false;
   try{
-    if(API_URL){await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});}
+    if(API_URL){
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
+      let r=null;try{r=await res.json();}catch(e){}
+      if(r&&r.ok===false){   // 依後端回應顯示結果；舊版後端一律回 ok，不會進來
+        note=$("rateNote");
+        const msg=r.error==="auth_required"?"這支豆子你評過了。要更新評分，請先到「會員中心」用 Email 驗證碼驗證身分。":r.error==="rate_limited"?"送出太快了，請等幾秒再試。":r.error==="busy"?"目前評分的人比較多，請稍後再試。":"送出失敗，請稍後再試。";
+        if(note)note.textContent=msg;showToast(msg);
+        return;
+      }
+      updated=!!(r&&r.updated);
+    }
     else{await new Promise(r=>setTimeout(r,500));}
-    REVIEWS_CACHE.push(normalizeReview(payload));
+    if(!updated)REVIEWS_CACHE.push(normalizeReview(payload));   // 更新舊評分時不重複加進公開統計（重新整理後會讀到更新後的分數）
 
     // 抽獎券：登入會員每評一支「沒評過」的豆子 +1 張
     let reward="";
-    if(member){
+    if(member&&updated){reward="已更新你對這支豆子的評分";}
+    else if(member&&member.statsLimited){reward="謝謝你的評分！驗證身分後可在會員中心看抽獎券張數";}
+    else if(member){
       member.ratedProducts=member.ratedProducts||[];
       if(member.ratedProducts.indexOf(product)<0){
         member.ratedProducts.push(product);

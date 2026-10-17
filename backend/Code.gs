@@ -1146,18 +1146,44 @@ function getReviews(){
   return out;
 }
 
+/* 送出評分（2026-10-17 改版）：
+   ① 加鎖，整列一次寫入（不再 appendRow 後用 getLastRow 回填手機，同時送出也不會填錯列）；
+   ② 同一支手機、同一支豆子只保留一筆：再評一次就覆蓋那一列（時間也更新），不新增，避免灌票；
+   ③ 覆蓋別人的評分要先證明是本人：已經評過的豆子要「更新」時必須帶有效憑證（驗證碼驗證過），
+      否則回 auth_required。第一次評分維持不用驗證（跟以前一樣）。訪客（沒有手機）的評分照舊新增一列。
+   公開的 action=reviews／reviews.json 仍然只有時間、品項、五軸分數，不含手機與喜歡程度。 */
 function addReview(d){
-  const key = normPhone_(d.phone);
+  const tokenKey = d.token ? verifyToken_(d.token) : null;
+  const key = tokenKey || normPhone_(d.phone);
   const product = safeText_(d.product, 60);
   if (!product) return { ok:false, error:"bad input" };
   if (!rateLimit_("rv_" + (key || "anon") + "_" + product, 5)) return { ok:false, error:"rate_limited" };
   if (!globalCap_("rv_all", 120, 600)) return { ok:false, error:"busy" };
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
   const v = n => Math.min(5, Math.max(0, Number(n) || 0));   // 評分限 0～5
   const liked = key ? Math.min(5, Math.max(0, Math.round(Number(d.liked) || 0))) : 0;   // 只有登入會員才記「喜歡程度」
-  sh.appendRow([ new Date(), "", product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked ]);
-  setTextCell(sh, sh.getLastRow(), 2, String(d.phone || "").slice(0, 20));   // 手機存完整（文字），只在後台看得到
-  return { ok:true };
+  const lock = LockService.getScriptLock();
+  try{ lock.waitLock(10000); }catch(err){ return { ok:false, error:"busy" }; }
+  try{
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
+    if (!sh) return { ok:false, error:"no_sheet" };
+    let row = 0, phoneCell = "";
+    if (key){
+      const rows = sh.getDataRange().getValues();
+      for (let i = rows.length - 1; i >= 1; i--){   // 從最新的往回找
+        if (normPhone_(rows[i][1]) === key && String(rows[i][2]).trim() === product){ row = i + 1; phoneCell = String(rows[i][1]); break; }
+      }
+      if (row && !tokenKey) return { ok:false, error:"auth_required", needAuth:true, existed:true };
+      if (!phoneCell){
+        const raw = String(d.phone || "").replace(/[^\d+\-\s]/g, "").slice(0, 20);
+        phoneCell = normPhone_(raw) === key ? raw : "0" + key;   // 手機存完整（文字），只在後台看得到
+      }
+    }
+    const vals = [ new Date(), phoneCell, product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked ];
+    const target = row || sh.getLastRow() + 1;
+    sh.getRange(target, 2).setNumberFormat("@");
+    sh.getRange(target, 1, 1, vals.length).setValues([vals]);
+    return { ok:true, updated:!!row };
+  } finally { lock.releaseLock(); }
 }
 
 /* 這位會員自己評過的豆子（五軸＋喜歡程度），給「你可能會喜歡」推薦用。
