@@ -83,14 +83,14 @@ const articleCss = (() => {
   const a = adminHtml.indexOf(".sh-art{max-width"), b = adminHtml.indexOf("</style>", a);
   return a > -1 && b > a ? adminHtml.slice(a, b) : ".sh-art img{max-width:100%}";
 })();
-const CSS = `:root{--pine:#294636;--pine-mid:#4E6B52;--dawn:#E4892B;--dawn-soft:#F3B85F;--paper:#F5F3EB;--paper-2:#EAE7DC;--ink:#241C15;--ink-70:rgba(36,28,21,.72);--ink-45:rgba(36,28,21,.48);--line:rgba(46,61,48,.16);--serif:"Noto Serif TC",serif;--latin:"Fraunces",serif}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.85 "Noto Sans TC","Microsoft JhengHei",sans-serif}
+const CSS = `:root{--pine:#294636;--pine-mid:#4E6B52;--dawn:#E4892B;--dawn-soft:#F3B85F;--paper:#F5F3EB;--paper-2:#EAE7DC;--ink:#241C15;--ink-70:rgba(36,28,21,.72);--ink-45:rgba(36,28,21,.48);--line:rgba(46,61,48,.16);--sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;--serif:var(--sans);--latin:Georgia,"Times New Roman",serif}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.85 var(--sans)}
 a{color:var(--pine)}img{max-width:100%;height:auto}.wrap{max-width:980px;margin:0 auto;padding:0 20px}
 .top{background:var(--pine);color:#fff}.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:14px;padding-bottom:14px;flex-wrap:wrap}
 .top a{color:#fff;text-decoration:none}.brand{font-family:var(--serif);font-weight:700;font-size:1.25rem;letter-spacing:.08em}.top nav a{margin-left:18px;font-size:.95rem;opacity:.9}.top nav a:hover{opacity:1;text-decoration:underline}
 .crumb{font-size:.85rem;color:var(--ink-45);margin:22px 0 8px}.crumb a{color:var(--ink-45)}
-h1{font-family:var(--serif);color:var(--pine);font-size:clamp(1.7rem,4vw,2.4rem);line-height:1.4;margin:.2em 0 .3em;letter-spacing:.03em}
-h2{font-family:var(--serif);color:var(--pine);font-size:1.35rem;margin:2em 0 .6em}
+h1{font-family:var(--serif);font-weight:500;color:var(--pine);font-size:clamp(1.7rem,4vw,2.4rem);line-height:1.4;margin:.2em 0 .3em;letter-spacing:.03em}
+h2{font-family:var(--serif);font-weight:500;color:var(--pine);font-size:1.35rem;margin:2em 0 .6em}
 .prod{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:34px;align-items:start;margin-top:10px}
 .pimg{border-radius:20px;overflow:hidden;background:var(--paper-2);aspect-ratio:4/3;box-shadow:0 14px 34px rgba(36,28,21,.12)}.pimg img{width:100%;height:100%;object-fit:cover;display:block}
 .badge{display:inline-block;background:var(--dawn);color:var(--ink);font-size:.78rem;font-weight:700;padding:2px 12px;border-radius:99px;letter-spacing:.08em}
@@ -136,7 +136,7 @@ function shell({ title, desc, canonical, image, type = "website", ld = [], body 
 <meta name="theme-color" content="#294636">
 <link rel="icon" href="${SITE}%E7%BF%94%E8%87%AA%E5%9C%A8.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap"></noscript>
 ${ld.map(ldJson).join("\n")}
 <style>${CSS}</style>
 </head>
