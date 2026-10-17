@@ -1352,6 +1352,103 @@ function syncOrderPoints(ss, sh, row){
   sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
 }
 
+/* ========================= 出貨通知信（2026-10-17） =========================
+ * 訂單狀態從「其他」改成「已完成」時，若會員有登記 Email，就自動寄一封「出貨通知」交易信（訂單編號、品項、包數、LINE 聯絡方式）。
+ *   ・兩種改法都會寄：後台介面改狀態（adminUpdateOrder）、直接在試算表改「狀態」欄（需執行一次 setupShipNoticeTrigger()）。
+ *     ※ 試算表內建的 onEdit 屬於「簡易觸發器」，Google 不允許它寄信，所以另外建一個「可安裝的編輯觸發器」專門寄信。
+ *   ・每單只寄一次：寄出後在 orders 最右邊「出貨通知時間」欄記下時間，有值就不再寄。
+ *     這欄第一次建立時，既有「已完成」的舊訂單會標「啟用前已完成（不寄）」，不會補寄舊單。
+ *   ・這是交易通知，不看行銷同意；信裡不放任何行銷內容（不放新品、優惠、網站推廣連結）。
+ *   ・寄信前檢查每日寄信額度；寄信失敗不影響加點與狀態更新，失敗原因寫進 admin_log。 */
+const SHIP_NOTICE_COL = "出貨通知時間";
+const SHIP_SKIP_MARK = "啟用前已完成（不寄）";
+// LINE 聯絡連結（沿用網站 index.html 的 LINE_URL）；要換成官方帳號連結改這裡就好
+const LINE_CONTACT_URL = "https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
+
+/* 取得「出貨通知時間」欄；第一次建立時把既有已完成訂單標成不寄（exceptRow＝正在處理的那列除外） */
+function ensureShipCol_(sh, exceptRow){
+  const c = ensureCol_(sh, SHIP_NOTICE_COL);
+  if (c.created && sh.getLastRow() > 1){
+    const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const stI = head.indexOf("狀態");
+    if (stI > -1){
+      const n = sh.getLastRow() - 1;
+      const st = sh.getRange(2, stI + 1, n, 1).getValues();
+      sh.getRange(2, c.col, n, 1).setValues(st.map((r, i) => [String(r[0]).trim() === "已完成" && i + 2 !== exceptRow ? SHIP_SKIP_MARK : ""]));
+    }
+  }
+  return c.col;
+}
+
+/* 寄出貨通知（呼叫端要已經在鎖裡）。回傳 sent／already／not_done／no_email／quota／failed */
+function sendShipNotice_(ss, sh, row){
+  const nCol = ensureShipCol_(sh, row);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const v = sh.getRange(row, 1, 1, head.length).getValues()[0];
+  const at = n => head.indexOf(n);
+  if (String(v[at("狀態")]).trim() !== "已完成") return "not_done";
+  if (String(v[nCol - 1] == null ? "" : v[nCol - 1]).trim()) return "already";
+  const orderId = at(ORDER_ID_COL) > -1 ? String(v[at(ORDER_ID_COL)] || "") : "";
+  const target = orderId || ("orders 第 " + row + " 列");
+  const m = lookupMember_(ss, v[at("手機")]);
+  if (!m || !EMAIL_RE.test(String(m.email || "").trim())) return "no_email";
+  let quota = 0;
+  try{ quota = MailApp.getRemainingDailyQuota(); }catch(err){ quota = 0; }
+  if (quota < 1){ adminLog_(ss, "出貨通知信", "未寄：今天的寄信額度已用完（明天把狀態改回待處理、再改成已完成即可補寄）", target); return "quota"; }
+  const bags = Number(v[at("包數")]) || parseBags(v[at("訂購內容")]);
+  const lines = [
+    "你好：", "",
+    "你的訂單已經出貨了，謝謝你的訂購！", "",
+    orderId ? "訂單編號：" + orderId : "",
+    "品項：" + String(v[at("訂購內容")] || ""),
+    "包數：" + bags + " 包", "",
+    "收到商品後如果有任何問題，請透過 LINE 官方帳號聯繫我們：",
+    LINE_CONTACT_URL, "",
+    "（這是訂單出貨的交易通知，依你的訂單自動寄出。）", "",
+    "— 翔天然，翔自在"
+  ].filter((s, i, a) => s !== "" || (i > 0 && a[i - 1] !== ""));
+  try{
+    MailApp.sendEmail(String(m.email).trim(), "【翔天然】你的訂單已出貨" + (orderId ? "（" + orderId + "）" : ""), lines.join("\n"), { name:"翔天然" });
+  }catch(err){
+    adminLog_(ss, "出貨通知信", "失敗：" + String(err).slice(0, 100), target);
+    return "failed";
+  }
+  sh.getRange(row, nCol).setValue(new Date());
+  adminLog_(ss, "出貨通知信", "已寄出", target);
+  return "sent";
+}
+
+/* 可安裝的編輯觸發器（由 setupShipNoticeTrigger 建立）：在試算表把「狀態」改成「已完成」時寄出貨通知。
+   加點仍由下面的 onEdit（簡易觸發器）負責，兩者互不影響。 */
+function onOrderStatusEdit(e){
+  try{
+    if (!e || !e.range) return;
+    const sh = e.range.getSheet();
+    if (sh.getName() !== ORDERS_TAB) return;
+    if (e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;
+    const row = e.range.getRow();
+    if (row === 1) return;
+    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+    if (e.range.getColumn() !== headers.indexOf("狀態") + 1) return;
+    const now = String(e.value !== undefined ? e.value : e.range.getValue()).trim();
+    if (now !== "已完成" || String(e.oldValue || "").trim() === "已完成") return;   // 只在「改成已完成」那一刻寄
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try{ sendShipNotice_(e.source || SpreadsheetApp.openById(SHEET_ID), sh, row); } finally { lock.releaseLock(); }
+  }catch(err){
+    try{ adminLog_(SpreadsheetApp.openById(SHEET_ID), "出貨通知信", "失敗：" + String(err).slice(0, 100), ""); }catch(e2){}
+  }
+}
+
+/* 手動執行一次：建立「試算表改狀態 → 寄出貨通知」的觸發器；重複執行不會重複建立 */
+function setupShipNoticeTrigger(){
+  const exists = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "onOrderStatusEdit");
+  if (exists){ Logger.log("出貨通知觸發器已經存在，不用再建立"); return "已存在"; }
+  ScriptApp.newTrigger("onOrderStatusEdit").forSpreadsheet(SHEET_ID).onEdit().create();
+  Logger.log("已建立出貨通知觸發器");
+  return "已建立";
+}
+
 function onEdit(e){
   try{
     if (!e || !e.range) return;
@@ -1823,17 +1920,26 @@ function adminUpdateOrder(ss, d){
     const iI = headers.indexOf("訂購內容");
     if (d.items !== undefined && iI > -1 && String(sh.getRange(row, iI + 1).getValue()) !== String(d.items)) return { ok:false, error:ORDER_STALE };
   }
+  const prevStatus = String(sh.getRange(row, headers.indexOf("狀態") + 1).getValue()).trim();
   if (d.status !== undefined){
     if (ORDER_STATUSES.indexOf(d.status) < 0) return { ok:false, error:"bad status" };
-    sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
   }
+  let b;
   if (d.bags !== undefined){
-    const b = Math.floor(Number(d.bags));
+    b = Math.floor(Number(d.bags));
     if (!(b >= 0)) return { ok:false, error:"bad bags" };
-    sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
   }
+  // 檢查都過了才寫入
+  if (d.status !== undefined) sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
+  if (d.bags !== undefined) sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
   syncOrderPoints(ss, sh, row);   // 程式改儲存格不會觸發 onEdit，所以這裡主動對帳
-  return { ok:true };
+  // 出貨通知：只在「改成已完成」那一刻寄；寄信任何問題都不影響上面已完成的狀態與加點
+  let shipNotice = "";
+  if (d.status === "已完成" && prevStatus !== "已完成"){
+    try{ shipNotice = sendShipNotice_(ss, sh, row); }
+    catch(err){ shipNotice = "failed"; adminLog_(ss, "出貨通知信", "失敗：" + String(err).slice(0, 100), d.orderId || ""); }
+  }
+  return { ok:true, orderId: d.orderId ? String(d.orderId) : "", shipNotice:shipNotice };
 }
 
 function costsSheet(ss){
@@ -2056,6 +2162,8 @@ function setupSheets(){
   }
   // 2026-10-17：訂單編號（補在最右邊，不動既有欄位；既有訂單請再執行 backfillOrderIds()）
   ensureCol_(o, ORDER_ID_COL);
+  // 出貨通知時間（第一次建立時，既有已完成的舊訂單會標「啟用前已完成（不寄）」，不會補寄）
+  ensureShipCol_(o, 0);
 
   let rv = ss.getSheetByName(REVIEWS_TAB) || ss.insertSheet(REVIEWS_TAB);
   if (rv.getLastRow() === 0) {

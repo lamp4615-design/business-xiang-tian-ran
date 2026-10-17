@@ -468,7 +468,8 @@ async function saveOrder(row,btn){
     // 以訂單編號定位（後端寫入前會再核對）；還沒補編號的舊訂單才用列號＋訂購內容核對。舊版後端會忽略 orderId／items，照舊用列號
     const o=ORDERS.find(x=>x.row===row)||{};
     const r=await api({action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value});
-    toast("已儲存，點數已同步");await loadAll();
+    const SHIP_MSG={sent:"，已寄出貨通知信",no_email:"（會員沒有 Email，未寄出貨通知）",quota:"，但今天寄信額度已用完，出貨通知未寄（見 admin_log）",failed:"，但出貨通知信寄送失敗（見 admin_log）"};
+    toast("已儲存，點數已同步"+(SHIP_MSG[r&&r.shipNotice]||""));await loadAll();
   }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;if(/重新整理/.test(e.message))loadAll();}
 }
 
