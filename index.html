@@ -849,7 +849,7 @@ function captureSource(){
 }
 function getSource(){try{return localStorage.getItem("xn_src")||"";}catch(e){return "";}}
 function saveSession(){try{localStorage.setItem("xn_member",JSON.stringify(member));}catch(e){}}
-function loadSession(){try{const s=localStorage.getItem("xn_member");if(s)member=JSON.parse(s);}catch(e){}loadToken();}
+function loadSession(){try{const s=localStorage.getItem("xn_member");if(s)member=JSON.parse(s);if(member&&/○/.test(member.name||""))member.name="";}catch(e){}loadToken();}   // 舊版存的遮罩姓名（王○明）不再顯示
 
 /* ---------- 產品視覺 ---------- */
 function productArt(hue){
@@ -1055,9 +1055,9 @@ function pointsPanelHtml(){
 function renderMember(){
   const el=$("memberCard");
   if(member){
-    el.innerHTML=`<h3>會員中心</h3><p class="sub">歡迎回來，${esc(member.name)}。</p>
-      <div class="mc-row first"><span class="k">姓名</span><span>${esc(member.name)}</span></div>
-      <div class="mc-row"><span class="k">手機</span><span>${esc(maskPhone(member.phone))}</span></div>
+    el.innerHTML=`<h3>會員中心</h3><p class="sub">${member.name?`歡迎回來，${esc(member.name)}。`:"歡迎回來！"}</p>
+      ${member.name?`<div class="mc-row first"><span class="k">姓名</span><span>${esc(member.name)}</span></div>`:""}
+      <div class="mc-row${member.name?"":" first"}"><span class="k">手機</span><span>${esc(maskPhone(member.phone))}</span></div>
       ${member.city?`<div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>`:""}
       ${member.email?`<div class="mc-row"><span class="k">Email</span><span>${esc(member.email)}</span></div>`:""}
       ${pointsPanelHtml()}
@@ -1098,9 +1098,12 @@ async function login(){
   const btn=$("loginBtn");btn.disabled=true;btn.textContent="登入中…";
   try{
     if(API_URL){
-      const res=await fetch(API_URL+"?action=login&phone="+encodeURIComponent(phone));
-      const data=await res.json();
-      if(data&&data.found){member={name:data.name,phone:String(data.phone),city:data.city,email:data.email||""};}
+      // 2026-10-17：登入改走 POST（手機不放網址）；後端還是舊版時退回舊的 GET。
+      // 登入只確認「是不是會員」，不再顯示姓名（就算後端回了遮罩姓名也不用），驗證身分後才顯示本人姓名。
+      let data=await secureApi({action:"member_login",phone});
+      if(data&&data.ok===false&&data.error==="unknown action")data=await (await fetch(API_URL+"?action=login&phone="+encodeURIComponent(phone))).json();
+      if(data&&(data.error==="rate_limited"||data.error==="busy")){note.textContent=data.error==="rate_limited"?"這支手機嘗試登入太多次，請 10 分鐘後再試。":"目前登入人數較多，請稍後再試。";if($("loginBtn")){btn.disabled=false;btn.textContent="登入";}return;}
+      if(data&&data.found){member={name:"",phone:String(data.phone||phone),city:"",email:""};}
       else{note.textContent="查無此手機，請改用「加入會員」。";if($("loginBtn")){btn.disabled=false;btn.textContent="登入";}return;}
     }else{member={name:"示範會員",phone,city:"台北市",email:""};}
     saveSession();afterAuth("登入成功，歡迎回來");
@@ -1334,8 +1337,8 @@ function secureLock(){tokenExpired();member.statsLimited=true;member.tickets=nul
 function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();fetchMyReviews();}
 function logout(){member=null;saveToken("");resetOrders();clearOrdersCache();try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
-  const lbl=$("accountLabel");if(lbl)lbl.textContent=member?member.name:"會員";
-  const m=$("menuAccount");if(m)m.innerHTML=member?`${esc(member.name)} · <button class="linklike" onclick="logout()">登出</button>`:"尚未登入";
+  const lbl=$("accountLabel");if(lbl)lbl.textContent=member?(member.name||"會員中心"):"會員";   // 未驗證時不知道姓名，顯示「會員中心」
+  const m=$("menuAccount");if(m)m.innerHTML=member?`${esc(member.name||"已登入")} · <button class="linklike" onclick="logout()">登出</button>`:"尚未登入";
 }
 
 /* ---------- Toast ---------- */

@@ -386,12 +386,17 @@ function lookupMember_(ss, phone){
   return null;
 }
 
-/* 登入：只回傳「是不是會員」與遮罩後的姓名。不回傳地址、Email，也不回傳資料庫裡存的手機。
-   （下單時姓名／地區由後端依手機自己查，前台不需要持有完整個資。） */
+/* 登入：只回傳「是不是會員」。2026-10-17 起不再回傳遮罩姓名（例如「王○明」也會洩漏姓氏），
+   姓名要等會員用驗證碼驗證後，由 member_profile 回給本人。不回傳地址、Email，也不回傳資料庫裡存的手機。
+   限速：同一支手機 10 分鐘最多 6 次、全站 10 分鐘最多 150 次，避免被拿來大量比對誰是會員。 */
 function findMember(phone){
+  const key = normPhone_(phone);
+  if (key.length < 8 || key.length > 12) return { found:false };
+  if (!globalCap_("lgp_" + key, 6, 600)) return { found:false, error:"rate_limited" };
+  if (!globalCap_("lg_all", 150, 600)) return { found:false, error:"busy" };
   const m = lookupMember_(SpreadsheetApp.openById(SHEET_ID), phone);
   if (!m) return { found:false };
-  return { found:true, name:maskName_(m.name), phone:String(phone || "").slice(0, 20), city:"", email:"" };
+  return { found:true, phone:String(phone || "").slice(0, 20), city:"", email:"" };
 }
 
 
@@ -399,6 +404,7 @@ function findMember(phone){
 function doPost(e){
   try{
     const d = JSON.parse(e.postData.contents);
+    if (d.action === "member_login"){ const r = findMember(d.phone); r.ok = !r.error; return json(r); }   // 登入改走 POST，手機不放網址
     if (d.action === "join")  return json(addMember(d));
     if (d.action === "order") return json(addOrder(d));
     if (d.action === "review") return json(addReview(d));
