@@ -773,7 +773,7 @@
 <!-- ============ 新訪客提醒：不擋畫面的橫幅（掃 QR／分享連結 ?p= 進站時不顯示） ============ -->
 <div class="wl-banner" id="welcomeBanner" role="region" aria-label="新訪客提醒">
   <div class="wl-banner-inner">
-    <p class="wl-banner-text"><b>第一次來？</b>加入會員免費，只要手機號碼。一包 1 點、滿 10 點折 100 元；留 Email 並勾選同意，新品上架會寄信通知你。</p>
+    <p class="wl-banner-text"><b>第一次來？</b>免費加入會員：一包 1 點，滿 10 點折 100 元；留 Email 可收新品通知。</p>
     <div class="wl-banner-act">
       <a class="btn btn-primary" href="#member" onclick="welcomeJoin()">免費加入會員</a>
       <button class="wl-x" type="button" onclick="closeWelcome(true)" aria-label="關閉提醒，之後不再顯示">×</button>
@@ -1903,7 +1903,8 @@ window.addEventListener("scroll",()=>$("nav").classList.toggle("scrolled",window
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeCart();closeMenu();closeShareModal();closeFlavorView();closeWelcome();}});
 
 
-/* ---------- 新訪客提醒：首屏下方的橫幅，不遮畫面（按 × 關閉後記住，之後不再出現） ---------- */
+/* ---------- 新訪客提醒：底部橫幅，不遮畫面（按 × 關閉後記住，之後不再出現）。
+   等使用者開始往下捲才出現：不打斷第一眼，也不會被算成首屏最大元素（LCP）。 ---------- */
 const WELCOME_KEY="xn_welcome_off";
 function closeWelcome(remember){
   const b=$("welcomeBanner");if(!b)return;
@@ -1917,7 +1918,13 @@ function welcomeJoin(){closeWelcome();go("member");}
 function maybeShowWelcome(){
   if(member||DEEPLINK_PRODUCT)return;   // 已登入的會員、或掃 QR／分享連結（?p=）進站的人不顯示
   try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
-  setTimeout(()=>{const b=$("welcomeBanner");if(b&&!member)b.classList.add("open");},1200);
+  const show=()=>{
+    if(window.scrollY<160)return;
+    window.removeEventListener("scroll",show);
+    try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
+    const b=$("welcomeBanner");if(b&&!member)b.classList.add("open");
+  };
+  window.addEventListener("scroll",show,{passive:true});
 }
 /* ---------- 字型：第一個畫面畫出來之後才載入（不阻擋首屏；display=swap 先用系統字）（CR-20261017-02） ---------- */
 const WEB_FONT_CSS="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap";
