@@ -1,10 +1,14 @@
 /*************************************************************************
  * 翔天然 — 後台 API（Google Apps Script + Google 試算表）
  *
- *   GET  ?action=products            → 商品清單
- *   GET  ?action=login&phone=xxxx    → 用手機比對會員（登入）
+ *   GET  ?action=products            → 商品清單（公開；GitHub Actions 依賴，格式不可改）
+ *   GET  ?action=reviews／posts      → 公開評分／文章（同上，不含手機等個資）
+ *   POST {action:"member_login"}     → 用手機比對會員（登入；只回是否為會員，不回姓名）
  *   POST {action:"join"}             → 寫入會員
- *   POST {action:"order"}            → 寫入訂單、自動加點，並自動寄 Email 通知你
+ *   POST {action:"order"}            → 寫入訂單（後端依價格表重算金額、產生訂單編號），並自動寄 Email 通知你
+ *   POST {action:"member_stats"／"member_orders"／"member_reviews"／"member_profile"} → 會員本人資料，需憑證
+ *   POST {action:"admin_login"} → 後台用密碼換短效憑證；其餘 admin_xxx 帶憑證
+ *   （2026-10-17 資安更新：GET login／mystats／myreviews 只留給舊網頁，回傳內容已縮減）
  *************************************************************************/
 
 // ── 貼上你的試算表 ID ─────────────────────────────────────────────
