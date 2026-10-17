@@ -1220,7 +1220,8 @@ function onEdit(e){
 
 /* ========================= 管理者 API（管理者網頁 admin.html 使用） =========================
  * 密碼不寫在程式碼裡：Apps Script →「專案設定」→「指令碼屬性」新增  ADMIN_KEY = 你的密碼。
- * 全部走 POST：{action:"admin_xxx", key:"密碼", ...} */
+ * 全部走 POST：先 {action:"admin_login", key:"密碼"} 換短效憑證，之後 {action:"admin_xxx", token:"憑證", ...}
+ * （過渡期仍接受舊版 {action:"admin_xxx", key:"密碼"}，見 ADMIN_LEGACY_KEY_OK） */
 /* 成本分類（參考咖啡業常見損益表：銷貨成本 → 毛利 → 銷售費用／管理費用 → 淨利）
    舊資料用過的「生豆／濾紙／包裝袋／運費／其他」仍保留，會自動歸到對應的群組。 */
 const COST_GROUPS = {
@@ -1233,19 +1234,104 @@ const COST_CATEGORIES = [].concat(COST_GROUPS["銷貨成本"], COST_GROUPS["銷�
 const ORDER_STATUSES  = ["待處理","已完成","已取消"];
 const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1 };
 
-function adminAuthOk(key){
+/* ----- 後台認證（2026-10-17 強化）-----
+ * ① 登入：admin.html 用密碼呼叫一次 admin_login，換一張「短效憑證」（ADMIN_SESSION_HOURS 小時），之後每個請求只帶憑證，
+ *    瀏覽器不再保存密碼。憑證用既有的 SESSION_SECRET 做 HMAC 簽章，並綁定目前密碼的指紋：**一改 ADMIN_KEY，所有後台憑證立即失效**。
+ * ② 密碼比對失敗：全站 10 分鐘內最多 ADMIN_MAX_FAILS 次，超過就暫停密碼登入（已登入、帶憑證的人不受影響）；每次失敗延遲 1.5 秒。
+ * ③ admin_log 分頁：記錄時間、動作、結果、對象（只記會員編號或訂單編號），**不記密碼、不記手機或姓名**。 */
+const ADMIN_SESSION_HOURS = 4;
+const ADMIN_MAX_FAILS = 10;          // 全站 10 分鐘內密碼錯誤上限
+const ADMIN_FAIL_WINDOW = 600;       // 秒
+const ADMIN_LEGACY_KEY_OK = true;    // 過渡期：仍接受「每次帶密碼」的舊版後台頁；確認新版後台頁正常後可改成 false
+const ADMIN_LOG_TAB = "admin_log";
+
+function adminKeyPrint_(real){
+  return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "admkey:" + real + ":" + secret_())).slice(0, 16);
+}
+function signAdminToken_(real){
+  const exp = Math.floor(Date.now() / 1000) + ADMIN_SESSION_HOURS * 3600;
+  return "adm." + exp + "." + hmac_("adm." + exp + "." + adminKeyPrint_(real));
+}
+function verifyAdminToken_(token){
+  const p = String(token || "").split(".");
+  if (p.length !== 3 || p[0] !== "adm" || !/^\d+$/.test(p[1])) return false;
   const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
-  return !!real && String(key || "") === real;
+  if (!real) return false;
+  if (Number(p[1]) < Date.now() / 1000) return false;
+  return safeEq_(hmac_("adm." + p[1] + "." + adminKeyPrint_(real)), p[2]);
+}
+
+/* 密碼比對（含全站失敗限速與延遲）。回傳 { ok } 或 { ok:false, error:"unauthorized"|"locked" } */
+function adminPassword_(key){
+  const cache = CacheService.getScriptCache();
+  const fails = Number(cache.get("adm_fail") || 0);
+  if (fails >= ADMIN_MAX_FAILS) return { ok:false, error:"locked" };   // 暫停期間不比對密碼，猜對也沒用
+  const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
+  if (real && safeEq_(String(key || ""), real)) return { ok:true, real:real };
+  cache.put("adm_fail", String(fails + 1), ADMIN_FAIL_WINDOW);
+  Utilities.sleep(1500);   // 拖慢暴力猜測
+  try{
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    adminLog_(ss, "後台登入", fails + 1 >= ADMIN_MAX_FAILS ? "失敗（已達上限，暫停密碼登入 10 分鐘）" : "失敗（密碼錯誤）", "");
+    if (fails + 1 === ADMIN_MAX_FAILS) MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】後台密碼錯誤次數過多", "10 分鐘內後台密碼錯了 " + ADMIN_MAX_FAILS + " 次，系統已暫停密碼登入 10 分鐘。\n如果不是你本人，建議到 Apps Script「指令碼屬性」更換 ADMIN_KEY。\n詳情請看試算表 admin_log 分頁。");
+  }catch(err){ /* 記錄失敗不影響回應 */ }
+  return { ok:false, error:"unauthorized" };
+}
+
+/* 後台操作紀錄：時間／動作／結果／對象（只放會員編號或訂單編號） */
+function adminLogSheet_(ss){
+  let sh = ss.getSheetByName(ADMIN_LOG_TAB);
+  if (!sh){ sh = ss.insertSheet(ADMIN_LOG_TAB); sh.appendRow(["時間", "動作", "結果", "對象"]); }
+  return sh;
+}
+function adminLog_(ss, action, result, target){
+  try{ adminLogSheet_(ss).appendRow([ new Date(), safeText_(action, 40), safeText_(result, 120), safeText_(target || "", 40) ]); }
+  catch(err){ /* 紀錄寫不進去不影響主要動作 */ }
+}
+/* 要記進 admin_log 的動作（讀取清單類太頻繁不記；看單一會員詳情會記，方便事後查誰看過誰的資料） */
+const ADMIN_LOG_LABEL = {
+  admin_update_order:"改訂單", admin_add_cost:"新增成本", admin_delete_cost:"刪除成本", admin_save_post:"儲存文章", admin_delete_post:"刪除文章",
+  admin_upload_image:"上傳圖片（雲端硬碟）", admin_member_update:"修改會員資料", admin_member_code:"產生會員驗證碼", admin_points_adjust:"調整點數",
+  admin_note_add:"新增客服紀錄", admin_note_status:"客服紀錄標記已處理", admin_member_delete:"刪除會員（匿名化）", admin_member_detail:"查看會員詳情",
+  admin_cloudinary_sign:"取得圖片上傳簽章"
+};
+/* 對象摘要：訂單 → 訂單編號（沒有編號才記列號）；會員 → 會員編號。絕不記手機、姓名 */
+function adminTarget_(ss, d){
+  if (d.orderId) return String(d.orderId).slice(0, 30);
+  if (d.action === "admin_update_order" && d.row) return "orders 第 " + Number(d.row) + " 列";
+  if (d.phone){ const m = lookupMember_(ss, d.phone); return m && m.id ? m.id : "（查無會員）"; }
+  if (d.action === "admin_delete_cost" && d.row) return "costs 第 " + Number(d.row) + " 列";
+  if (d.id) return "文章 " + String(d.id).slice(0, 12);
+  return "";
 }
 
 function adminHandle(d){
-  if (!adminAuthOk(d.key)) return { ok:false, error:"unauthorized" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  let viaToken = verifyAdminToken_(d.token);
+  if (!viaToken){
+    if (d.token && !d.key) return { ok:false, error:"session_expired" };   // 憑證過期／密碼已更換：請重新登入
+    if (!d.key) return { ok:false, error:"unauthorized" };
+    if (d.action !== "admin_login" && !ADMIN_LEGACY_KEY_OK) return { ok:false, error:"unauthorized" };
+    const pw = adminPassword_(d.key);
+    if (!pw.ok) return pw;
+    if (d.action === "admin_login"){
+      adminLog_(ss, "後台登入", "成功", "");
+      return { ok:true, token:signAdminToken_(pw.real), hours:ADMIN_SESSION_HOURS, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
+    }
+  }
+  const label = ADMIN_LOG_LABEL[d.action];
+  const target = label ? adminTarget_(ss, d) : "";   // 先算好對象（刪除會員之後就查不到編號了）
+  const r = adminDispatch_(ss, d);
+  if (label) adminLog_(ss, label + (viaToken ? "" : "（舊版密碼方式）"), r && r.ok ? "成功" : "失敗：" + String(r && r.error || ""), (r && r.orderId) || target);
+  return r;
+}
+
+function adminDispatch_(ss, d){
   // 只有「寫入」才需要排隊上鎖；讀取不鎖，才不會被別的請求卡住
   const lock = WRITE_ACTIONS[d.action] ? LockService.getScriptLock() : null;
   if (lock) lock.waitLock(20000);
   try{
-    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
+    if (d.action === "admin_ping" || d.action === "admin_login") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
     // 一次回傳後台需要的全部資料（原本要連線 3 次，現在 1 次）
     if (d.action === "admin_all") return { ok:true, orders:adminListOrders(ss), costs:adminListCosts(ss), posts:listPosts(ss, "", false) };
     if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
@@ -1753,6 +1839,9 @@ function setupSheets(){
     const rh = rv.getRange(1, 1, 1, rv.getLastColumn()).getValues()[0].map(x => String(x).trim());
     if (rh.indexOf("喜歡程度") < 0) rv.getRange(1, rv.getLastColumn() + 1).setValue("喜歡程度");
   }
+
+  // 後台操作紀錄（2026-10-17）：時間／動作／結果／對象，不記密碼與個資
+  adminLogSheet_(ss);
 
   // 集點：每位會員的點數餘額（訂單「已完成」時自動累積）
   let pt = ss.getSheetByName(POINTS_TAB) || ss.insertSheet(POINTS_TAB);
