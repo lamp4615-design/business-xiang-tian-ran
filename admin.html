@@ -1064,12 +1064,28 @@ const dropOn=(el,mode)=>{
 };
 dropOn($("pBody"),"body");dropOn($("pCover"),"cover");
 $("pBody").addEventListener("paste",e=>{const f=[...(e.clipboardData&&e.clipboardData.files||[])].filter(x=>/^image\//.test(x.type));if(f.length){e.preventDefault();uploadFiles(f,"body");}});
-/* 圖片上傳到 Cloudinary（unsigned preset）。回傳的網址帶自動格式／品質／寬度轉換，由 CDN 供應 */
+/* 圖片上傳到 Cloudinary。回傳的網址帶自動格式／品質／寬度轉換，由 CDN 供應
+   2026-10-17：改成「簽章上傳」——每次上傳前先向後端（需後台登入）要一組簽章，API Secret 只留在 Apps Script。
+   後端還沒設定 Cloudinary 金鑰（或後端還是舊版）時，暫時退回原本的 unsigned 方式，上傳不會中斷。 */
 const CLD_NAME="jzk5pjym",CLD_PRESET="xtr-products";
+let CLD_WARNED=false;
+async function cloudSign(){
+  try{return await api({action:"admin_cloudinary_sign"});}
+  catch(e){
+    if(e.message==="cloudinary_not_configured"||e.message==="unknown admin action"){
+      if(!CLD_WARNED){CLD_WARNED=true;toast(e.message==="cloudinary_not_configured"?"提醒：Cloudinary 簽章金鑰尚未設定，暫用舊的上傳方式":"提醒：後端尚未更新，暫用舊的上傳方式");}
+      return null;
+    }
+    throw e;
+  }
+}
 async function cloudUpload(file,max){
   const data=await shrink(file,max);
-  const fd=new FormData();fd.append("file","data:image/jpeg;base64,"+data);fd.append("upload_preset",CLD_PRESET);
-  const r=await fetch("https://api.cloudinary.com/v1_1/"+CLD_NAME+"/image/upload",{method:"POST",body:fd});
+  const sig=await cloudSign();
+  const fd=new FormData();fd.append("file","data:image/jpeg;base64,"+data);
+  if(sig){fd.append("upload_preset",sig.uploadPreset);fd.append("api_key",sig.apiKey);fd.append("timestamp",sig.timestamp);fd.append("signature",sig.signature);}
+  else fd.append("upload_preset",CLD_PRESET);
+  const r=await fetch("https://api.cloudinary.com/v1_1/"+((sig&&sig.cloudName)||CLD_NAME)+"/image/upload",{method:"POST",body:fd});
   const j=await r.json();
   if(!r.ok||!j.secure_url)throw new Error((j.error&&j.error.message)||"上傳失敗");
   return j.secure_url.replace("/upload/","/upload/f_auto,q_auto,w_"+max+"/");

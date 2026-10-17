@@ -1602,6 +1602,7 @@ function adminDispatch_(ss, d){
     if (d.action === "admin_save_post") return adminSavePost(ss, d);
     if (d.action === "admin_delete_post") return adminDeletePost(ss, d);
     if (d.action === "admin_upload_image") return adminUploadImage(d);
+    if (d.action === "admin_cloudinary_sign") return adminCloudinarySign_();
     return { ok:false, error:"unknown admin action" };
   } finally { if (lock) lock.releaseLock(); }
 }
@@ -2072,6 +2073,28 @@ function adminUploadImage(d){
   const file = folder.createFile(Utilities.newBlob(Utilities.base64Decode(data), type, "img-" + Date.now() + "." + ext));
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return { ok:true, url:"https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1600" };
+}
+
+/* ========================= Cloudinary 簽章上傳（2026-10-17） =========================
+ * 以前後台用「免簽章（unsigned）」上傳，任何人看到網頁原始碼都能往你的 Cloudinary 帳號丟檔案。
+ * 改成：後台（需登入憑證）先向這裡要一組簽章（timestamp＋signature），再帶著簽章上傳；API Secret 只放在 Apps Script，
+ * **絕不回傳給網頁**。設定方式：Apps Script →「專案設定」→「指令碼屬性」新增
+ *   CLOUDINARY_API_KEY、CLOUDINARY_API_SECRET（Cloudinary 後台 Settings → API Keys 可以看到）
+ * 然後到 Cloudinary 把 upload preset「xtr-products」改成 Signed。
+ * 還沒設定時回傳 cloudinary_not_configured，後台頁會暫時退回原本的 unsigned 方式並提示。 */
+const CLOUDINARY_CLOUD = "jzk5pjym";
+const CLOUDINARY_PRESET = "xtr-products";
+function adminCloudinarySign_(){
+  const props = PropertiesService.getScriptProperties();
+  const apiKey = String(props.getProperty("CLOUDINARY_API_KEY") || "").trim();
+  const secret = String(props.getProperty("CLOUDINARY_API_SECRET") || "").trim();
+  if (!apiKey || !secret) return { ok:false, error:"cloudinary_not_configured" };
+  const timestamp = Math.floor(Date.now() / 1000);
+  // Cloudinary 規則：要簽的參數依名稱排序、用 & 串起來，接上 API Secret 後取 SHA-1（十六進位）
+  const toSign = "timestamp=" + timestamp + "&upload_preset=" + CLOUDINARY_PRESET;
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_1, toSign + secret, Utilities.Charset.UTF_8);
+  const signature = bytes.map(b => ("0" + ((b + 256) % 256).toString(16)).slice(-2)).join("");
+  return { ok:true, cloudName:CLOUDINARY_CLOUD, apiKey:apiKey, timestamp:timestamp, uploadPreset:CLOUDINARY_PRESET, signature:signature };
 }
 
 /* ========================= 每日備份（2026-10-17） =========================
