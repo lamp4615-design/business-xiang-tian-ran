@@ -1968,6 +1968,59 @@ function adminUploadImage(d){
   return { ok:true, url:"https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1600" };
 }
 
+/* ========================= 每日備份（2026-10-17） =========================
+ * dailyBackup()：把整份試算表複製一份到你雲端硬碟的私人資料夾「翔天然備份」（沒有就自動建立），
+ *   檔名含日期時間，只保留最新 BACKUP_KEEP 份，更舊的移到垃圾桶（30 天內還能從垃圾桶救回）。
+ *   資料夾與備份檔都不會設定分享，只有你看得到；**不要把這個資料夾分享出去，也不要把備份放進 GitHub**。
+ * setupBackupTrigger()：手動執行一次，建立「每天凌晨 3～4 點自動備份」的觸發器；重複執行不會重複建立。
+ * 還原：打開「翔天然備份」裡想要的那份 → 複製需要的分頁或資料貼回正式試算表（或請協助的人處理）。 */
+const BACKUP_FOLDER_NAME = "翔天然備份";
+const BACKUP_PREFIX = "翔天然備份_";
+const BACKUP_KEEP = 30;
+
+function backupFolder_(){
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty("BACKUP_FOLDER_ID");
+  if (id){
+    try{ const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; }catch(err){ /* 資料夾被刪了：重新建立 */ }
+  }
+  const f = DriveApp.createFolder(BACKUP_FOLDER_NAME);   // 建在你的「我的雲端硬碟」，預設只有你能看
+  props.setProperty("BACKUP_FOLDER_ID", f.getId());
+  return f;
+}
+
+function dailyBackup(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  try{
+    const folder = backupFolder_();
+    const name = BACKUP_PREFIX + Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd_HHmm");
+    DriveApp.getFileById(SHEET_ID).makeCopy(name, folder);
+    // 只保留最新 BACKUP_KEEP 份
+    const files = [];
+    const it = folder.getFiles();
+    while (it.hasNext()){ const f = it.next(); if (f.getName().indexOf(BACKUP_PREFIX) === 0) files.push(f); }
+    files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+    files.slice(BACKUP_KEEP).forEach(f => f.setTrashed(true));
+    // 提醒：資料夾若被改成公開分享，寫進紀錄
+    let shared = false;
+    try{ shared = folder.getSharingAccess() !== DriveApp.Access.PRIVATE; }catch(err){}
+    adminLog_(ss, "每日備份", "成功：" + name + (shared ? "（⚠ 備份資料夾不是私人狀態，請改回只有自己能看）" : ""), "");
+    return name;
+  }catch(err){
+    adminLog_(ss, "每日備份", "失敗：" + String(err).slice(0, 100), "");
+    try{ if (MailApp.getRemainingDailyQuota() > 0) MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】每日備份失敗", "今天的自動備份沒有成功：\n" + String(err) + "\n\n請到 Apps Script 手動執行 dailyBackup() 試試看，或查看 admin_log 分頁。"); }catch(e2){}
+    return "";
+  }
+}
+
+function setupBackupTrigger(){
+  const exists = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "dailyBackup");
+  if (exists){ Logger.log("每日備份觸發器已經存在，不用再建立"); return "已存在"; }
+  ScriptApp.newTrigger("dailyBackup").timeBased().everyDays(1).atHour(3).inTimezone("Asia/Taipei").create();
+  Logger.log("已建立每日備份觸發器（每天凌晨 3～4 點）");
+  return "已建立";
+}
+
 /* ========================= 共用 ========================= */
 function setTextCell(sh, row, col, value){
   sh.getRange(row, col).setNumberFormat("@").setValue(String(value || ""));
