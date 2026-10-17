@@ -33,8 +33,10 @@ function doGet(e){
   if (action === "products") return json(getProducts());
   if (action === "login")    return json(findMember(p.phone));
   if (action === "reviews")  return json(getReviews());
-  if (action === "mystats")  return json(getMyStats(p.phone));
-  if (action === "myreviews")return json(getMyReviews(p.phone));
+  // 2026-10-17：個人資料查詢改走 POST＋憑證（member_stats／member_reviews）。
+  // 這兩個舊 GET 只留給還沒更新的舊網頁：mystats 只回點數（不含評過哪些豆子），myreviews 一律要求驗證。
+  if (action === "mystats")  return json(memberStatsLimited_(p.phone));
+  if (action === "myreviews")return json({ ok:false, error:"auth_required", needAuth:true });
   if (action === "posts")    return json(getPosts(p.site));
   if (action === "unsub")    return unsubscribe_(p);
   return json({ ok:false, error:"unknown action" });
@@ -403,6 +405,8 @@ function doPost(e){
     if (d.action === "member_code_request") return json(requestCode(d));
     if (d.action === "member_code_verify")  return json(verifyCode(d));
     if (d.action === "member_orders")       return json(memberOrders(d));
+    if (d.action === "member_stats")        return json(memberStats(d));
+    if (d.action === "member_reviews")      return json(memberReviews(d));
     if (d.action === "member_profile")      return json(memberProfile(d));
     if (d.action === "member_update")       return json(memberUpdate(d));
     if (String(d.action || "").indexOf("admin_") === 0) return json(adminHandle(d));
@@ -582,17 +586,52 @@ function readOrders_(ss){
 }
 const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags });
 
-/* 登入後看自己的購買紀錄（不需驗證碼）：只回傳訂單內容，不含姓名／地址／Email。
-   加上限速，避免有人拿一堆手機號碼來批次探測。 */
+/* 看自己的購買紀錄：2026-10-17 起需要憑證（Email 驗證碼／店家發碼驗證後取得）。
+   以前只要知道手機就能看別人的購買紀錄，現在沒有有效憑證一律回 auth_required，不透露任何訂單內容。
+   手機以憑證裡的為準，前端送來的 phone 不採用。只回傳訂單內容，不含姓名／地址／Email。 */
 function memberOrders(d){
-  const key = normPhone_(d.phone);
-  if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
+  const key = verifyToken_(d.token);
+  if (!key) return { ok:false, error:"auth_required", needAuth:true };
   if (!rateLimit_("mo_" + key, 3)) return { ok:false, error:"rate_limited" };
   if (!globalCap_("mo_all", 120, 600)) return { ok:false, error:"busy" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  if (!lookupMember_(ss, d.phone)) return { ok:true, orders:[] };
+  if (!lookupMember_(ss, key)) return { ok:true, orders:[] };
   const orders = readOrders_(ss).filter(o => o.key === key).sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 100).map(orderView_);
   return { ok:true, orders:orders };
+}
+
+/* 點數／抽獎券：
+   有有效憑證 → 完整資料（點數、效期、抽獎券、評過哪些豆子）；
+   沒有憑證   → 只回點數與效期（最少資訊），並標 needAuth:true，前端據此提示「驗證後可看完整紀錄」。 */
+function memberStats(d){
+  const key = verifyToken_(d.token);
+  if (key){
+    if (!rateLimit_("ms_" + key, 2)) return { ok:false, error:"rate_limited" };
+    if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false, needAuth:true };
+    const st = getMyStats(key);
+    return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry };
+  }
+  const r = memberStatsLimited_(d.phone);
+  if (d.token) r.tokenInvalid = true;   // 帶了憑證但已失效（過期或換過號碼），前端會清掉重新驗證
+  return r;
+}
+/* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
+function memberStatsLimited_(phone){
+  const key = normPhone_(phone);
+  if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
+  if (!rateLimit_("msl_" + key, 3)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("msl_all", 120, 600)) return { ok:false, error:"busy" };
+  if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false, needAuth:true };
+  const pts = readPoints(key);
+  return { ok:true, found:true, needAuth:true, error:"auth_required", points:pts.points, pointsExpiry:pts.expiry };
+}
+
+/* 自己評過的豆子（五軸＋喜歡程度）：需要憑證 */
+function memberReviews(d){
+  const key = verifyToken_(d.token);
+  if (!key) return { ok:false, error:"auth_required", needAuth:true };
+  if (!rateLimit_("mr_" + key, 2)) return { ok:false, error:"rate_limited" };
+  return { ok:true, reviews:getMyReviews(key) };
 }
 
 /* 會員本人：取得完整資料＋購買紀錄＋點數 */

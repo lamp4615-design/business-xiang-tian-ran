@@ -1061,7 +1061,7 @@ function renderMember(){
       ${member.city?`<div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>`:""}
       ${member.email?`<div class="mc-row"><span class="k">Email</span><span>${esc(member.email)}</span></div>`:""}
       ${pointsPanelHtml()}
-      <div class="mc-row"><span class="k">抽獎券</span><span>${member.tickets!=null?member.tickets+" 張":"計算中…"}</span></div>
+      <div class="mc-row"><span class="k">抽獎券</span><span>${member.tickets!=null?member.tickets+" 張":(member.statsLimited?"驗證身分後顯示":"計算中…")}</span></div>
       <p class="mc-hint">每評一支沒評過的豆子 +1 張抽獎券，未來將舉辦抽獎送好禮。</p>
       <div class="rec-box"><h4>你可能會喜歡</h4><div id="recBox"><p class="rb-sub">整理推薦中…</p></div></div>
       <div class="mc-secure" id="mcSecure"></div>
@@ -1129,8 +1129,9 @@ async function submitJoin(){
     member={name,phone,city:addr,email};saveSession();afterAuth("歡迎加入，"+name);
   }catch(e){note.textContent="送出失敗，請稍後再試。";if($("joinBtn")){btn.disabled=false;btn.textContent="加入會員";}}
 }
-/* ---------- 會員中心：購買紀錄（登入就看得到）＋ 修改資料（需先驗證身分）----------
-   購買紀錄：登入後直接顯示，只顯示訂單內容，不含地址／Email。
+/* ---------- 會員中心：購買紀錄＋評分紀錄＋修改資料（都需先驗證身分）----------
+   2026-10-17 起：只用手機登入只看得到點數；購買紀錄、評分紀錄、抽獎券要驗證後（帶憑證）才查得到。
+   購買紀錄只顯示訂單內容，不含地址／Email。
    修改資料（姓名、手機、地區、Email）：登入只靠手機，所以要先驗證身分 ——
      ① 寄驗證碼到會員登記的 Email；② 沒有 Email 時由店家給碼。
    驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後修改都帶憑證。 */
@@ -1146,6 +1147,13 @@ function resetOrders(){ordersData=null;ordersStale=false;ordersAuto=false;}
 const normPhoneJs=s=>String(s||"").replace(/\D/g,"").replace(/^0+/,"");
 function loadToken(){try{memberToken=localStorage.getItem("xn_token")||"";}catch(e){}}
 function saveToken(t){memberToken=t||"";if(!t)secureData=null;try{t?localStorage.setItem("xn_token",t):localStorage.removeItem("xn_token");}catch(e){}}
+/* 目前登入手機的有效憑證；憑證是別支手機的（換帳號登入）就清掉，回傳空字串 */
+function myToken(){
+  if(memberToken&&member&&String(memberToken).split(".")[0]!==normPhoneJs(member.phone))saveToken("");
+  return member?memberToken:"";
+}
+/* 憑證失效（過期／換號碼）：清掉憑證與這台裝置上的購買紀錄快取，回到「需要驗證」畫面 */
+function tokenExpired(){saveToken("");resetOrders();clearOrdersCache();}
 /* 手機尾 4 碼不完整顯示：0972048522 → 097204xxxx */
 function maskPhone(p){const d=String(p||"").replace(/\D/g,"");return d.length>4?d.slice(0,-4)+"xxxx":"xxxx";}
 async function secureApi(payload){
@@ -1159,17 +1167,23 @@ function secureNote(msg){const n=$("secNote");if(n)n.textContent=msg||"";}
 function renderSecure(msg){
   const box=$("mcSecure");if(!box||!member)return;
   if(!API_URL){box.innerHTML="";return;}
-  if(memberToken&&String(memberToken).split(".")[0]!==normPhoneJs(member.phone))saveToken("");   // 憑證不是這支手機的（換帳號登入）
+  myToken();   // 憑證不是這支手機的（換帳號登入）就清掉
   box.innerHTML='<div class="mc-sec" id="mcOrders"></div><div class="mc-sec" id="mcEdit"></div>';
   renderOrdersBox();
   renderEditBox(msg);
 }
 
-/* ----- 購買紀錄（免驗證）-----
+/* ----- 購買紀錄（2026-10-17 起需驗證）-----
+   只知道手機不能再看購買紀錄：沒有憑證時不向後端查詢，也不顯示這台裝置上的舊快取，只提示先驗證。
    Google 伺服器偶爾很慢或暫時出錯，所以：先顯示上次存在這台裝置的紀錄、讀取失敗自動重試 3 次、都失敗也不會卡死。 */
 function renderOrdersBox(){
   const box=$("mcOrders");if(!box)return;
   const mine=normPhoneJs(member.phone);
+  if(!myToken()){
+    resetOrders();clearOrdersCache();
+    box.innerHTML='<h4>購買紀錄</h4><p class="mc-sec-p">為了保護你的個資，用 Email 驗證碼驗證後，才看得到完整購買紀錄與評分紀錄（驗證一次，這台裝置 30 天內有效）。驗證方式在下方。</p>';
+    return;
+  }
   if(ordersData!==null&&ordersFor!==mine)resetOrders();   // 換了帳號，重抓
   if(ordersData===null){
     const c=readOrdersCache(mine);
@@ -1192,9 +1206,12 @@ async function loadOrders(attempt){
   if(attempt===0&&ordersData!==null)renderOrdersBox();   // 重新整理時，把「更新中…」顯示出來
   let fail="";
   try{
-    const r=await secureApi({action:"member_orders",phone:member.phone});
+    const tk=myToken();
+    if(!tk){ordersLoading=false;renderOrdersBox();return;}
+    const r=await secureApi({action:"member_orders",phone:member.phone,token:tk});   // 新後端只認憑證；舊後端忽略 token、照舊用 phone
     if(r.ok){ordersData=r.orders||[];ordersFor=mine;ordersStale=false;ordersLoading=false;saveOrdersCache(mine,ordersData);renderOrdersBox();return;}
     fail=r.error||"fail";
+    if(fail==="auth_required"||fail==="auth"){ordersLoading=false;tokenExpired();renderSecure("驗證已過期，請重新驗證。");return;}
     if(fail==="bad phone"){   // 這支手機號碼格式不對（例如舊的測試帳號只有 5 碼），重試也沒用
       ordersLoading=false;
       const bx=$("mcOrders");
@@ -1215,9 +1232,9 @@ async function loadOrders(attempt){
 /* ----- 修改資料（需驗證）----- */
 function renderEditBox(msg){
   const box=$("mcEdit");if(!box)return;
-  if(!memberToken){
-    box.innerHTML=`<h4>修改資料</h4>
-      <p class="mc-sec-p">要修改姓名、手機、所在地區，或補登 Email，需要先驗證身分，保護你的個資。</p>
+  if(!myToken()){
+    box.innerHTML=`<h4>驗證身分</h4>
+      <p class="mc-sec-p">用 Email 驗證碼驗證後，可看完整購買紀錄與評分，也能修改姓名、手機、所在地區或補登 Email。只知道手機號碼的人看不到這些資料。</p>
       <button class="btn btn-primary form-btn" id="secSendBtn" onclick="secureSendCode()">寄驗證碼到我的 Email</button>
       <div class="field" style="margin-top:14px"><label for="secCode">收到驗證碼了？輸入 6 碼</label>
         <div class="sec-row"><input id="secCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code"><button class="btn btn-ghost" id="secVerifyBtn" onclick="secureVerify()">驗證</button></div></div>
@@ -1257,7 +1274,7 @@ async function secureVerify(){
   const btn=$("secVerifyBtn");btn.disabled=true;secureNote("驗證中…");
   try{
     const r=await secureApi({action:"member_code_verify",phone:member.phone,code});
-    if(r.ok){saveToken(r.token);renderEditBox();return;}
+    if(r.ok){saveToken(r.token);resetOrders();renderSecure();fetchMyStats();fetchMyReviews();return;}   // 驗證通過：購買紀錄、點數、評分一起重抓
     secureNote(r.error==="too_many"?"錯誤次數太多，請重新寄送驗證碼。":"驗證碼不正確或已過期，請再確認。");
   }catch(e){secureNote("連線失敗，請稍後再試。");}
   btn.disabled=false;
@@ -1273,7 +1290,7 @@ async function secureLoad(){
       if(r.points!=null){member.points=r.points;member.pointsExpiry=r.pointsExpiry||"";}
       secureLoading=false;renderMember();return;
     }
-    if(r.error==="auth"){secureLoading=false;saveToken("");renderEditBox("驗證已過期，請重新驗證。");return;}
+    if(r.error==="auth"){secureLoading=false;tokenExpired();renderSecure("驗證已過期，請重新驗證。");return;}
   }catch(e){}
   secureLoading=false;
   const box=$("mcEdit");if(box)box.innerHTML=`<h4>修改資料</h4><p class="mc-sec-p">讀取失敗，請<button class="linklike" onclick="secureData=null;renderEditBox()">再試一次</button>。</p>`;
@@ -1305,7 +1322,7 @@ async function secureSave(){
       saveSession();updateAccountUI();
       renderMember();showToast(r.changed?(r.phone?"資料已更新，請用新手機號碼登入":"資料已更新"):"資料沒有變動");return;
     }
-    if(r.error==="auth"){saveToken("");renderEditBox("驗證已過期，請重新驗證。");return;}
+    if(r.error==="auth"){tokenExpired();renderSecure("驗證已過期，請重新驗證。");return;}
     secureNote(({bad_email:"Email 格式不正確。",bad_phone:"手機格式不正確。",bad_name:"姓名不能空白。",consent_needs_email:"要收新品通知，請先填寫 Email。",
       phone_taken:"這支手機已經是其他會員，無法改成這個號碼。",
       phone_has_history:"這支手機已有其他紀錄，請用 LINE 聯絡我們協助更換。",
@@ -1313,7 +1330,7 @@ async function secureSave(){
   }catch(e){secureNote("連線失敗，請稍後再試。");}
   btn.disabled=false;
 }
-function secureLock(){saveToken("");renderEditBox();showToast("已鎖定個人資料");}
+function secureLock(){tokenExpired();member.statsLimited=true;member.tickets=null;saveSession();renderMember();showToast("已鎖定個人資料");}
 function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();fetchMyReviews();}
 function logout(){member=null;saveToken("");resetOrders();clearOrdersCache();try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
@@ -1391,7 +1408,7 @@ async function flavorInit(){
     if(PRODUCTS_CACHE[0])flavorFilterProduct=PRODUCTS_CACHE[0].name;
   }
   if(flavorFilterProduct)syncProductUrl(flavorFilterProduct);
-  if(member&&member.tickets==null)fetchMyStats();
+  if(member&&member.tickets==null&&!member.statsLimited)fetchMyStats();   // 未驗證只拿得到點數，不用每次重抓
   if(reviewsLoaded)renderFlavorPage();else ensureReviews();
 }
 function flavorRefresh(){const pg=$("page-flavor");if(pg&&pg.classList.contains("active"))renderRateForm();}
@@ -1454,7 +1471,7 @@ async function renderRecommend(){
   const box=$("recBox");if(!box)return;
   const r=computeRecommendations();
   if(r.state==="need-more-likes"){
-    box.innerHTML=`<p class="rb-sub">幫喝過的豆子打星星（4～5 顆＝喜歡），評越多支，推薦就越準。</p><button class="btn btn-primary form-btn" onclick="go('flavor')">去評分</button>`;
+    box.innerHTML=`<p class="rb-sub">幫喝過的豆子打星星（4～5 顆＝喜歡），評越多支，推薦就越準。${API_URL&&!myToken()?"以前評過的豆子，要在下方驗證身分後才會載入。":""}</p><button class="btn btn-primary form-btn" onclick="go('flavor')">去評分</button>`;
     return;
   }
   if(r.state==="not-enough-data"){
@@ -1620,12 +1637,24 @@ async function submitRating(){
 async function fetchMyStats(){
   if(!member)return;
   if(!API_URL){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];member.points=member.points||0;member.pointsExpiry=member.pointsExpiry||"";renderMember();return;}
+  const who=normPhoneJs(member.phone);
   try{
-    const res=await fetch(API_URL+"?action=mystats&phone="+encodeURIComponent(member.phone));
-    const d=await res.json();
-    if(d&&d.found){member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";}
-    else{member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
-  }catch(e){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}
+    // 2026-10-17：改用 POST（手機不放網址）＋憑證。有憑證拿完整資料；沒有憑證只拿得到點數（needAuth）。
+    let d=await secureApi({action:"member_stats",phone:member.phone,token:myToken()});
+    if(d&&d.ok===false&&d.error==="unknown action"){   // 後端還是舊版：沿用舊的查詢方式
+      d=await (await fetch(API_URL+"?action=mystats&phone="+encodeURIComponent(member.phone))).json();
+    }
+    if(!member||normPhoneJs(member.phone)!==who)return;   // 等待期間登出或換帳號
+    if(d&&d.ok===false&&(d.error==="rate_limited"||d.error==="busy")){/* 查太快：保留畫面上的數字 */}
+    else if(d&&d.found&&d.needAuth){   // 未驗證：只有點數
+      if(d.tokenInvalid)tokenExpired();
+      member.statsLimited=true;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
+      member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";
+    }
+    else if(d&&d.found){member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";}
+    else{member.statsLimited=false;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
+  }catch(e){if(member&&!member.statsLimited){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}}
+  if(!member)return;
   saveSession();renderMember();flavorRefresh();
 }
 
@@ -1635,10 +1664,16 @@ let myReviewsLoaded=false;
 async function fetchMyReviews(){
   if(!member)return;
   if(!API_URL){myReviewsLoaded=true;renderMember();return;}   // 展示模式沒有後端，只能靠當次評分
+  // 2026-10-17：評分紀錄屬於個人資料，要有憑證才查（POST，不把手機放網址）；沒驗證就只用這次瀏覽評過的
+  const tk=myToken();
+  if(!tk){myReviewsLoaded=true;renderMember();return;}
   myReviewsLoaded=false;
   try{
-    const res=await fetch(API_URL+"?action=myreviews&phone="+encodeURIComponent(member.phone));
-    const list=await res.json();
+    let list=null;
+    const r=await secureApi({action:"member_reviews",token:tk});
+    if(r&&r.ok)list=r.reviews;
+    else if(r&&r.error==="unknown action")list=await (await fetch(API_URL+"?action=myreviews&phone="+encodeURIComponent(member.phone))).json();   // 後端還是舊版
+    else if(r&&r.error==="auth_required")tokenExpired();
     if(Array.isArray(list)){
       list.forEach(r=>{if(r&&r.product)myRatings[r.product]={aroma:Number(r.aroma)||0,acidity:Number(r.acidity)||0,sweetness:Number(r.sweetness)||0,body:Number(r.body)||0,bitterness:Number(r.bitterness)||0,liked:Number(r.liked)||0};});
     }
