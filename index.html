@@ -26,13 +26,13 @@
 <link rel="preconnect" href="https://script.google.com">
 <link rel="preconnect" href="https://drive.google.com">
 <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- 字型（CR-20261017-02）：中文只用 Noto Sans TC 一個字族、只載 400/500/700 三個字重，display=swap。
-     不放會阻擋畫面的 <link>：由頁尾程式在「第一個畫面畫出來之後」才插入字型 CSS（見 loadWebFont），
-     先用系統字（蘋方／微軟正黑體）顯示，字型到了再換上；沒開 JavaScript 時由下面的 noscript 載入。
-     英文點綴字（原 Fraunces）改用系統襯線字 Georgia，不另外下載。 -->
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap"></noscript>
+<!-- 字型（CR-20261017-02）：中文只用一個字族 Noto Sans TC 的字型堆疊，後備為系統黑體（蘋方 PingFang TC／微軟正黑體；
+     Android 系統內建的中文字就是 Noto Sans CJK，外觀與 Noto Sans TC 相同）。英文點綴字（原 Fraunces）改用系統 Georgia。
+     預設「不」從 Google Fonts 下載中文字型：本機實測下載 Noto Sans TC（約 1.2 MB、46 個切片）會讓 Lighthouse 行動版
+     效能從約 93 掉到約 70（字型陸續到達造成多次重排，TBT 約 1 秒）。
+     TODO 董事會：若要所有裝置都顯示 Noto Sans TC，把頁尾程式的 USE_WEB_FONT 改成 true（第一次畫面畫出後才非阻擋載入、display=swap），
+     並把下面這行 noscript 從註解中還原：
+     <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap"></noscript> -->
 <style>
   :root{
     --paper:#F5F3EB; --paper-2:#EAE7DC; --card:#FFFFFF;
@@ -1927,15 +1927,27 @@ function maybeShowWelcome(){
   window.addEventListener("scroll",show,{passive:true});
 }
 /* ---------- 字型：第一個畫面畫出來之後才載入（不阻擋首屏；display=swap 先用系統字）（CR-20261017-02） ---------- */
+const USE_WEB_FONT=false;   // TODO 董事會：true＝改回從 Google Fonts 載入 Noto Sans TC（外觀各裝置一致，但效能分數較低，見 <head> 的說明）
 const WEB_FONT_CSS="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap";
 function loadWebFont(){
-  if(document.querySelector("link[data-webfont]"))return;
+  if(!USE_WEB_FONT||document.querySelector("link[data-webfont]"))return;
   const l=document.createElement("link");l.rel="stylesheet";l.href=WEB_FONT_CSS;l.setAttribute("data-webfont","");
   document.head.appendChild(l);
 }
 captureSource();loadSession();loadCart();updateAccountUI();renderCart();route();maybeShowWelcome();
-if(window.requestAnimationFrame)requestAnimationFrame(()=>setTimeout(loadWebFont,0));
-setTimeout(loadWebFont,3000);   // 保險：分頁在背景開啟時 requestAnimationFrame 不會跑
+/* 等瀏覽器回報「第一次有內容的畫面（FCP）」之後才載字型；不支援的瀏覽器或背景分頁，3 秒後保險載入 */
+(function(){
+  try{
+    if(performance.getEntriesByName("first-contentful-paint").length){setTimeout(loadWebFont,0);}
+    else{
+      const po=new PerformanceObserver(list=>{
+        if(list.getEntriesByName("first-contentful-paint").length){po.disconnect();setTimeout(loadWebFont,0);}
+      });
+      po.observe({type:"paint",buffered:true});
+    }
+  }catch(e){setTimeout(loadWebFont,0);}
+  setTimeout(loadWebFont,3000);
+})();
 ensureProducts();   // 不等切到產品頁，一進站就先在背景抓商品資料
 loadProductUrls();  // 背景抓「商品 → 介紹頁網址」對照表，讓產品卡可以直接連到介紹頁
 if(member)fetchMyReviews();   // 已登入過（手機存在這台裝置）：背景抓回自己的評分，才能馬上算推薦

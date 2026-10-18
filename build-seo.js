@@ -77,6 +77,15 @@ const ratingOf = (name) => {
   return list.length ? { n: list.length, axes: AXES.map(([k, label]) => ({ label, v: modeOf(list.map((r) => Number(r[k]) || 0)) })) } : null;
 };
 
+/* ---------- 字型（CR-20261017-02，與 index.html 一致） ----------
+   預設不從 Google Fonts 下載中文字型，用 --sans 字型堆疊（Noto Sans TC → 蘋方 → 微軟正黑體）。
+   TODO 董事會：若 index.html 的 USE_WEB_FONT 改成 true，這裡也改成 true，商品／文章頁會以非阻擋方式載入 Noto Sans TC。 */
+const USE_WEB_FONT = false;
+const WEB_FONT_URL = "https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap";
+const WEB_FONT_HEAD = USE_WEB_FONT
+  ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${WEB_FONT_URL}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${WEB_FONT_URL}"></noscript>`
+  : "";
+
 /* ---------- 共用版型 ---------- */
 // 文章排版樣式直接取自後台預覽（.sh-art … .sh-embed），確保文章在靜態頁長得和官網一致
 const articleCss = (() => {
@@ -135,8 +144,7 @@ function shell({ title, desc, canonical, image, type = "website", ld = [], body 
 <meta name="twitter:image" content="${esc(image || OG_DEFAULT)}">
 <meta name="theme-color" content="#294636">
 <link rel="icon" href="${SITE}%E7%BF%94%E8%87%AA%E5%9C%A8.png">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap"></noscript>
+${WEB_FONT_HEAD}
 ${ld.map(ldJson).join("\n")}
 <style>${CSS}</style>
 </head>
