@@ -275,6 +275,15 @@
   .subtotal .lbl{font-size:.9rem;color:var(--ink-70);letter-spacing:.08em}
   .subtotal .amt{font-family:var(--serif);font-size:1.5rem}
   .drawer-note{font-size:.76rem;color:var(--ink-45);text-align:center;margin-top:12px;line-height:1.7}
+  .drawer-note .guide-link{display:inline-block;margin-top:6px;color:var(--pine);text-decoration:underline;text-underline-offset:3px;font-size:.84rem}
+  /* 購物須知 */
+  .guide-list{display:grid;gap:18px;max-width:760px}
+  .guide-item{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px 26px}
+  .guide-item h3{font-size:1.18rem;color:var(--pine);letter-spacing:.04em;margin-bottom:8px}
+  .guide-item p{color:var(--ink-70);font-size:1rem;line-height:1.85}
+  .guide-item p a{color:var(--pine);text-decoration:underline;text-underline-offset:3px}
+  .guide-line{margin-top:14px;padding:11px 20px;font-size:.9rem}
+  .guide-back{margin-top:34px}
 
   /* TOAST */
   .toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,140%);background:var(--espresso);color:var(--paper);padding:14px 26px;border-radius:100px;font-size:.9rem;letter-spacing:.04em;z-index:130;transition:transform .4s cubic-bezier(.22,1,.36,1);box-shadow:0 14px 40px rgba(36,28,21,.3);display:flex;align-items:center;gap:10px;max-width:90vw}
@@ -687,6 +696,22 @@
     </div>
   </section>
 </div>
+<!-- ============ PAGE: 購物須知（CR-20261017-02） ============ -->
+<div class="page" id="page-guide">
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Shopping Guide</span><h2>購物須知</h2><p>下單前想先知道的事，都整理在這裡。還有問題，歡迎透過 LINE 問我們。</p></div>
+      <div class="guide-list">
+        <div class="guide-item"><h3>付款方式與運費</h3><p>目前不需要線上付款。下單後我們會主動與您聯繫，確認付款方式與運費。</p></div>
+        <div class="guide-item"><h3>出貨通知</h3><p>出貨時會以 Email 通知您，請在<a href="#member">會員資料</a>中填寫 Email。</p></div>
+        <div class="guide-item"><h3>退換貨</h3><p>如需退換貨，請透過 LINE 官方帳號與我們聯繫，我們會依消費者保護法相關規定處理。</p>
+          <a class="btn btn-ghost guide-line" data-line-link target="_blank" rel="noopener">用 LINE 聯絡我們 →</a></div>
+      </div>
+      <p class="guide-back"><a class="btn btn-primary" href="#products">看咖啡豆</a></p>
+    </div>
+  </section>
+</div>
+
 <!-- ============ FOOTER ============ -->
 <footer>
   <div class="wrap">
@@ -704,12 +729,13 @@
         <a class="navlink" href="#products">產品</a>
         <a class="navlink" href="#flavor">風味</a>
         <a class="navlink" href="#member">會員</a>
+        <a class="navlink" href="#guide">購物須知</a>
         <p style="margin:14px 0 0;font-size:.85rem;opacity:.75">想一次看完所有咖啡豆介紹和文章？<br><a href="explore/" style="text-decoration:underline">前往完整列表 →</a></p>
       </div>
       <div class="foot-col social">
         <h4>加入社群</h4>
         <p>您已被邀請加入「翔天然，翔自在」！請點選下方連結加入我們的 LINE 社群。</p>
-        <a class="line-btn" href="https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default" target="_blank" rel="noopener">加入 LINE 社群 →</a>
+        <a class="line-btn" data-line-link target="_blank" rel="noopener">加入 LINE 社群 →</a>
       </div>
     </div>
     <div class="foot-bar"><span>© 2026 翔天然 XIANG NATURAL</span><span class="latin">Clean things, easy days.</span></div>
@@ -728,7 +754,7 @@
     <div class="auth-hint" id="authHint" style="display:none">請先登入會員，才能送出訂單</div>
     <div class="subtotal"><span class="lbl">小計</span><span class="amt" id="cartTotal">NT$ 0</span></div>
     <button class="btn btn-primary form-btn" id="confirmBtn" onclick="confirmPurchase()">確認購買</button>
-    <p class="drawer-note">目前無需線上付款。按下確認購買後，訂單會直接送到後台，我們會盡快與你聯繫。</p>
+    <p class="drawer-note">目前無需線上付款。按下確認購買後，訂單會直接送到後台，我們會主動與你聯繫，確認付款方式與運費。<br><a class="guide-link" href="#guide" onclick="closeCart()">購物須知：付款、運費、出貨通知、退換貨 →</a></p>
   </div>
 </aside>
 
@@ -1131,6 +1157,8 @@ async function submitJoin(){
      ① 寄驗證碼到會員登記的 Email；② 沒有 Email 時由店家給碼。
    驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後修改都帶憑證。 */
 const CITIES=["台北市","新北市","基隆市","桃園市","新竹市","新竹縣","苗栗縣","台中市","彰化縣","南投縣","雲林縣","嘉義市","嘉義縣","台南市","高雄市","屏東縣","宜蘭縣","花蓮縣","台東縣","澎湖縣","金門縣","連江縣"];
+/* LINE 連結集中在這裡：頁尾「加入 LINE 社群」、購物須知的「用 LINE 聯絡我們」（data-line-link）與會員中心都讀這個常數。
+   TODO 董事會：請確認是否為 LINE 官方帳號網址（目前是 line.me/ti/g2/… 的社群邀請連結；購物須知寫的是「LINE 官方帳號」）。 */
 const LINE_URL="https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
 let memberToken="",secureData=null,secureLoading=false,ordersData=null,ordersFor="",ordersLoading=false,ordersStale=false,ordersAuto=false;
 let ORDERS_RETRY_MS=2500;   // 讀取失敗（Google 伺服器偶爾很慢或暫時出錯）時自動重試的間隔
@@ -1886,11 +1914,11 @@ async function renderShare(id){
 }
 
 /* ---------- 路由 ---------- */
-const PAGES=["home","products","flavor","share","member"];
+const PAGES=["home","products","flavor","share","member","guide"];
 function go(p){location.hash=p;}   // 舊的 onclick 仍可用；導覽連結已改成 <a href="#頁面">，由 hashchange 處理
 /* 換頁時更新瀏覽器分頁標題（文章頁在 renderShare 內改成文章標題） */
 const HOME_TITLE=document.title;
-const PAGE_TITLES={home:HOME_TITLE,products:"咖啡豆｜翔天然",flavor:"風味評分｜翔天然",share:"分享天地｜翔天然",member:"會員中心｜翔天然"};
+const PAGE_TITLES={home:HOME_TITLE,products:"咖啡豆｜翔天然",flavor:"風味評分｜翔天然",share:"分享天地｜翔天然",member:"會員中心｜翔天然",guide:"購物須知｜翔天然"};
 function route(){
   let h=(location.hash||"").replace("#",""),sharePost="";
   try{h=decodeURIComponent(h);}catch(e){}
@@ -1941,6 +1969,7 @@ function loadWebFont(){
   const l=document.createElement("link");l.rel="stylesheet";l.href=WEB_FONT_CSS;l.setAttribute("data-webfont","");
   document.head.appendChild(l);
 }
+document.querySelectorAll("[data-line-link]").forEach(a=>{a.href=LINE_URL;});   // LINE 連結統一由 LINE_URL 帶入
 captureSource();loadSession();loadCart();updateAccountUI();renderCart();route();maybeShowWelcome();
 /* 等瀏覽器回報「第一次有內容的畫面（FCP）」之後才載字型；不支援的瀏覽器或背景分頁，3 秒後保險載入 */
 (function(){
