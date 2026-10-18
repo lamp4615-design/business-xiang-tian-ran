@@ -797,14 +797,23 @@
   </div>
 </div>
 
-<!-- ============ 新訪客提醒：不擋畫面的橫幅（掃 QR／分享連結 ?p= 進站時不顯示） ============ -->
-<div class="wl-banner" id="welcomeBanner" role="region" aria-label="新訪客提醒">
-  <div class="wl-banner-inner">
-    <p class="wl-banner-text"><b>第一次來？</b>免費加入會員：一包 1 點，滿 10 點折 100 元；留 Email 可收新品通知。</p>
-    <div class="wl-banner-act">
-      <a class="btn btn-primary" href="#member" onclick="welcomeJoin()">免費加入會員</a>
-      <button class="wl-x" type="button" onclick="closeWelcome(true)" aria-label="關閉提醒，之後不再顯示">×</button>
+<!-- ============ 新訪客提醒彈窗（CR-20261018-01 恢復；載入後約 3 秒才跳出；掃 QR／分享連結 ?p= 進站時不顯示） ============ -->
+<div class="wl-modal" id="welcomeModal" role="dialog" aria-modal="true" aria-labelledby="wlTitle">
+  <div class="wl-box">
+    <button class="wl-x" onclick="closeWelcome()" aria-label="關閉">×</button>
+    <div class="wl-hi">友善提醒</div>
+    <h2 id="wlTitle">第一次來？30 秒看懂怎麼賺好康</h2>
+    <p class="wl-sub">加入會員完全免費，只要手機號碼就能登入。</p>
+    <div class="wl-list">
+      <div class="wl-item hot"><div class="wl-ico">🎁</div><div><b>買 10 包，送 100 元折價券</b><span>加入會員後，<em>一包 1 點</em>，集滿 10 點就折 100 元，點數自動累積，在會員中心隨時看得到。</span></div></div>
+      <div class="wl-item"><div class="wl-ico">⭐</div><div><b>喝過就評分，抽好禮</b><span>會員幫喝過的豆子評分，<em>每評一支不同的豆子 +1 張抽獎券</em>，券越多越有機會換好禮。</span></div></div>
+      <div class="wl-item"><div class="wl-ico">📧</div><div><b>留 Email，新品先知道</b><span>加入時填 Email，新豆子上架會<em>第一時間寄信通知你</em>。</span></div></div>
     </div>
+    <div class="wl-act">
+      <button class="btn btn-ghost" onclick="closeWelcome()">先逛逛</button>
+      <button class="btn btn-primary" onclick="welcomeJoin()">免費加入會員</button>
+    </div>
+    <label class="wl-skip"><input type="checkbox" id="wlNever"> 不用再提醒我</label>
   </div>
 </div>
 
@@ -1998,26 +2007,27 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeCart();closeMe
 /* ---------- 新訪客提醒：底部橫幅，不遮畫面（按 × 關閉後記住，之後不再出現）。
    等使用者開始往下捲才出現：不打斷第一眼，也不會被算成首屏最大元素（LCP）。 ---------- */
 const WELCOME_KEY="xn_welcome_off";
-function closeWelcome(remember){
-  const b=$("welcomeBanner");if(!b)return;
-  b.classList.remove("open");
+function closeWelcome(){
+  const m=$("welcomeModal");if(!m)return;
+  m.classList.remove("open");
   try{
-    if(remember===true)localStorage.setItem(WELCOME_KEY,"1");
-    sessionStorage.setItem("xn_welcome_seen","1");   // 這次瀏覽不再出現
+    if($("wlNever").checked)localStorage.setItem(WELCOME_KEY,"1");
+    sessionStorage.setItem("xn_welcome_seen","1");   // 沒勾選也不會在同一次瀏覽重複跳出
   }catch(e){}
 }
 function welcomeJoin(){closeWelcome();go("member");}
+/* 新訪客彈窗（CR-20261018-01，恢復原本的完整說明彈窗）：頁面載入完成約 3 秒後才跳出，
+   這樣不會被量成首屏最慢元素（LCP），又能完整說明加入會員的好處。 */
 function maybeShowWelcome(){
   if(member||DEEPLINK_PRODUCT)return;   // 已登入的會員、或掃 QR／分享連結（?p=）進站的人不顯示
   try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
-  const show=()=>{
-    if(window.scrollY<160)return;
-    window.removeEventListener("scroll",show);
+  const show=()=>setTimeout(()=>{
     try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
-    const b=$("welcomeBanner");if(b&&!member)b.classList.add("open");
-  };
-  window.addEventListener("scroll",show,{passive:true});
+    const m=$("welcomeModal");if(m&&!member)m.classList.add("open");
+  },3000);
+  if(document.readyState==="complete")show();else window.addEventListener("load",show,{once:true});
 }
+$("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
 /* ---------- 字型：第一個畫面畫出來之後才載入（不阻擋首屏；display=swap 先用系統字）（CR-20261017-02） ---------- */
 const USE_WEB_FONT=false;   // TODO 董事會：true＝改回從 Google Fonts 載入 Noto Sans TC（外觀各裝置一致，但效能分數較低，見 <head> 的說明）
 const WEB_FONT_CSS="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap";
