@@ -77,20 +77,29 @@ const ratingOf = (name) => {
   return list.length ? { n: list.length, axes: AXES.map(([k, label]) => ({ label, v: modeOf(list.map((r) => Number(r[k]) || 0)) })) } : null;
 };
 
+/* ---------- 字型（CR-20261017-02，與 index.html 一致） ----------
+   預設不從 Google Fonts 下載中文字型，用 --sans 字型堆疊（Noto Sans TC → 蘋方 → 微軟正黑體）。
+   TODO 董事會：若 index.html 的 USE_WEB_FONT 改成 true，這裡也改成 true，商品／文章頁會以非阻擋方式載入 Noto Sans TC。 */
+const USE_WEB_FONT = false;
+const WEB_FONT_URL = "https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap";
+const WEB_FONT_HEAD = USE_WEB_FONT
+  ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${WEB_FONT_URL}" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="${WEB_FONT_URL}"></noscript>`
+  : "";
+
 /* ---------- 共用版型 ---------- */
 // 文章排版樣式直接取自後台預覽（.sh-art … .sh-embed），確保文章在靜態頁長得和官網一致
 const articleCss = (() => {
   const a = adminHtml.indexOf(".sh-art{max-width"), b = adminHtml.indexOf("</style>", a);
   return a > -1 && b > a ? adminHtml.slice(a, b) : ".sh-art img{max-width:100%}";
 })();
-const CSS = `:root{--pine:#294636;--pine-mid:#4E6B52;--dawn:#E4892B;--dawn-soft:#F3B85F;--paper:#F5F3EB;--paper-2:#EAE7DC;--ink:#241C15;--ink-70:rgba(36,28,21,.72);--ink-45:rgba(36,28,21,.48);--line:rgba(46,61,48,.16);--serif:"Noto Serif TC",serif;--latin:"Fraunces",serif}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.85 "Noto Sans TC","Microsoft JhengHei",sans-serif}
+const CSS = `:root{--pine:#294636;--pine-mid:#4E6B52;--dawn:#E4892B;--dawn-soft:#F3B85F;--paper:#F5F3EB;--paper-2:#EAE7DC;--ink:#241C15;--ink-70:rgba(36,28,21,.72);--ink-45:rgba(36,28,21,.48);--line:rgba(46,61,48,.16);--sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;--serif:var(--sans);--latin:Georgia,"Times New Roman",serif}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.85 var(--sans)}
 a{color:var(--pine)}img{max-width:100%;height:auto}.wrap{max-width:980px;margin:0 auto;padding:0 20px}
 .top{background:var(--pine);color:#fff}.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:14px;padding-bottom:14px;flex-wrap:wrap}
 .top a{color:#fff;text-decoration:none}.brand{font-family:var(--serif);font-weight:700;font-size:1.25rem;letter-spacing:.08em}.top nav a{margin-left:18px;font-size:.95rem;opacity:.9}.top nav a:hover{opacity:1;text-decoration:underline}
 .crumb{font-size:.85rem;color:var(--ink-45);margin:22px 0 8px}.crumb a{color:var(--ink-45)}
-h1{font-family:var(--serif);color:var(--pine);font-size:clamp(1.7rem,4vw,2.4rem);line-height:1.4;margin:.2em 0 .3em;letter-spacing:.03em}
-h2{font-family:var(--serif);color:var(--pine);font-size:1.35rem;margin:2em 0 .6em}
+h1{font-family:var(--serif);font-weight:500;color:var(--pine);font-size:clamp(1.7rem,4vw,2.4rem);line-height:1.4;margin:.2em 0 .3em;letter-spacing:.03em}
+h2{font-family:var(--serif);font-weight:500;color:var(--pine);font-size:1.35rem;margin:2em 0 .6em}
 .prod{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:34px;align-items:start;margin-top:10px}
 .pimg{border-radius:20px;overflow:hidden;background:var(--paper-2);aspect-ratio:4/3;box-shadow:0 14px 34px rgba(36,28,21,.12)}.pimg img{width:100%;height:100%;object-fit:cover;display:block}
 .badge{display:inline-block;background:var(--dawn);color:var(--ink);font-size:.78rem;font-weight:700;padding:2px 12px;border-radius:99px;letter-spacing:.08em}
@@ -135,8 +144,7 @@ function shell({ title, desc, canonical, image, type = "website", ld = [], body 
 <meta name="twitter:image" content="${esc(image || OG_DEFAULT)}">
 <meta name="theme-color" content="#294636">
 <link rel="icon" href="${SITE}%E7%BF%94%E8%87%AA%E5%9C%A8.png">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;700&display=swap" rel="stylesheet">
+${WEB_FONT_HEAD}
 ${ld.map(ldJson).join("\n")}
 <style>${CSS}</style>
 </head>
@@ -146,7 +154,7 @@ ${ld.map(ldJson).join("\n")}
 <main class="wrap">
 ${body}
 </main>
-<footer class="foot"><div class="wrap"><p><strong>${BRAND}，翔自在。</strong>為食材把關，把乾淨、無負擔的好物，帶到你的每一天。</p>
+<footer class="foot"><div class="wrap"><p><strong>${BRAND}，翔自在。</strong>自家烘焙精品咖啡豆，逐批手挑瑕疵豆，把一杯好咖啡帶到你的每一天。</p>
 <p><a href="${SITE}">回到官網首頁</a>・<a href="${SITE}explore/">全部咖啡豆與文章</a></p><p>© ${new Date().getFullYear()} ${BRAND}</p></div></footer>
 <script>
 /* 這個頁面本身沒有在跑官網的程式，「加入購物袋」只做一件事：把商品寫進和官網共用的
@@ -194,7 +202,7 @@ const guideOf = (p, process_, roast, pack) => {
   const qa = [
     process_ && info[0] ? [`${process_}處理的咖啡有什麼特色？`, info[0]] : null,
     tagText ? [`${p.name}喝起來是什麼風味？`, `${p.name}來自${p.subtitle}，${roast ? roast + "，" : ""}風味帶有${tagText}。每個人的味覺感受不同，也可以參考其他人喝過的風味評分。`] : null,
-    ["咖啡豆要怎麼保存？", "開封後請密封、避光、放在室溫陰涼處，不建議放冰箱（取出時容易受潮）。烘焙後約 2～4 週內風味最好，建議在這段時間內喝完。"],
+    ["咖啡豆要怎麼保存？", "開封後請密封、避光、放在室溫陰涼處，不建議放冰箱（取出時容易受潮）。一般建議在烘焙後約 2～4 週內喝完，風味表現較好。"],
     [`買${pack ? "「" + pack + "」" : "回去"}的豆子可以沖幾杯？`, "以一杯 15 公克咖啡粉計算，半磅（227 公克）大約可以沖 15 杯左右，實際依個人濃度喜好而定。"],
   ].filter(Boolean);
   return `<section class="guide"><h2>${esc(p.name)}怎麼沖比較好喝？</h2>
