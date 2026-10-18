@@ -348,27 +348,59 @@ const money=n=>"NT$ "+Math.round(n).toLocaleString();
 const ym=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
 function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
 
+/* 後台認證（2026-10-17）：登入時用密碼換一張短效憑證（約 4 小時），之後每個請求只帶憑證；
+   密碼只在按下登入那一刻送出，不存進瀏覽器。憑證存在 sessionStorage（關掉分頁就沒了），過期會請你重新登入。
+   後端還是舊版（不認得 admin_login）時，退回舊方式：密碼只放在這個分頁的記憶體裡，每次請求帶密碼，重新整理就要重打。 */
+let TOKEN="",LEGACY_AUTH=false;
 async function api(payload){
-  const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...payload,key:KEY})});
+  const auth=LEGACY_AUTH?{key:KEY}:{token:TOKEN};
+  const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...payload,...auth})});
   const d=await res.json();
-  if(!d.ok)throw new Error(d.error||"失敗");
+  if(!d.ok){
+    if(!LEGACY_AUTH&&(d.error==="session_expired"||d.error==="unauthorized"))sessionEnded("登入已逾時（或密碼已更換），請重新輸入密碼。");
+    throw new Error(d.error||"失敗");
+  }
   return d;
+}
+function applyMeta(d){
+  if(d.categories)CATS=d.categories;if(d.statuses)STATUSES=d.statuses;
+  if(d.groups)GROUPS=d.groups;if(d.legacy)LEGACY=d.legacy;if(d.noteCategories)NOTE_CATS=d.noteCategories;
+}
+function enterApp(){$("login").hidden=true;$("app").hidden=false;initUi();loadAll();}
+function sessionEnded(msg){
+  TOKEN="";try{sessionStorage.removeItem("xn_admin_t");}catch(e){}
+  $("app").hidden=true;$("login").hidden=false;$("loginMsg").textContent=msg||"";
 }
 
 /* ---------- 登入 ---------- */
 async function doLogin(){
-  KEY=$("pw").value;$("loginMsg").textContent="驗證中…";
+  const pw=$("pw").value;$("loginMsg").textContent="驗證中…";
   try{
-    const d=await api({action:"admin_ping"});
-    if(d.categories)CATS=d.categories;if(d.statuses)STATUSES=d.statuses;
-    if(d.groups)GROUPS=d.groups;if(d.legacy)LEGACY=d.legacy;if(d.noteCategories)NOTE_CATS=d.noteCategories;
-    try{sessionStorage.setItem("xn_admin",KEY);}catch(e){}
-    $("login").hidden=true;$("app").hidden=false;initUi();loadAll();
-  }catch(e){KEY="";$("loginMsg").textContent=e.message==="unauthorized"?"密碼錯誤，或後台尚未設定 ADMIN_KEY":"連線失敗："+e.message;}
+    const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"admin_login",key:pw})});
+    const d=await res.json();
+    if(d.ok&&d.token){
+      TOKEN=d.token;LEGACY_AUTH=false;KEY="";$("pw").value="";
+      try{sessionStorage.setItem("xn_admin_t",TOKEN);}catch(e){}
+      applyMeta(d);enterApp();return;
+    }
+    if(d.error==="unknown admin action"){   // 後端還是舊版：密碼正確，但還不會發憑證
+      KEY=pw;LEGACY_AUTH=true;$("pw").value="";
+      const p=await api({action:"admin_ping"});applyMeta(p);enterApp();
+      toast("後端尚未更新，暫用舊的登入方式（重新整理需重新輸入密碼）");return;
+    }
+    $("loginMsg").textContent=d.error==="locked"?"密碼錯誤次數太多，已暫停登入 10 分鐘，請稍後再試。":d.error==="unauthorized"?"密碼錯誤，或後台尚未設定 ADMIN_KEY":"登入失敗："+(d.error||"");
+  }catch(e){KEY="";$("loginMsg").textContent="連線失敗："+e.message;}
 }
-function logout(){try{sessionStorage.removeItem("xn_admin");}catch(e){}location.reload();}
+function logout(){try{sessionStorage.removeItem("xn_admin_t");sessionStorage.removeItem("xn_admin");}catch(e){}location.reload();}
 $("pw").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
-try{const k=sessionStorage.getItem("xn_admin");if(k){$("pw").value=k;doLogin();}}catch(e){}
+try{sessionStorage.removeItem("xn_admin");}catch(e){}   // 舊版曾把密碼存在這裡，一律清掉
+(async()=>{   // 同一個分頁重新整理：憑證還有效就直接進後台
+  let t="";try{t=sessionStorage.getItem("xn_admin_t")||"";}catch(e){}
+  if(!t)return;
+  TOKEN=t;$("loginMsg").textContent="驗證中…";
+  try{const d=await api({action:"admin_ping"});applyMeta(d);$("loginMsg").textContent="";enterApp();}
+  catch(e){if(TOKEN)sessionEnded("");}
+})();
 
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
@@ -412,7 +444,7 @@ function buildPeriodSelects(){
 /* ---------- 訂單 ---------- */
 function renderOrders(){
   const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
-  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
+  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
   const pend=list.filter(o=>o.status==="待處理");
   $("ordersSum").textContent=`${list.length} 筆`+(pend.length?`・待處理 ${pend.length} 筆（${money(pend.reduce((s,o)=>s+o.total,0))}）`:"");
   if(!list.length){$("ordersBody").innerHTML='<tr><td colspan="8" class="empty">沒有訂單</td></tr>';return;}
@@ -420,7 +452,7 @@ function renderOrders(){
     const d=o.time?new Date(o.time):null;
     const t=d?`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`:"";
     return `<tr>
-      <td>${t}</td>
+      <td>${t}${o.orderId?`<div class="sub">${esc(o.orderId)}</div>`:""}</td>
       <td>${esc(o.name)}<div class="sub">${esc(o.phone)}・${esc(o.city)}</div></td>
       <td>${esc(o.items)}</td>
       <td class="num">${money(o.total)}</td>
@@ -433,9 +465,12 @@ function renderOrders(){
 async function saveOrder(row,btn){
   btn.disabled=true;
   try{
-    await api({action:"admin_update_order",row,status:$("s"+row).value,bags:$("b"+row).value});
-    toast("已儲存，點數已同步");await loadAll();
-  }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;}
+    // 以訂單編號定位（後端寫入前會再核對）；還沒補編號的舊訂單才用列號＋訂購內容核對。舊版後端會忽略 orderId／items，照舊用列號
+    const o=ORDERS.find(x=>x.row===row)||{};
+    const r=await api({action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value});
+    const SHIP_MSG={sent:"，已寄出貨通知信",no_email:"（會員沒有 Email，未寄出貨通知）",quota:"，但今天寄信額度已用完，出貨通知未寄（見 admin_log）",failed:"，但出貨通知信寄送失敗（見 admin_log）"};
+    toast("已儲存，點數已同步"+(SHIP_MSG[r&&r.shipNotice]||""));await loadAll();
+  }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;if(/重新整理/.test(e.message))loadAll();}
 }
 
 /* ---------- 成本 ---------- */
@@ -484,8 +519,8 @@ function exportCosts(){
 }
 function exportOrders(){
   const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
-  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items).toLowerCase().includes(q)));
-  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","狀態"]].concat(list.map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.status])));
+  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
+  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","狀態","訂單編號"]].concat(list.map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.status,o.orderId||""])));
 }
 async function addCost(){
   const item=$("cItem").value.trim(),amount=Number($("cAmt").value);
@@ -1029,12 +1064,28 @@ const dropOn=(el,mode)=>{
 };
 dropOn($("pBody"),"body");dropOn($("pCover"),"cover");
 $("pBody").addEventListener("paste",e=>{const f=[...(e.clipboardData&&e.clipboardData.files||[])].filter(x=>/^image\//.test(x.type));if(f.length){e.preventDefault();uploadFiles(f,"body");}});
-/* 圖片上傳到 Cloudinary（unsigned preset）。回傳的網址帶自動格式／品質／寬度轉換，由 CDN 供應 */
+/* 圖片上傳到 Cloudinary。回傳的網址帶自動格式／品質／寬度轉換，由 CDN 供應
+   2026-10-17：改成「簽章上傳」——每次上傳前先向後端（需後台登入）要一組簽章，API Secret 只留在 Apps Script。
+   後端還沒設定 Cloudinary 金鑰（或後端還是舊版）時，暫時退回原本的 unsigned 方式，上傳不會中斷。 */
 const CLD_NAME="jzk5pjym",CLD_PRESET="xtr-products";
+let CLD_WARNED=false;
+async function cloudSign(){
+  try{return await api({action:"admin_cloudinary_sign"});}
+  catch(e){
+    if(e.message==="cloudinary_not_configured"||e.message==="unknown admin action"){
+      if(!CLD_WARNED){CLD_WARNED=true;toast(e.message==="cloudinary_not_configured"?"提醒：Cloudinary 簽章金鑰尚未設定，暫用舊的上傳方式":"提醒：後端尚未更新，暫用舊的上傳方式");}
+      return null;
+    }
+    throw e;
+  }
+}
 async function cloudUpload(file,max){
   const data=await shrink(file,max);
-  const fd=new FormData();fd.append("file","data:image/jpeg;base64,"+data);fd.append("upload_preset",CLD_PRESET);
-  const r=await fetch("https://api.cloudinary.com/v1_1/"+CLD_NAME+"/image/upload",{method:"POST",body:fd});
+  const sig=await cloudSign();
+  const fd=new FormData();fd.append("file","data:image/jpeg;base64,"+data);
+  if(sig){fd.append("upload_preset",sig.uploadPreset);fd.append("api_key",sig.apiKey);fd.append("timestamp",sig.timestamp);fd.append("signature",sig.signature);}
+  else fd.append("upload_preset",CLD_PRESET);
+  const r=await fetch("https://api.cloudinary.com/v1_1/"+((sig&&sig.cloudName)||CLD_NAME)+"/image/upload",{method:"POST",body:fd});
   const j=await r.json();
   if(!r.ok||!j.secure_url)throw new Error((j.error&&j.error.message)||"上傳失敗");
   return j.secure_url.replace("/upload/","/upload/f_auto,q_auto,w_"+max+"/");

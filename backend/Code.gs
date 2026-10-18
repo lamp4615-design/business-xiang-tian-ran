@@ -1,10 +1,14 @@
 /*************************************************************************
  * 翔天然 — 後台 API（Google Apps Script + Google 試算表）
  *
- *   GET  ?action=products            → 商品清單
- *   GET  ?action=login&phone=xxxx    → 用手機比對會員（登入）
+ *   GET  ?action=products            → 商品清單（公開；GitHub Actions 依賴，格式不可改）
+ *   GET  ?action=reviews／posts      → 公開評分／文章（同上，不含手機等個資）
+ *   POST {action:"member_login"}     → 用手機比對會員（登入；只回是否為會員，不回姓名）
  *   POST {action:"join"}             → 寫入會員
- *   POST {action:"order"}            → 寫入訂單、自動加點，並自動寄 Email 通知你
+ *   POST {action:"order"}            → 寫入訂單（後端依價格表重算金額、產生訂單編號），並自動寄 Email 通知你
+ *   POST {action:"member_stats"／"member_orders"／"member_reviews"／"member_profile"} → 會員本人資料，需憑證
+ *   POST {action:"admin_login"} → 後台用密碼換短效憑證；其餘 admin_xxx 帶憑證
+ *   （2026-10-17 資安更新：GET login／mystats／myreviews 只留給舊網頁，回傳內容已縮減）
  *************************************************************************/
 
 // ── 貼上你的試算表 ID ─────────────────────────────────────────────
@@ -33,8 +37,10 @@ function doGet(e){
   if (action === "products") return json(getProducts());
   if (action === "login")    return json(findMember(p.phone));
   if (action === "reviews")  return json(getReviews());
-  if (action === "mystats")  return json(getMyStats(p.phone));
-  if (action === "myreviews")return json(getMyReviews(p.phone));
+  // 2026-10-17：個人資料查詢改走 POST＋憑證（member_stats／member_reviews）。
+  // 這兩個舊 GET 只留給還沒更新的舊網頁：mystats 只回點數（不含評過哪些豆子），myreviews 一律要求驗證。
+  if (action === "mystats")  return json(memberStatsLimited_(p.phone));
+  if (action === "myreviews")return json({ ok:false, error:"auth_required", needAuth:true });
   if (action === "posts")    return json(getPosts(p.site));
   if (action === "unsub")    return unsubscribe_(p);
   return json({ ok:false, error:"unknown action" });
@@ -384,12 +390,17 @@ function lookupMember_(ss, phone){
   return null;
 }
 
-/* 登入：只回傳「是不是會員」與遮罩後的姓名。不回傳地址、Email，也不回傳資料庫裡存的手機。
-   （下單時姓名／地區由後端依手機自己查，前台不需要持有完整個資。） */
+/* 登入：只回傳「是不是會員」。2026-10-17 起不再回傳遮罩姓名（例如「王○明」也會洩漏姓氏），
+   姓名要等會員用驗證碼驗證後，由 member_profile 回給本人。不回傳地址、Email，也不回傳資料庫裡存的手機。
+   限速：同一支手機 10 分鐘最多 6 次、全站 10 分鐘最多 150 次，避免被拿來大量比對誰是會員。 */
 function findMember(phone){
+  const key = normPhone_(phone);
+  if (key.length < 8 || key.length > 12) return { found:false };
+  if (!globalCap_("lgp_" + key, 6, 600)) return { found:false, error:"rate_limited" };
+  if (!globalCap_("lg_all", 150, 600)) return { found:false, error:"busy" };
   const m = lookupMember_(SpreadsheetApp.openById(SHEET_ID), phone);
   if (!m) return { found:false };
-  return { found:true, name:maskName_(m.name), phone:String(phone || "").slice(0, 20), city:"", email:"" };
+  return { found:true, phone:String(phone || "").slice(0, 20), city:"", email:"" };
 }
 
 
@@ -397,12 +408,15 @@ function findMember(phone){
 function doPost(e){
   try{
     const d = JSON.parse(e.postData.contents);
+    if (d.action === "member_login"){ const r = findMember(d.phone); r.ok = !r.error; return json(r); }   // 登入改走 POST，手機不放網址
     if (d.action === "join")  return json(addMember(d));
     if (d.action === "order") return json(addOrder(d));
     if (d.action === "review") return json(addReview(d));
     if (d.action === "member_code_request") return json(requestCode(d));
     if (d.action === "member_code_verify")  return json(verifyCode(d));
     if (d.action === "member_orders")       return json(memberOrders(d));
+    if (d.action === "member_stats")        return json(memberStats(d));
+    if (d.action === "member_reviews")      return json(memberReviews(d));
     if (d.action === "member_profile")      return json(memberProfile(d));
     if (d.action === "member_update")       return json(memberUpdate(d));
     if (String(d.action || "").indexOf("admin_") === 0) return json(adminHandle(d));
@@ -440,30 +454,155 @@ function addMember(d){
   return { ok:true, token:signToken_(key) };   // 帳號是他剛建立的，直接給憑證，加入後馬上能看自己的資料
 }
 
+/* ----- 訂單編號（2026-10-17）：O + 下單日期 + 當天流水號，例如 O20261017-001 -----
+   寫在 orders 分頁最右邊的「訂單編號」欄（第一次用到會自動補標題，不動既有欄位與資料）。
+   既有訂單請在 Apps Script 執行一次 backfillOrderIds() 補編號。 */
+const ORDER_ID_COL = "訂單編號";
+function orderIdPrefix_(date){ return "O" + Utilities.formatDate(date || new Date(), "Asia/Taipei", "yyyyMMdd") + "-"; }
+function nextOrderId_(sh, idCol, date){
+  const prefix = orderIdPrefix_(date);
+  let max = 0;
+  const n = sh.getLastRow() - 1;
+  if (n > 0) sh.getRange(2, idCol, n, 1).getValues().forEach(r => {
+    const v = String(r[0] || "");
+    if (v.indexOf(prefix) === 0){ const k = Number(v.slice(prefix.length)); if (k > max) max = k; }
+  });
+  return prefix + ("00" + (max + 1)).slice(-Math.max(3, String(max + 1).length));
+}
+/* 依訂單編號找列號（找不到回 0） */
+function findOrderRow_(sh, orderId){
+  orderId = String(orderId || "").trim();
+  if (!orderId || sh.getLastRow() < 2) return 0;
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const c = head.indexOf(ORDER_ID_COL);
+  if (c < 0) return 0;
+  const vals = sh.getRange(2, c + 1, sh.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < vals.length; i++) if (String(vals[i][0]).trim() === orderId) return i + 2;
+  return 0;
+}
+
+/* 商品價格表（只算上架中的商品）：{ byId:{id:{name,price}}, byName:{name:{id,price}} } */
+function priceTable_(){
+  const byId = {}, byName = {};
+  getProducts().forEach(p => { byId[p.id] = { name:p.name, price:p.price }; byName[p.name] = { id:p.id, price:p.price }; });
+  return { byId:byId, byName:byName };
+}
+/* 依 products 分頁的單價重算訂單：
+   新版前台送 lines:[{id, qty}]；舊版前台只送文字「名稱 x數量、…」，就照名稱對。
+   任何一項對不到上架中的商品（已下架、改名、亂填）就整張拒收，避免被改價或下到不存在的商品。
+   回傳 { ok, items（後端重組的訂購內容）, total, bags } 或 { ok:false, error } */
+function priceOrder_(d){
+  const t = priceTable_();
+  const lines = [];
+  if (Array.isArray(d.lines) && d.lines.length){
+    for (let i = 0; i < d.lines.length && i < 50; i++){
+      const l = d.lines[i] || {}, p = t.byId[String(l.id || "")];
+      const qty = Math.floor(Number(l.qty));
+      if (!p) return { ok:false, error:"product_unavailable" };
+      if (!(qty >= 1 && qty <= 100)) return { ok:false, error:"bad order" };
+      lines.push({ name:p.name, price:p.price, qty:qty });
+    }
+  } else {
+    const parsed = parseItems_(d.items);
+    const names = Object.keys(parsed);
+    if (!names.length) return { ok:false, error:"bad order" };
+    for (let i = 0; i < names.length; i++){
+      const p = t.byName[names[i]], qty = parsed[names[i]];
+      if (!p) return { ok:false, error:"product_unavailable" };
+      if (!(qty >= 1 && qty <= 100)) return { ok:false, error:"bad order" };
+      lines.push({ name:names[i], price:p.price, qty:qty });
+    }
+  }
+  // 同一商品出現兩次就合併
+  const merged = {}, order = [];
+  lines.forEach(l => { if (!merged[l.name]){ merged[l.name] = { name:l.name, price:l.price, qty:0 }; order.push(l.name); } merged[l.name].qty += l.qty; });
+  const list = order.map(n => merged[n]);
+  const total = list.reduce((s, l) => s + l.price * l.qty, 0);
+  const bags = list.reduce((s, l) => s + l.qty, 0);
+  if (!(total > 0) || total > 1000000) return { ok:false, error:"bad order" };
+  return { ok:true, items:safeText_(list.map(l => l.name + " x" + l.qty).join("、"), 500), total:total, bags:Math.min(1000, bags) };
+}
+
 function addOrder(d){
   const key = normPhone_(d.phone);
   if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
-  const items = safeText_(d.items, 500);
-  const total = Number(d.total) || 0;
-  if (!items || !(total > 0) || total > 1000000) return { ok:false, error:"bad order" };
+  const clientTotal = Number(d.total) || 0;
   if (!rateLimit_("ord_" + key, 60)) return { ok:false, error:"rate_limited" };   // 同一支手機一分鐘只能下一張
   if (!globalCap_("ord_all", 20, 600)) return { ok:false, error:"busy" };          // 全站 10 分鐘最多 20 張
+  const priced = priceOrder_(d);   // 金額一律由後端依 products 單價重算，前端送的 total 只拿來比對
+  if (!priced.ok) return priced;
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  ensureMemberSchema_(ss, false);
-  const sh = ss.getSheetByName(ORDERS_TAB);
-  // 會員的姓名／地區以試算表為準（前台只有遮罩後的姓名）；查不到才用前台送來的
+  ensureMemberSchema_(ss, false);   // 自己會視需要上鎖，所以放在下面的鎖之外
+  // 會員的姓名／地區以試算表為準（前台不持有完整個資）；查不到才用前台送來的
   const m = lookupMember_(ss, d.phone);
   const name = m ? m.name : safeText_(d.name, 40);
   const city = m ? m.city : safeText_(d.city, 60);
-  const bags = Math.min(1000, Math.max(0, Math.floor(Number(d.bags)) || parseBags(items)));
-  // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點
-  // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
-  sh.appendRow([ new Date(), name, "", city, items, total, "待處理", bags, 0 ]);
-  setTextCell(sh, sh.getLastRow(), 3, String(d.phone).slice(0, 20));
-  if (m && m.id) sh.getRange(sh.getLastRow(), ensureCol_(sh, "會員編號").col).setValue(m.id);   // 訂單記會員編號，換手機也對得上
-  notifyOrder({ name:name, phone:String(d.phone).slice(0, 20), city:city, items:items, total:total });   // 寄 Email 通知
-  return { ok:true };
+  const phoneText = String(d.phone).slice(0, 20);
+  const now = new Date();
+  let orderId = "";
+  const lock = LockService.getScriptLock();
+  try{ lock.waitLock(15000); }catch(err){ return { ok:false, error:"busy" }; }
+  try{
+    // 整列一次寫入（不再 appendRow 之後才用 getLastRow 回填，兩張單同時進來也不會填錯列）
+    const sh = ss.getSheetByName(ORDERS_TAB);
+    const idCol = ensureCol_(sh, ORDER_ID_COL).col;
+    const memCol = ensureCol_(sh, "會員編號").col;
+    orderId = nextOrderId_(sh, idCol, now);
+    const width = sh.getLastColumn();
+    const row = new Array(width).fill("");
+    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點（＋最右邊的會員編號、訂單編號…）
+    // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
+    [now, name, phoneText, city, priced.items, priced.total, "待處理", priced.bags, 0].forEach((v, i) => { row[i] = v; });
+    row[memCol - 1] = m && m.id ? m.id : "";   // 訂單記會員編號，換手機也對得上
+    row[idCol - 1] = orderId;
+    const r = sh.getLastRow() + 1;
+    sh.getRange(r, 3).setNumberFormat("@");   // 手機存成文字，開頭的 0 才不會被吃掉
+    sh.getRange(r, 1, 1, width).setValues([row]);
+  } finally { lock.releaseLock(); }
+  const diff = clientTotal && clientTotal !== priced.total;
+  if (diff) adminLog_(ss, "訂單金額差異", "前端 " + clientTotal + "／後端依價格表 " + priced.total + "（以後端為準）", orderId);
+  notifyOrder({ orderId:orderId, name:name, phone:phoneText, city:city, items:priced.items, total:priced.total,
+                note: diff ? "網頁送來的金額是 NT$ " + clientTotal + "，已依商品價格表改為 NT$ " + priced.total + "（可能是客人的網頁價格還沒更新）" : "" });   // 寄 Email 通知
+  return { ok:true, orderId:orderId, total:priced.total, items:priced.items };
+}
+
+/* 手動執行一次（Apps Script 選 backfillOrderIds → 執行）：幫還沒有訂單編號的既有訂單補上編號。
+   依「建立時間」的日期編號，接在當天已有的流水號後面；已有編號的不會動。可重複執行。 */
+function backfillOrderIds(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let n = 0;
+  try{
+    const sh = ss.getSheetByName(ORDERS_TAB);
+    if (!sh || sh.getLastRow() < 2){ Logger.log("orders 沒有資料"); return 0; }
+    const idCol = ensureCol_(sh, ORDER_ID_COL).col;
+    const rows = sh.getDataRange().getValues();
+    const head = rows[0].map(h => String(h).trim());
+    const tI = head.indexOf("建立時間"), iI = head.indexOf("訂購內容"), aI = head.indexOf("金額");
+    const max = {};
+    rows.slice(1).forEach(r => {
+      const v = String(r[idCol - 1] || "");
+      const m = /^(O\d{8}-)(\d+)$/.exec(v);
+      if (m) max[m[1]] = Math.max(max[m[1]] || 0, Number(m[2]));
+    });
+    const col = rows.slice(1).map(r => {
+      const cur = String(r[idCol - 1] || "").trim();
+      if (cur) return [cur];
+      if (!r[iI] && !r[aI]) return [""];   // 空列
+      const dt = r[tI] ? new Date(r[tI]) : new Date();
+      const prefix = orderIdPrefix_(isNaN(dt) ? new Date() : dt);
+      const k = (max[prefix] || 0) + 1;
+      max[prefix] = k;
+      n++;
+      return [prefix + ("00" + k).slice(-Math.max(3, String(k).length))];
+    });
+    if (n) sh.getRange(2, idCol, col.length, 1).setValues(col);
+  } finally { lock.releaseLock(); }
+  adminLog_(ss, "補訂單編號", "補了 " + n + " 筆", "");
+  Logger.log("已補 " + n + " 筆訂單編號");
+  return n;
 }
 
 /* ========================= 會員驗證 / 個人資料（會員中心） =========================
@@ -582,17 +721,52 @@ function readOrders_(ss){
 }
 const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags });
 
-/* 登入後看自己的購買紀錄（不需驗證碼）：只回傳訂單內容，不含姓名／地址／Email。
-   加上限速，避免有人拿一堆手機號碼來批次探測。 */
+/* 看自己的購買紀錄：2026-10-17 起需要憑證（Email 驗證碼／店家發碼驗證後取得）。
+   以前只要知道手機就能看別人的購買紀錄，現在沒有有效憑證一律回 auth_required，不透露任何訂單內容。
+   手機以憑證裡的為準，前端送來的 phone 不採用。只回傳訂單內容，不含姓名／地址／Email。 */
 function memberOrders(d){
-  const key = normPhone_(d.phone);
-  if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
+  const key = verifyToken_(d.token);
+  if (!key) return { ok:false, error:"auth_required", needAuth:true };
   if (!rateLimit_("mo_" + key, 3)) return { ok:false, error:"rate_limited" };
   if (!globalCap_("mo_all", 120, 600)) return { ok:false, error:"busy" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  if (!lookupMember_(ss, d.phone)) return { ok:true, orders:[] };
+  if (!lookupMember_(ss, key)) return { ok:true, orders:[] };
   const orders = readOrders_(ss).filter(o => o.key === key).sort((a, b) => (b.time || 0) - (a.time || 0)).slice(0, 100).map(orderView_);
   return { ok:true, orders:orders };
+}
+
+/* 點數／抽獎券：
+   有有效憑證 → 完整資料（點數、效期、抽獎券、評過哪些豆子）；
+   沒有憑證   → 只回點數與效期（最少資訊），並標 needAuth:true，前端據此提示「驗證後可看完整紀錄」。 */
+function memberStats(d){
+  const key = verifyToken_(d.token);
+  if (key){
+    if (!rateLimit_("ms_" + key, 2)) return { ok:false, error:"rate_limited" };
+    if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false, needAuth:true };
+    const st = getMyStats(key);
+    return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry };
+  }
+  const r = memberStatsLimited_(d.phone);
+  if (d.token) r.tokenInvalid = true;   // 帶了憑證但已失效（過期或換過號碼），前端會清掉重新驗證
+  return r;
+}
+/* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
+function memberStatsLimited_(phone){
+  const key = normPhone_(phone);
+  if (key.length < 8 || key.length > 12) return { ok:false, error:"bad phone" };
+  if (!rateLimit_("msl_" + key, 3)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("msl_all", 120, 600)) return { ok:false, error:"busy" };
+  if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false, needAuth:true };
+  const pts = readPoints(key);
+  return { ok:true, found:true, needAuth:true, error:"auth_required", points:pts.points, pointsExpiry:pts.expiry };
+}
+
+/* 自己評過的豆子（五軸＋喜歡程度）：需要憑證 */
+function memberReviews(d){
+  const key = verifyToken_(d.token);
+  if (!key) return { ok:false, error:"auth_required", needAuth:true };
+  if (!rateLimit_("mr_" + key, 2)) return { ok:false, error:"rate_limited" };
+  return { ok:true, reviews:getMyReviews(key) };
 }
 
 /* 會員本人：取得完整資料＋購買紀錄＋點數 */
@@ -718,9 +892,10 @@ function memberUpdate(d){
 /* 新訂單 Email 通知 */
 function notifyOrder(d){
   try{
-    var subject = "【翔天然】新訂單 — " + (d.name || "");
+    var subject = "【翔天然】新訂單 " + (d.orderId || "") + " — " + (d.name || "");
     var lines = [
       "你有一筆新訂單：", "",
+      "訂單編號：" + (d.orderId || "（無）"),
       "姓名：" + (d.name || ""),
       "手機：" + (d.phone || ""),
       "地區：" + (d.city || ""),
@@ -729,6 +904,7 @@ function notifyOrder(d){
       "時間：" + new Date().toLocaleString("zh-TW"), "",
       "— 訂單也已存入試算表 orders 分頁。"
     ];
+    if (d.note) lines.splice(lines.length - 1, 0, "⚠ " + d.note, "");
     MailApp.sendEmail(NOTIFY_EMAIL, subject, lines.join("\n"));
   }catch(err){ /* 寄信失敗不影響訂單寫入 */ }
 }
@@ -974,18 +1150,44 @@ function getReviews(){
   return out;
 }
 
+/* 送出評分（2026-10-17 改版）：
+   ① 加鎖，整列一次寫入（不再 appendRow 後用 getLastRow 回填手機，同時送出也不會填錯列）；
+   ② 同一支手機、同一支豆子只保留一筆：再評一次就覆蓋那一列（時間也更新），不新增，避免灌票；
+   ③ 覆蓋別人的評分要先證明是本人：已經評過的豆子要「更新」時必須帶有效憑證（驗證碼驗證過），
+      否則回 auth_required。第一次評分維持不用驗證（跟以前一樣）。訪客（沒有手機）的評分照舊新增一列。
+   公開的 action=reviews／reviews.json 仍然只有時間、品項、五軸分數，不含手機與喜歡程度。 */
 function addReview(d){
-  const key = normPhone_(d.phone);
+  const tokenKey = d.token ? verifyToken_(d.token) : null;
+  const key = tokenKey || normPhone_(d.phone);
   const product = safeText_(d.product, 60);
   if (!product) return { ok:false, error:"bad input" };
   if (!rateLimit_("rv_" + (key || "anon") + "_" + product, 5)) return { ok:false, error:"rate_limited" };
   if (!globalCap_("rv_all", 120, 600)) return { ok:false, error:"busy" };
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
   const v = n => Math.min(5, Math.max(0, Number(n) || 0));   // 評分限 0～5
   const liked = key ? Math.min(5, Math.max(0, Math.round(Number(d.liked) || 0))) : 0;   // 只有登入會員才記「喜歡程度」
-  sh.appendRow([ new Date(), "", product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked ]);
-  setTextCell(sh, sh.getLastRow(), 2, String(d.phone || "").slice(0, 20));   // 手機存完整（文字），只在後台看得到
-  return { ok:true };
+  const lock = LockService.getScriptLock();
+  try{ lock.waitLock(10000); }catch(err){ return { ok:false, error:"busy" }; }
+  try{
+    const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
+    if (!sh) return { ok:false, error:"no_sheet" };
+    let row = 0, phoneCell = "";
+    if (key){
+      const rows = sh.getDataRange().getValues();
+      for (let i = rows.length - 1; i >= 1; i--){   // 從最新的往回找
+        if (normPhone_(rows[i][1]) === key && String(rows[i][2]).trim() === product){ row = i + 1; phoneCell = String(rows[i][1]); break; }
+      }
+      if (row && !tokenKey) return { ok:false, error:"auth_required", needAuth:true, existed:true };
+      if (!phoneCell){
+        const raw = String(d.phone || "").replace(/[^\d+\-\s]/g, "").slice(0, 20);
+        phoneCell = normPhone_(raw) === key ? raw : "0" + key;   // 手機存完整（文字），只在後台看得到
+      }
+    }
+    const vals = [ new Date(), phoneCell, product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked ];
+    const target = row || sh.getLastRow() + 1;
+    sh.getRange(target, 2).setNumberFormat("@");
+    sh.getRange(target, 1, 1, vals.length).setValues([vals]);
+    return { ok:true, updated:!!row };
+  } finally { lock.releaseLock(); }
 }
 
 /* 這位會員自己評過的豆子（五軸＋喜歡程度），給「你可能會喜歡」推薦用。
@@ -1154,6 +1356,103 @@ function syncOrderPoints(ss, sh, row){
   sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
 }
 
+/* ========================= 出貨通知信（2026-10-17） =========================
+ * 訂單狀態從「其他」改成「已完成」時，若會員有登記 Email，就自動寄一封「出貨通知」交易信（訂單編號、品項、包數、LINE 聯絡方式）。
+ *   ・兩種改法都會寄：後台介面改狀態（adminUpdateOrder）、直接在試算表改「狀態」欄（需執行一次 setupShipNoticeTrigger()）。
+ *     ※ 試算表內建的 onEdit 屬於「簡易觸發器」，Google 不允許它寄信，所以另外建一個「可安裝的編輯觸發器」專門寄信。
+ *   ・每單只寄一次：寄出後在 orders 最右邊「出貨通知時間」欄記下時間，有值就不再寄。
+ *     這欄第一次建立時，既有「已完成」的舊訂單會標「啟用前已完成（不寄）」，不會補寄舊單。
+ *   ・這是交易通知，不看行銷同意；信裡不放任何行銷內容（不放新品、優惠、網站推廣連結）。
+ *   ・寄信前檢查每日寄信額度；寄信失敗不影響加點與狀態更新，失敗原因寫進 admin_log。 */
+const SHIP_NOTICE_COL = "出貨通知時間";
+const SHIP_SKIP_MARK = "啟用前已完成（不寄）";
+// LINE 聯絡連結（沿用網站 index.html 的 LINE_URL）；要換成官方帳號連結改這裡就好
+const LINE_CONTACT_URL = "https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
+
+/* 取得「出貨通知時間」欄；第一次建立時把既有已完成訂單標成不寄（exceptRow＝正在處理的那列除外） */
+function ensureShipCol_(sh, exceptRow){
+  const c = ensureCol_(sh, SHIP_NOTICE_COL);
+  if (c.created && sh.getLastRow() > 1){
+    const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const stI = head.indexOf("狀態");
+    if (stI > -1){
+      const n = sh.getLastRow() - 1;
+      const st = sh.getRange(2, stI + 1, n, 1).getValues();
+      sh.getRange(2, c.col, n, 1).setValues(st.map((r, i) => [String(r[0]).trim() === "已完成" && i + 2 !== exceptRow ? SHIP_SKIP_MARK : ""]));
+    }
+  }
+  return c.col;
+}
+
+/* 寄出貨通知（呼叫端要已經在鎖裡）。回傳 sent／already／not_done／no_email／quota／failed */
+function sendShipNotice_(ss, sh, row){
+  const nCol = ensureShipCol_(sh, row);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const v = sh.getRange(row, 1, 1, head.length).getValues()[0];
+  const at = n => head.indexOf(n);
+  if (String(v[at("狀態")]).trim() !== "已完成") return "not_done";
+  if (String(v[nCol - 1] == null ? "" : v[nCol - 1]).trim()) return "already";
+  const orderId = at(ORDER_ID_COL) > -1 ? String(v[at(ORDER_ID_COL)] || "") : "";
+  const target = orderId || ("orders 第 " + row + " 列");
+  const m = lookupMember_(ss, v[at("手機")]);
+  if (!m || !EMAIL_RE.test(String(m.email || "").trim())) return "no_email";
+  let quota = 0;
+  try{ quota = MailApp.getRemainingDailyQuota(); }catch(err){ quota = 0; }
+  if (quota < 1){ adminLog_(ss, "出貨通知信", "未寄：今天的寄信額度已用完（明天把狀態改回待處理、再改成已完成即可補寄）", target); return "quota"; }
+  const bags = Number(v[at("包數")]) || parseBags(v[at("訂購內容")]);
+  const lines = [
+    "你好：", "",
+    "你的訂單已經出貨了，謝謝你的訂購！", "",
+    orderId ? "訂單編號：" + orderId : "",
+    "品項：" + String(v[at("訂購內容")] || ""),
+    "包數：" + bags + " 包", "",
+    "收到商品後如果有任何問題，請透過 LINE 聯繫我們：",
+    LINE_CONTACT_URL, "",
+    "（這是訂單出貨的交易通知，依你的訂單自動寄出。）", "",
+    "— 翔天然，翔自在"
+  ].filter((s, i, a) => s !== "" || (i > 0 && a[i - 1] !== ""));
+  try{
+    MailApp.sendEmail(String(m.email).trim(), "【翔天然】你的訂單已出貨" + (orderId ? "（" + orderId + "）" : ""), lines.join("\n"), { name:"翔天然" });
+  }catch(err){
+    adminLog_(ss, "出貨通知信", "失敗：" + String(err).slice(0, 100), target);
+    return "failed";
+  }
+  sh.getRange(row, nCol).setValue(new Date());
+  adminLog_(ss, "出貨通知信", "已寄出", target);
+  return "sent";
+}
+
+/* 可安裝的編輯觸發器（由 setupShipNoticeTrigger 建立）：在試算表把「狀態」改成「已完成」時寄出貨通知。
+   加點仍由下面的 onEdit（簡易觸發器）負責，兩者互不影響。 */
+function onOrderStatusEdit(e){
+  try{
+    if (!e || !e.range) return;
+    const sh = e.range.getSheet();
+    if (sh.getName() !== ORDERS_TAB) return;
+    if (e.range.getNumRows() !== 1 || e.range.getNumColumns() !== 1) return;
+    const row = e.range.getRow();
+    if (row === 1) return;
+    const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+    if (e.range.getColumn() !== headers.indexOf("狀態") + 1) return;
+    const now = String(e.value !== undefined ? e.value : e.range.getValue()).trim();
+    if (now !== "已完成" || String(e.oldValue || "").trim() === "已完成") return;   // 只在「改成已完成」那一刻寄
+    const lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try{ sendShipNotice_(e.source || SpreadsheetApp.openById(SHEET_ID), sh, row); } finally { lock.releaseLock(); }
+  }catch(err){
+    try{ adminLog_(SpreadsheetApp.openById(SHEET_ID), "出貨通知信", "失敗：" + String(err).slice(0, 100), ""); }catch(e2){}
+  }
+}
+
+/* 手動執行一次：建立「試算表改狀態 → 寄出貨通知」的觸發器；重複執行不會重複建立 */
+function setupShipNoticeTrigger(){
+  const exists = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "onOrderStatusEdit");
+  if (exists){ Logger.log("出貨通知觸發器已經存在，不用再建立"); return "已存在"; }
+  ScriptApp.newTrigger("onOrderStatusEdit").forSpreadsheet(SHEET_ID).onEdit().create();
+  Logger.log("已建立出貨通知觸發器");
+  return "已建立";
+}
+
 function onEdit(e){
   try{
     if (!e || !e.range) return;
@@ -1175,7 +1474,8 @@ function onEdit(e){
 
 /* ========================= 管理者 API（管理者網頁 admin.html 使用） =========================
  * 密碼不寫在程式碼裡：Apps Script →「專案設定」→「指令碼屬性」新增  ADMIN_KEY = 你的密碼。
- * 全部走 POST：{action:"admin_xxx", key:"密碼", ...} */
+ * 全部走 POST：先 {action:"admin_login", key:"密碼"} 換短效憑證，之後 {action:"admin_xxx", token:"憑證", ...}
+ * （過渡期仍接受舊版 {action:"admin_xxx", key:"密碼"}，見 ADMIN_LEGACY_KEY_OK） */
 /* 成本分類（參考咖啡業常見損益表：銷貨成本 → 毛利 → 銷售費用／管理費用 → 淨利）
    舊資料用過的「生豆／濾紙／包裝袋／運費／其他」仍保留，會自動歸到對應的群組。 */
 const COST_GROUPS = {
@@ -1188,19 +1488,104 @@ const COST_CATEGORIES = [].concat(COST_GROUPS["銷貨成本"], COST_GROUPS["銷�
 const ORDER_STATUSES  = ["待處理","已完成","已取消"];
 const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1 };
 
-function adminAuthOk(key){
+/* ----- 後台認證（2026-10-17 強化）-----
+ * ① 登入：admin.html 用密碼呼叫一次 admin_login，換一張「短效憑證」（ADMIN_SESSION_HOURS 小時），之後每個請求只帶憑證，
+ *    瀏覽器不再保存密碼。憑證用既有的 SESSION_SECRET 做 HMAC 簽章，並綁定目前密碼的指紋：**一改 ADMIN_KEY，所有後台憑證立即失效**。
+ * ② 密碼比對失敗：全站 10 分鐘內最多 ADMIN_MAX_FAILS 次，超過就暫停密碼登入（已登入、帶憑證的人不受影響）；每次失敗延遲 1.5 秒。
+ * ③ admin_log 分頁：記錄時間、動作、結果、對象（只記會員編號或訂單編號），**不記密碼、不記手機或姓名**。 */
+const ADMIN_SESSION_HOURS = 4;
+const ADMIN_MAX_FAILS = 10;          // 全站 10 分鐘內密碼錯誤上限
+const ADMIN_FAIL_WINDOW = 600;       // 秒
+const ADMIN_LEGACY_KEY_OK = true;    // 過渡期：仍接受「每次帶密碼」的舊版後台頁；確認新版後台頁正常後可改成 false
+const ADMIN_LOG_TAB = "admin_log";
+
+function adminKeyPrint_(real){
+  return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "admkey:" + real + ":" + secret_())).slice(0, 16);
+}
+function signAdminToken_(real){
+  const exp = Math.floor(Date.now() / 1000) + ADMIN_SESSION_HOURS * 3600;
+  return "adm." + exp + "." + hmac_("adm." + exp + "." + adminKeyPrint_(real));
+}
+function verifyAdminToken_(token){
+  const p = String(token || "").split(".");
+  if (p.length !== 3 || p[0] !== "adm" || !/^\d+$/.test(p[1])) return false;
   const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
-  return !!real && String(key || "") === real;
+  if (!real) return false;
+  if (Number(p[1]) < Date.now() / 1000) return false;
+  return safeEq_(hmac_("adm." + p[1] + "." + adminKeyPrint_(real)), p[2]);
+}
+
+/* 密碼比對（含全站失敗限速與延遲）。回傳 { ok } 或 { ok:false, error:"unauthorized"|"locked" } */
+function adminPassword_(key){
+  const cache = CacheService.getScriptCache();
+  const fails = Number(cache.get("adm_fail") || 0);
+  if (fails >= ADMIN_MAX_FAILS) return { ok:false, error:"locked" };   // 暫停期間不比對密碼，猜對也沒用
+  const real = PropertiesService.getScriptProperties().getProperty("ADMIN_KEY");
+  if (real && safeEq_(String(key || ""), real)) return { ok:true, real:real };
+  cache.put("adm_fail", String(fails + 1), ADMIN_FAIL_WINDOW);
+  Utilities.sleep(1500);   // 拖慢暴力猜測
+  try{
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    adminLog_(ss, "後台登入", fails + 1 >= ADMIN_MAX_FAILS ? "失敗（已達上限，暫停密碼登入 10 分鐘）" : "失敗（密碼錯誤）", "");
+    if (fails + 1 === ADMIN_MAX_FAILS) MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】後台密碼錯誤次數過多", "10 分鐘內後台密碼錯了 " + ADMIN_MAX_FAILS + " 次，系統已暫停密碼登入 10 分鐘。\n如果不是你本人，建議到 Apps Script「指令碼屬性」更換 ADMIN_KEY。\n詳情請看試算表 admin_log 分頁。");
+  }catch(err){ /* 記錄失敗不影響回應 */ }
+  return { ok:false, error:"unauthorized" };
+}
+
+/* 後台操作紀錄：時間／動作／結果／對象（只放會員編號或訂單編號） */
+function adminLogSheet_(ss){
+  let sh = ss.getSheetByName(ADMIN_LOG_TAB);
+  if (!sh){ sh = ss.insertSheet(ADMIN_LOG_TAB); sh.appendRow(["時間", "動作", "結果", "對象"]); }
+  return sh;
+}
+function adminLog_(ss, action, result, target){
+  try{ adminLogSheet_(ss).appendRow([ new Date(), safeText_(action, 40), safeText_(result, 120), safeText_(target || "", 40) ]); }
+  catch(err){ /* 紀錄寫不進去不影響主要動作 */ }
+}
+/* 要記進 admin_log 的動作（讀取清單類太頻繁不記；看單一會員詳情會記，方便事後查誰看過誰的資料） */
+const ADMIN_LOG_LABEL = {
+  admin_update_order:"改訂單", admin_add_cost:"新增成本", admin_delete_cost:"刪除成本", admin_save_post:"儲存文章", admin_delete_post:"刪除文章",
+  admin_upload_image:"上傳圖片（雲端硬碟）", admin_member_update:"修改會員資料", admin_member_code:"產生會員驗證碼", admin_points_adjust:"調整點數",
+  admin_note_add:"新增客服紀錄", admin_note_status:"客服紀錄標記已處理", admin_member_delete:"刪除會員（匿名化）", admin_member_detail:"查看會員詳情",
+  admin_cloudinary_sign:"取得圖片上傳簽章"
+};
+/* 對象摘要：訂單 → 訂單編號（沒有編號才記列號）；會員 → 會員編號。絕不記手機、姓名 */
+function adminTarget_(ss, d){
+  if (d.orderId) return String(d.orderId).slice(0, 30);
+  if (d.action === "admin_update_order" && d.row) return "orders 第 " + Number(d.row) + " 列";
+  if (d.phone){ const m = lookupMember_(ss, d.phone); return m && m.id ? m.id : "（查無會員）"; }
+  if (d.action === "admin_delete_cost" && d.row) return "costs 第 " + Number(d.row) + " 列";
+  if (d.id) return "文章 " + String(d.id).slice(0, 12);
+  return "";
 }
 
 function adminHandle(d){
-  if (!adminAuthOk(d.key)) return { ok:false, error:"unauthorized" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
+  let viaToken = verifyAdminToken_(d.token);
+  if (!viaToken){
+    if (d.token && !d.key) return { ok:false, error:"session_expired" };   // 憑證過期／密碼已更換：請重新登入
+    if (!d.key) return { ok:false, error:"unauthorized" };
+    if (d.action !== "admin_login" && !ADMIN_LEGACY_KEY_OK) return { ok:false, error:"unauthorized" };
+    const pw = adminPassword_(d.key);
+    if (!pw.ok) return pw;
+    if (d.action === "admin_login"){
+      adminLog_(ss, "後台登入", "成功", "");
+      return { ok:true, token:signAdminToken_(pw.real), hours:ADMIN_SESSION_HOURS, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
+    }
+  }
+  const label = ADMIN_LOG_LABEL[d.action];
+  const target = label ? adminTarget_(ss, d) : "";   // 先算好對象（刪除會員之後就查不到編號了）
+  const r = adminDispatch_(ss, d);
+  if (label) adminLog_(ss, label + (viaToken ? "" : "（舊版密碼方式）"), r && r.ok ? "成功" : "失敗：" + String(r && r.error || ""), (r && r.orderId) || target);
+  return r;
+}
+
+function adminDispatch_(ss, d){
   // 只有「寫入」才需要排隊上鎖；讀取不鎖，才不會被別的請求卡住
   const lock = WRITE_ACTIONS[d.action] ? LockService.getScriptLock() : null;
   if (lock) lock.waitLock(20000);
   try{
-    if (d.action === "admin_ping") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
+    if (d.action === "admin_ping" || d.action === "admin_login") return { ok:true, categories:COST_CATEGORIES, groups:COST_GROUPS, legacy:COST_LEGACY, statuses:ORDER_STATUSES, noteCategories:NOTE_CATEGORIES };
     // 一次回傳後台需要的全部資料（原本要連線 3 次，現在 1 次）
     if (d.action === "admin_all") return { ok:true, orders:adminListOrders(ss), costs:adminListCosts(ss), posts:listPosts(ss, "", false) };
     if (d.action === "admin_orders") return { ok:true, orders:adminListOrders(ss) };
@@ -1221,6 +1606,7 @@ function adminHandle(d){
     if (d.action === "admin_save_post") return adminSavePost(ss, d);
     if (d.action === "admin_delete_post") return adminDeletePost(ss, d);
     if (d.action === "admin_upload_image") return adminUploadImage(d);
+    if (d.action === "admin_cloudinary_sign") return adminCloudinarySign_();
     return { ok:false, error:"unknown admin action" };
   } finally { if (lock) lock.releaseLock(); }
 }
@@ -1502,6 +1888,7 @@ function adminListOrders(ss){
     if (!r[at("訂購內容")] && !r[at("金額")]) continue;
     out.push({
       row: i + 1,
+      orderId: at(ORDER_ID_COL) > -1 ? String(r[at(ORDER_ID_COL)] || "") : "",
       time: r[at("建立時間")] ? new Date(r[at("建立時間")]).toISOString() : "",
       name: String(r[at("姓名")] || ""),
       phone: String(r[at("手機")] || ""),
@@ -1516,22 +1903,48 @@ function adminListOrders(ss){
   return out.reverse();   // 新的在前
 }
 
+/* 後台改單（2026-10-17）：以「訂單編號」定位，不再只靠列號（試算表排序或刪列後列號會變，可能改錯單、加錯點）。
+   寫入前再核對一次那一列的編號；對不上就拒絕，請店主重新整理。
+   還沒補編號的舊訂單（沒跑 backfillOrderIds 前）才退回用列號，並核對訂購內容一致。 */
+const ORDER_STALE = "資料已變動，請重新整理後再改";
 function adminUpdateOrder(ss, d){
   const sh = ss.getSheetByName(ORDERS_TAB);
-  const row = Number(d.row);
-  if (!sh || !row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+  if (!sh) return { ok:false, error:"bad row" };
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const idI = headers.indexOf(ORDER_ID_COL);
+  let row;
+  if (d.orderId){
+    row = findOrderRow_(sh, d.orderId);
+    if (!row) return { ok:false, error:ORDER_STALE };
+    if (String(sh.getRange(row, idI + 1).getValue()).trim() !== String(d.orderId).trim()) return { ok:false, error:ORDER_STALE };   // 寫入前核對
+  } else {
+    row = Number(d.row);
+    if (!row || row < 2 || row > sh.getLastRow()) return { ok:false, error:"bad row" };
+    // 這列已經有編號，代表後台畫面是舊的（或是舊版後台頁）：請重新整理，改用編號定位
+    if (idI > -1 && String(sh.getRange(row, idI + 1).getValue()).trim()) return { ok:false, error:ORDER_STALE };
+    const iI = headers.indexOf("訂購內容");
+    if (d.items !== undefined && iI > -1 && String(sh.getRange(row, iI + 1).getValue()) !== String(d.items)) return { ok:false, error:ORDER_STALE };
+  }
+  const prevStatus = String(sh.getRange(row, headers.indexOf("狀態") + 1).getValue()).trim();
   if (d.status !== undefined){
     if (ORDER_STATUSES.indexOf(d.status) < 0) return { ok:false, error:"bad status" };
-    sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
   }
+  let b;
   if (d.bags !== undefined){
-    const b = Math.floor(Number(d.bags));
+    b = Math.floor(Number(d.bags));
     if (!(b >= 0)) return { ok:false, error:"bad bags" };
-    sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
   }
+  // 檢查都過了才寫入
+  if (d.status !== undefined) sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
+  if (d.bags !== undefined) sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
   syncOrderPoints(ss, sh, row);   // 程式改儲存格不會觸發 onEdit，所以這裡主動對帳
-  return { ok:true };
+  // 出貨通知：只在「改成已完成」那一刻寄；寄信任何問題都不影響上面已完成的狀態與加點
+  let shipNotice = "";
+  if (d.status === "已完成" && prevStatus !== "已完成"){
+    try{ shipNotice = sendShipNotice_(ss, sh, row); }
+    catch(err){ shipNotice = "failed"; adminLog_(ss, "出貨通知信", "失敗：" + String(err).slice(0, 100), d.orderId || ""); }
+  }
+  return { ok:true, orderId: d.orderId ? String(d.orderId) : "", shipNotice:shipNotice };
 }
 
 function costsSheet(ss){
@@ -1666,6 +2079,81 @@ function adminUploadImage(d){
   return { ok:true, url:"https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w1600" };
 }
 
+/* ========================= Cloudinary 簽章上傳（2026-10-17） =========================
+ * 以前後台用「免簽章（unsigned）」上傳，任何人看到網頁原始碼都能往你的 Cloudinary 帳號丟檔案。
+ * 改成：後台（需登入憑證）先向這裡要一組簽章（timestamp＋signature），再帶著簽章上傳；API Secret 只放在 Apps Script，
+ * **絕不回傳給網頁**。設定方式：Apps Script →「專案設定」→「指令碼屬性」新增
+ *   CLOUDINARY_API_KEY、CLOUDINARY_API_SECRET（Cloudinary 後台 Settings → API Keys 可以看到）
+ * 然後到 Cloudinary 把 upload preset「xtr-products」改成 Signed。
+ * 還沒設定時回傳 cloudinary_not_configured，後台頁會暫時退回原本的 unsigned 方式並提示。 */
+const CLOUDINARY_CLOUD = "jzk5pjym";
+const CLOUDINARY_PRESET = "xtr-products";
+function adminCloudinarySign_(){
+  const props = PropertiesService.getScriptProperties();
+  const apiKey = String(props.getProperty("CLOUDINARY_API_KEY") || "").trim();
+  const secret = String(props.getProperty("CLOUDINARY_API_SECRET") || "").trim();
+  if (!apiKey || !secret) return { ok:false, error:"cloudinary_not_configured" };
+  const timestamp = Math.floor(Date.now() / 1000);
+  // Cloudinary 規則：要簽的參數依名稱排序、用 & 串起來，接上 API Secret 後取 SHA-1（十六進位）
+  const toSign = "timestamp=" + timestamp + "&upload_preset=" + CLOUDINARY_PRESET;
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_1, toSign + secret, Utilities.Charset.UTF_8);
+  const signature = bytes.map(b => ("0" + ((b + 256) % 256).toString(16)).slice(-2)).join("");
+  return { ok:true, cloudName:CLOUDINARY_CLOUD, apiKey:apiKey, timestamp:timestamp, uploadPreset:CLOUDINARY_PRESET, signature:signature };
+}
+
+/* ========================= 每日備份（2026-10-17） =========================
+ * dailyBackup()：把整份試算表複製一份到你雲端硬碟的私人資料夾「翔天然備份」（沒有就自動建立），
+ *   檔名含日期時間，只保留最新 BACKUP_KEEP 份，更舊的移到垃圾桶（30 天內還能從垃圾桶救回）。
+ *   資料夾與備份檔都不會設定分享，只有你看得到；**不要把這個資料夾分享出去，也不要把備份放進 GitHub**。
+ * setupBackupTrigger()：手動執行一次，建立「每天凌晨 3～4 點自動備份」的觸發器；重複執行不會重複建立。
+ * 還原：打開「翔天然備份」裡想要的那份 → 複製需要的分頁或資料貼回正式試算表（或請協助的人處理）。 */
+const BACKUP_FOLDER_NAME = "翔天然備份";
+const BACKUP_PREFIX = "翔天然備份_";
+const BACKUP_KEEP = 30;
+
+function backupFolder_(){
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty("BACKUP_FOLDER_ID");
+  if (id){
+    try{ const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; }catch(err){ /* 資料夾被刪了：重新建立 */ }
+  }
+  const f = DriveApp.createFolder(BACKUP_FOLDER_NAME);   // 建在你的「我的雲端硬碟」，預設只有你能看
+  props.setProperty("BACKUP_FOLDER_ID", f.getId());
+  return f;
+}
+
+function dailyBackup(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  try{
+    const folder = backupFolder_();
+    const name = BACKUP_PREFIX + Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy-MM-dd_HHmm");
+    DriveApp.getFileById(SHEET_ID).makeCopy(name, folder);
+    // 只保留最新 BACKUP_KEEP 份
+    const files = [];
+    const it = folder.getFiles();
+    while (it.hasNext()){ const f = it.next(); if (f.getName().indexOf(BACKUP_PREFIX) === 0) files.push(f); }
+    files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+    files.slice(BACKUP_KEEP).forEach(f => f.setTrashed(true));
+    // 提醒：資料夾若被改成公開分享，寫進紀錄
+    let shared = false;
+    try{ shared = folder.getSharingAccess() !== DriveApp.Access.PRIVATE; }catch(err){}
+    adminLog_(ss, "每日備份", "成功：" + name + (shared ? "（⚠ 備份資料夾不是私人狀態，請改回只有自己能看）" : ""), "");
+    return name;
+  }catch(err){
+    adminLog_(ss, "每日備份", "失敗：" + String(err).slice(0, 100), "");
+    try{ if (MailApp.getRemainingDailyQuota() > 0) MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】每日備份失敗", "今天的自動備份沒有成功：\n" + String(err) + "\n\n請到 Apps Script 手動執行 dailyBackup() 試試看，或查看 admin_log 分頁。"); }catch(e2){}
+    return "";
+  }
+}
+
+function setupBackupTrigger(){
+  const exists = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "dailyBackup");
+  if (exists){ Logger.log("每日備份觸發器已經存在，不用再建立"); return "已存在"; }
+  ScriptApp.newTrigger("dailyBackup").timeBased().everyDays(1).atHour(3).inTimezone("Asia/Taipei").create();
+  Logger.log("已建立每日備份觸發器（每天凌晨 3～4 點）");
+  return "已建立";
+}
+
 /* ========================= 共用 ========================= */
 function setTextCell(sh, row, col, value){
   sh.getRange(row, col).setNumberFormat("@").setValue(String(value || ""));
@@ -1699,6 +2187,10 @@ function setupSheets(){
     if (oh.indexOf("包數") < 0)   o.getRange(1, o.getLastColumn() + 1).setValue("包數");
     if (oh.indexOf("已加點") < 0) o.getRange(1, o.getLastColumn() + 1).setValue("已加點");
   }
+  // 2026-10-17：訂單編號（補在最右邊，不動既有欄位；既有訂單請再執行 backfillOrderIds()）
+  ensureCol_(o, ORDER_ID_COL);
+  // 出貨通知時間（第一次建立時，既有已完成的舊訂單會標「啟用前已完成（不寄）」，不會補寄）
+  ensureShipCol_(o, 0);
 
   let rv = ss.getSheetByName(REVIEWS_TAB) || ss.insertSheet(REVIEWS_TAB);
   if (rv.getLastRow() === 0) {
@@ -1708,6 +2200,9 @@ function setupSheets(){
     const rh = rv.getRange(1, 1, 1, rv.getLastColumn()).getValues()[0].map(x => String(x).trim());
     if (rh.indexOf("喜歡程度") < 0) rv.getRange(1, rv.getLastColumn() + 1).setValue("喜歡程度");
   }
+
+  // 後台操作紀錄（2026-10-17）：時間／動作／結果／對象，不記密碼與個資
+  adminLogSheet_(ss);
 
   // 集點：每位會員的點數餘額（訂單「已完成」時自動累積）
   let pt = ss.getSheetByName(POINTS_TAB) || ss.insertSheet(POINTS_TAB);
