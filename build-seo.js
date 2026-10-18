@@ -154,7 +154,7 @@ ${ld.map(ldJson).join("\n")}
 <main class="wrap">
 ${body}
 </main>
-<footer class="foot"><div class="wrap"><p><strong>${BRAND}，翔自在。</strong>為食材把關，把乾淨、無負擔的好物，帶到你的每一天。</p>
+<footer class="foot"><div class="wrap"><p><strong>${BRAND}，翔自在。</strong>自家烘焙精品咖啡豆，逐批手挑瑕疵豆，把一杯好咖啡帶到你的每一天。</p>
 <p><a href="${SITE}">回到官網首頁</a>・<a href="${SITE}explore/">全部咖啡豆與文章</a></p><p>© ${new Date().getFullYear()} ${BRAND}</p></div></footer>
 <script>
 /* 這個頁面本身沒有在跑官網的程式，「加入購物袋」只做一件事：把商品寫進和官網共用的
@@ -202,7 +202,7 @@ const guideOf = (p, process_, roast, pack) => {
   const qa = [
     process_ && info[0] ? [`${process_}處理的咖啡有什麼特色？`, info[0]] : null,
     tagText ? [`${p.name}喝起來是什麼風味？`, `${p.name}來自${p.subtitle}，${roast ? roast + "，" : ""}風味帶有${tagText}。每個人的味覺感受不同，也可以參考其他人喝過的風味評分。`] : null,
-    ["咖啡豆要怎麼保存？", "開封後請密封、避光、放在室溫陰涼處，不建議放冰箱（取出時容易受潮）。烘焙後約 2～4 週內風味最好，建議在這段時間內喝完。"],
+    ["咖啡豆要怎麼保存？", "開封後請密封、避光、放在室溫陰涼處，不建議放冰箱（取出時容易受潮）。一般建議在烘焙後約 2～4 週內喝完，風味表現較好。"],
     [`買${pack ? "「" + pack + "」" : "回去"}的豆子可以沖幾杯？`, "以一杯 15 公克咖啡粉計算，半磅（227 公克）大約可以沖 15 杯左右，實際依個人濃度喜好而定。"],
   ].filter(Boolean);
   return `<section class="guide"><h2>${esc(p.name)}怎麼沖比較好喝？</h2>
