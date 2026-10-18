@@ -489,18 +489,25 @@
   .sh-back{display:inline-block;margin-bottom:14px;cursor:pointer;color:var(--pine);font-weight:700}
   .sh-empty{text-align:center;color:var(--ink-45);padding:60px 0}
   /* ---------- 新訪客提醒：不擋畫面的橫幅（可關閉，關閉後記住） ---------- */
-  .wl-banner{position:fixed;left:12px;right:12px;bottom:12px;z-index:75;max-width:780px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--dawn);border-radius:16px;box-shadow:0 14px 40px rgba(36,28,21,.18);padding:12px 12px 12px 18px;transform:translateY(calc(100% + 30px));visibility:hidden;transition:transform .4s cubic-bezier(.22,1,.36,1),visibility .4s,bottom .35s}
-  .wl-banner.open{transform:none;visibility:visible}
-  .cartbar.show~.wl-banner{bottom:84px}
-  .wl-banner-inner{display:flex;align-items:center;gap:14px}
-  .wl-banner-text{flex:1;margin:0;font-size:.9rem;line-height:1.65;color:var(--ink-70)}
-  .wl-banner-text b{color:var(--pine);margin-right:4px}
-  .wl-banner-act{display:flex;align-items:center;gap:6px;flex:none}
-  .wl-banner .btn{padding:10px 18px;font-size:.88rem}
-  .wl-x{flex:none;width:36px;height:36px;border:none;background:var(--paper-2);border-radius:50%;font-size:1.2rem;line-height:1;color:var(--ink-70);cursor:pointer}
-  .wl-x:hover{background:rgba(46,61,48,.12)}
-  @media (max-width:640px){.wl-banner-inner{flex-wrap:wrap;gap:10px}.wl-banner-act{width:100%}.wl-banner .btn{flex:1}}
-  @media (prefers-reduced-motion:reduce){.wl-banner{transition:none}}
+  .wl-modal{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(36,28,21,.6);opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
+  .wl-modal.open{opacity:1;visibility:visible}
+  .wl-box{position:relative;width:min(440px,100%);max-height:92vh;overflow:auto;background:var(--card);border-radius:22px;padding:26px 22px 20px;box-shadow:0 24px 60px rgba(36,28,21,.35);transform:translateY(14px) scale(.97);transition:transform .3s}
+  .wl-modal.open .wl-box{transform:none}
+  .wl-x{position:absolute;top:10px;right:12px;width:34px;height:34px;border:none;background:var(--paper-2);border-radius:50%;font-size:1.2rem;line-height:1;color:var(--ink-70);cursor:pointer}
+  .wl-hi{font-size:.8rem;letter-spacing:.14em;color:var(--dawn);font-weight:700}
+  .wl-box h2{font-family:var(--serif);font-size:1.5rem;margin:2px 0 4px;color:var(--pine)}
+  .wl-sub{color:var(--ink-70);font-size:.92rem;margin:0 0 14px}
+  .wl-list{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+  .wl-item{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:var(--paper);border:1px solid var(--line)}
+  .wl-item.hot{background:#FFF3E2;border-color:var(--dawn-soft)}
+  .wl-ico{flex:none;width:40px;height:40px;border-radius:12px;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+  .wl-item b{display:block;color:var(--espresso);font-size:1rem;margin-bottom:1px}
+  .wl-item span{color:var(--ink-70);font-size:.88rem;line-height:1.5}
+  .wl-item em{font-style:normal;font-weight:700;color:var(--dawn)}
+  .wl-act{display:flex;gap:10px}
+  .wl-act .btn{flex:1;padding:13px 10px}
+  .wl-skip{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:.85rem;color:var(--ink-45);cursor:pointer;user-select:none}
+  .wl-skip input{width:17px;height:17px;accent-color:var(--pine)}
 </style>
 </head>
 <body>
@@ -2012,16 +2019,21 @@ function closeWelcome(){
   }catch(e){}
 }
 function welcomeJoin(){closeWelcome();go("member");}
-/* 新訪客彈窗（CR-20261018-01，恢復原本的完整說明彈窗）：頁面載入完成約 3 秒後才跳出，
-   這樣不會被量成首屏最慢元素（LCP），又能完整說明加入會員的好處。 */
+/* 新訪客彈窗（CR-20261018-01 恢復；CR-20261018-03 調整出現時機）：訪客第一次操作（捲動、點擊、觸碰、按鍵）後約 1 秒才跳出；
+   一直沒操作的話 15 秒後也會跳出。原因：彈窗標題若在訪客操作之前出現，會被瀏覽器量成「最慢的畫面元素（LCP）」，行動版分數會掉到 75。 */
 function maybeShowWelcome(){
   if(member||DEEPLINK_PRODUCT)return;   // 已登入的會員、或掃 QR／分享連結（?p=）進站的人不顯示
   try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
-  const show=()=>setTimeout(()=>{
+  let done=false;
+  const open=()=>{
+    if(done)return;done=true;
+    ["scroll","pointerdown","keydown","touchstart"].forEach(t=>window.removeEventListener(t,arm,true));
     try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
     const m=$("welcomeModal");if(m&&!member)m.classList.add("open");
-  },3000);
-  if(document.readyState==="complete")show();else window.addEventListener("load",show,{once:true});
+  };
+  const arm=()=>{["scroll","pointerdown","keydown","touchstart"].forEach(t=>window.removeEventListener(t,arm,true));setTimeout(open,1000);};
+  ["scroll","pointerdown","keydown","touchstart"].forEach(t=>window.addEventListener(t,arm,{capture:true,passive:true}));
+  setTimeout(open,15000);
 }
 $("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
 /* ---------- 字型：第一個畫面畫出來之後才載入（不阻擋首屏；display=swap 先用系統字）（CR-20261017-02） ---------- */
