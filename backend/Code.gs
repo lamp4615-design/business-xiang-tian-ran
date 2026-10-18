@@ -1406,7 +1406,7 @@ function sendShipNotice_(ss, sh, row){
     orderId ? "訂單編號：" + orderId : "",
     "品項：" + String(v[at("訂購內容")] || ""),
     "包數：" + bags + " 包", "",
-    "收到商品後如果有任何問題，請透過 LINE 官方帳號聯繫我們：",
+    "收到商品後如果有任何問題，請透過 LINE 聯繫我們：",
     LINE_CONTACT_URL, "",
     "（這是訂單出貨的交易通知，依你的訂單自動寄出。）", "",
     "— 翔天然，翔自在"

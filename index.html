@@ -704,7 +704,7 @@
       <div class="guide-list">
         <div class="guide-item"><h3>付款方式與運費</h3><p>目前不需要線上付款。下單後我們會主動與您聯繫，確認付款方式與運費。</p></div>
         <div class="guide-item"><h3>出貨通知</h3><p>出貨時會以 Email 通知您，請在<a href="#member">會員資料</a>中填寫 Email。</p></div>
-        <div class="guide-item"><h3>退換貨</h3><p>如需退換貨，請透過 LINE 官方帳號與我們聯繫，我們會依消費者保護法相關規定處理。</p>
+        <div class="guide-item"><h3>退換貨</h3><p>如需退換貨，請透過 LINE 與我們聯繫，我們會依消費者保護法相關規定處理。</p>
           <a class="btn btn-ghost guide-line" data-line-link target="_blank" rel="noopener">用 LINE 聯絡我們 →</a></div>
       </div>
       <p class="guide-back"><a class="btn btn-primary" href="#products">看咖啡豆</a></p>
@@ -1166,7 +1166,7 @@ async function submitJoin(){
    驗證通過後後端發一張簽章憑證（30 天），存在這台裝置；之後修改都帶憑證。 */
 const CITIES=["台北市","新北市","基隆市","桃園市","新竹市","新竹縣","苗栗縣","台中市","彰化縣","南投縣","雲林縣","嘉義市","嘉義縣","台南市","高雄市","屏東縣","宜蘭縣","花蓮縣","台東縣","澎湖縣","金門縣","連江縣"];
 /* LINE 連結集中在這裡：頁尾「加入 LINE 社群」、購物須知的「用 LINE 聯絡我們」（data-line-link）與會員中心都讀這個常數。
-   TODO 董事會：請確認是否為 LINE 官方帳號網址（目前是 line.me/ti/g2/… 的社群邀請連結；購物須知寫的是「LINE 官方帳號」）。 */
+   TODO 董事會：請確認是否為 LINE 官方帳號網址（目前是 line.me/ti/g2/… 的社群邀請連結；購物須知與出貨信目前寫「LINE」；若改用官方帳號，換掉這裡與 Code.gs 的 LINE 常數即可）。 */
 const LINE_URL="https://line.me/ti/g2/DOjQ9GWWYp5wvwiKU55CnbZsXqIKJVqyGHtDZg?utm_source=invitation&utm_medium=link_copy&utm_campaign=default";
 let memberToken="",secureData=null,secureLoading=false,ordersData=null,ordersFor="",ordersLoading=false,ordersStale=false,ordersAuto=false;
 let ORDERS_RETRY_MS=2500;   // 讀取失敗（Google 伺服器偶爾很慢或暫時出錯）時自動重試的間隔
