@@ -2019,16 +2019,21 @@ function closeWelcome(){
   }catch(e){}
 }
 function welcomeJoin(){closeWelcome();go("member");}
-/* 新訪客彈窗（CR-20261018-01，恢復原本的完整說明彈窗）：頁面載入完成約 3 秒後才跳出，
-   這樣不會被量成首屏最慢元素（LCP），又能完整說明加入會員的好處。 */
+/* 新訪客彈窗（CR-20261018-01 恢復；CR-20261018-03 調整出現時機）：訪客第一次操作（捲動、點擊、觸碰、按鍵）後約 1 秒才跳出；
+   一直沒操作的話 15 秒後也會跳出。原因：彈窗標題若在訪客操作之前出現，會被瀏覽器量成「最慢的畫面元素（LCP）」，行動版分數會掉到 75。 */
 function maybeShowWelcome(){
   if(member||DEEPLINK_PRODUCT)return;   // 已登入的會員、或掃 QR／分享連結（?p=）進站的人不顯示
   try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
-  const show=()=>setTimeout(()=>{
+  let done=false;
+  const open=()=>{
+    if(done)return;done=true;
+    ["scroll","pointerdown","keydown","touchstart"].forEach(t=>window.removeEventListener(t,arm,true));
     try{if(localStorage.getItem(WELCOME_KEY)||sessionStorage.getItem("xn_welcome_seen"))return;}catch(e){}
     const m=$("welcomeModal");if(m&&!member)m.classList.add("open");
-  },3000);
-  if(document.readyState==="complete")show();else window.addEventListener("load",show,{once:true});
+  };
+  const arm=()=>{["scroll","pointerdown","keydown","touchstart"].forEach(t=>window.removeEventListener(t,arm,true));setTimeout(open,1000);};
+  ["scroll","pointerdown","keydown","touchstart"].forEach(t=>window.addEventListener(t,arm,{capture:true,passive:true}));
+  setTimeout(open,15000);
 }
 $("welcomeModal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeWelcome();});
 /* ---------- 字型：第一個畫面畫出來之後才載入（不阻擋首屏；display=swap 先用系統字）（CR-20261017-02） ---------- */
