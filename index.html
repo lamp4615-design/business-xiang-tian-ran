@@ -499,16 +499,16 @@
 <!-- ============ NAV ============ -->
 <nav id="nav">
   <div class="wrap nav-inner">
-    <div class="brand" onclick="go('home')">
+    <a class="brand" href="#home">
       <span class="logo-mark" aria-hidden="true" style="width:40px;height:30px"></span>
       翔天然
-    </div>
+    </a>
     <div class="nav-links">
-      <a data-page="home" onclick="go('home')">理念</a>
-      <a data-page="products" onclick="go('products')">產品</a>
-      <a data-page="flavor" onclick="go('flavor')">風味</a>
-      <a data-page="share" onclick="go('share')">分享</a>
-      <a data-page="member" onclick="go('member')">會員</a>
+      <a data-page="home" href="#home">理念</a>
+      <a data-page="products" href="#products">產品</a>
+      <a data-page="flavor" href="#flavor">風味</a>
+      <a data-page="share" href="#share">分享</a>
+      <a data-page="member" href="#member">會員</a>
     </div>
     <div class="nav-actions">
       <button class="icon-btn account-btn" onclick="go('member')" aria-label="會員">
@@ -524,11 +524,11 @@
     </div>
   </div>
   <div class="mobile-menu" id="mobileMenu">
-    <a onclick="go('home');closeMenu()">理念</a>
-    <a onclick="go('products');closeMenu()">產品</a>
-    <a onclick="go('flavor');closeMenu()">風味</a>
-    <a onclick="go('share');closeMenu()">分享天地</a>
-    <a onclick="go('member');closeMenu()">會員</a>
+    <a href="#home" onclick="closeMenu()">理念</a>
+    <a href="#products" onclick="closeMenu()">產品</a>
+    <a href="#flavor" onclick="closeMenu()">風味</a>
+    <a href="#share" onclick="closeMenu()">分享天地</a>
+    <a href="#member" onclick="closeMenu()">會員</a>
     <div class="menu-account" id="menuAccount">尚未登入</div>
   </div>
 </nav>
@@ -557,10 +557,10 @@
       <p class="hero-sub"><strong class="hero-what">自家烘焙精品咖啡豆</strong>逐批手挑瑕疵豆，每一款都標示產地、處理法與風味。</p>
       <p class="hero-price">半磅 <strong>NT$250</strong> 起</p>
       <div class="hero-cta">
-        <a class="btn btn-primary" onclick="go('products')">看咖啡豆
+        <a class="btn btn-primary" href="#products">看咖啡豆
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </a>
-        <a class="btn btn-ghost" onclick="go('member')">加入會員</a>
+        <a class="btn btn-ghost" href="#member">加入會員</a>
       </div>
     </div>
   </header>
@@ -699,10 +699,10 @@
       </div>
       <div class="foot-col">
         <h4>逛逛</h4>
-        <a class="navlink" onclick="go('home')">理念</a>
-        <a class="navlink" onclick="go('products')">產品</a>
-        <a class="navlink" onclick="go('flavor')">風味</a>
-        <a class="navlink" onclick="go('member')">會員</a>
+        <a class="navlink" href="#home">理念</a>
+        <a class="navlink" href="#products">產品</a>
+        <a class="navlink" href="#flavor">風味</a>
+        <a class="navlink" href="#member">會員</a>
         <p style="margin:14px 0 0;font-size:.85rem;opacity:.75">想一次看完所有咖啡豆介紹和文章？<br><a href="explore/" style="text-decoration:underline">前往完整列表 →</a></p>
       </div>
       <div class="foot-col social">
@@ -1862,34 +1862,40 @@ async function renderShare(id){
   }
   if(id){
     const p=SHARE_POSTS.find(x=>x.id===id);
-    if(!p){box.innerHTML='<div class="sh-empty">找不到這篇文章。<br><a class="sh-back" onclick="go(\'share\')">← 回分享天地</a></div>';return;}
+    if(!p){box.innerHTML='<div class="sh-empty">找不到這篇文章。<br><a class="sh-back" href="#share">← 回分享天地</a></div>';return;}
     const lead=p.media?(shEmbed(shSafeUrl(p.media))||`<p><a href="${esc(shSafeUrl(p.media))}" target="_blank" rel="noopener">觀看影片</a></p>`):"";
+    if((location.hash||"").indexOf("#share/")===0)document.title=(p.title||"文章")+"｜分享天地｜翔天然";
     const cv=shImgUrl(p.cover),mins=Math.max(1,Math.round((p.body||"").length/450));
-    box.innerHTML=`<article class="sh-art"><a class="sh-back" onclick="go('share')">← 回分享天地</a>
+    box.innerHTML=`<article class="sh-art"><a class="sh-back" href="#share">← 回分享天地</a>
       <div class="sh-meta">${p.category?`<b>${esc(p.category)}</b>・`:""}${esc((p.time||"").slice(0,10))}・約 ${mins} 分鐘讀完</div>
       <h1>${esc(p.title)}</h1>${p.summary?`<p class="sh-lead">${esc(p.summary)}</p>`:""}
       <div class="sh-art-hero${cv?" nat":""}">${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}</div>${lead}${shBody(p.body)}
-      <div class="sh-end">✦ 謝謝你讀到這裡 ✦<br><a class="sh-back" onclick="go('share')">← 看更多分享</a></div></article>`;
+      <div class="sh-end">✦ 謝謝你讀到這裡 ✦<br><a class="sh-back" href="#share">← 看更多分享</a></div></article>`;
     return;
   }
   const cats=[...new Set(SHARE_POSTS.map(p=>p.category).filter(Boolean))];
   const list=SHARE_POSTS.filter(p=>!SHARE_CAT||p.category===SHARE_CAT);
   box.innerHTML=`<div class="sh-hero"><span class="eyebrow">Sharing Corner</span><h2>分享天地</h2><p>烘豆日記、風味故事、影片與日常，慢慢分享給你。</p></div>`
     +(cats.length?`<div class="sh-chips"><button class="sh-chip${SHARE_CAT?"":" on"}" data-c="">全部</button>${cats.map(c=>`<button class="sh-chip${SHARE_CAT===c?" on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>`:"")
-    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shSmall(shImgUrl(p.cover));return `<a class="sh-card" onclick="go('share/${esc(p.id)}')"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
+    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shSmall(shImgUrl(p.cover));return `<a class="sh-card" href="#share/${esc(p.id)}"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
       <div class="sh-cbody"><div class="sh-meta">${esc((p.time||"").slice(0,10))}</div><h3>${esc(p.title)}</h3>${p.summary?`<p>${esc(p.summary)}</p>`:""}</div></a>`;}).join("")}</div>`
       :'<div class="sh-empty">還沒有文章，敬請期待。</div>')
-    +`<div class="sh-band"><div><h3>一杯咖啡，一段故事</h3><p>讀完分享，也來挑一包適合你的豆子。</p></div><a onclick="go('products')">看看今天的豆子 →</a></div><div class="sh-credit">照片：<a href="https://unsplash.com" target="_blank" rel="noopener">Unsplash</a>（免費授權）</div>`;
+    +`<div class="sh-band"><div><h3>一杯咖啡，一段故事</h3><p>讀完分享，也來挑一包適合你的豆子。</p></div><a href="#products">看看今天的豆子 →</a></div><div class="sh-credit">照片：<a href="https://unsplash.com" target="_blank" rel="noopener">Unsplash</a>（免費授權）</div>`;
   box.querySelectorAll(".sh-chip").forEach(b=>b.onclick=()=>{SHARE_CAT=b.dataset.c;renderShare("");});
 }
 
 /* ---------- 路由 ---------- */
 const PAGES=["home","products","flavor","share","member"];
-function go(p){location.hash=p;}
+function go(p){location.hash=p;}   // 舊的 onclick 仍可用；導覽連結已改成 <a href="#頁面">，由 hashchange 處理
+/* 換頁時更新瀏覽器分頁標題（文章頁在 renderShare 內改成文章標題） */
+const HOME_TITLE=document.title;
+const PAGE_TITLES={home:HOME_TITLE,products:"咖啡豆｜翔天然",flavor:"風味評分｜翔天然",share:"分享天地｜翔天然",member:"會員中心｜翔天然"};
 function route(){
   let h=(location.hash||"").replace("#",""),sharePost="";
+  try{h=decodeURIComponent(h);}catch(e){}
   if(h.indexOf("share/")===0){sharePost=h.slice(6);h="share";}
   if(!PAGES.includes(h))h="home";
+  document.title=PAGE_TITLES[h]||HOME_TITLE;
   PAGES.forEach(p=>$("page-"+p).classList.toggle("active",p===h));
   document.querySelectorAll(".nav-links a").forEach(a=>a.classList.toggle("active",a.dataset.page===h));
   window.scrollTo(0,0);closeMenu();
