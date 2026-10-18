@@ -1219,11 +1219,6 @@ function renderSecure(msg){
 function renderOrdersBox(){
   const box=$("mcOrders");if(!box)return;
   const mine=normPhoneJs(member.phone);
-  if(!myToken()){
-    resetOrders();clearOrdersCache();
-    box.innerHTML='<h4>購買紀錄</h4><p class="mc-sec-p">為了保護你的個資，用 Email 驗證碼驗證後，才看得到完整購買紀錄與評分紀錄（驗證一次，這台裝置 30 天內有效）。驗證方式在下方。</p>';
-    return;
-  }
   if(ordersData!==null&&ordersFor!==mine)resetOrders();   // 換了帳號，重抓
   if(ordersData===null){
     const c=readOrdersCache(mine);
@@ -1246,12 +1241,15 @@ async function loadOrders(attempt){
   if(attempt===0&&ordersData!==null)renderOrdersBox();   // 重新整理時，把「更新中…」顯示出來
   let fail="";
   try{
-    const tk=myToken();
-    if(!tk){ordersLoading=false;renderOrdersBox();return;}
+    const tk=myToken();   // 看購買紀錄不用驗證；有憑證就一起送（CR-20261018-02）
     const r=await secureApi({action:"member_orders",phone:member.phone,token:tk});   // 新後端只認憑證；舊後端忽略 token、照舊用 phone
     if(r.ok){ordersData=r.orders||[];ordersFor=mine;ordersStale=false;ordersLoading=false;saveOrdersCache(mine,ordersData);renderOrdersBox();return;}
     fail=r.error||"fail";
-    if(fail==="auth_required"||fail==="auth"){ordersLoading=false;tokenExpired();renderSecure("驗證已過期，請重新驗證。");return;}
+    if(fail==="auth_required"||fail==="auth"){   // 連到還沒更新的舊後端：不要反覆重試
+      ordersLoading=false;ordersAuto=true;
+      const bx=$("mcOrders");if(bx)bx.innerHTML='<h4>購買紀錄</h4><p class="mc-sec-p">暫時讀取不到，請稍後再試，或<a href="'+LINE_URL+'" target="_blank" rel="noopener">用 LINE 聯絡我們</a>。</p>';
+      return;
+    }
     if(fail==="bad phone"){   // 這支手機號碼格式不對（例如舊的測試帳號只有 5 碼），重試也沒用
       ordersLoading=false;
       const bx=$("mcOrders");
@@ -1273,8 +1271,8 @@ async function loadOrders(attempt){
 function renderEditBox(msg){
   const box=$("mcEdit");if(!box)return;
   if(!myToken()){
-    box.innerHTML=`<h4>驗證身分</h4>
-      <p class="mc-sec-p">用 Email 驗證碼驗證後，可看完整購買紀錄與評分，也能修改姓名、手機、所在地區或補登 Email。只知道手機號碼的人看不到這些資料。</p>
+    box.innerHTML=`<h4>修改資料</h4>
+      <p class="mc-sec-p">要修改姓名、手機、所在地區或補登 Email，需要先用 Email 驗證碼驗證是本人（驗證一次，這台裝置 30 天內有效）。只是查看購買紀錄與點數不用驗證。</p>
       <button class="btn btn-primary form-btn" id="secSendBtn" onclick="secureSendCode()">寄驗證碼到我的 Email</button>
       <div class="field" style="margin-top:14px"><label for="secCode">收到驗證碼了？輸入 6 碼</label>
         <div class="sec-row"><input id="secCode" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code"><button class="btn btn-ghost" id="secVerifyBtn" onclick="secureVerify()">驗證</button></div></div>
@@ -1719,16 +1717,14 @@ let myReviewsLoaded=false;
 async function fetchMyReviews(){
   if(!member)return;
   if(!API_URL){myReviewsLoaded=true;renderMember();return;}   // 展示模式沒有後端，只能靠當次評分
-  // 2026-10-17：評分紀錄屬於個人資料，要有憑證才查（POST，不把手機放網址）；沒驗證就只用這次瀏覽評過的
+  // 查看自己的評分紀錄不用驗證（CR-20261018-02）；POST，不把手機放網址；有憑證就一起送
   const tk=myToken();
-  if(!tk){myReviewsLoaded=true;renderMember();return;}
   myReviewsLoaded=false;
   try{
     let list=null;
-    const r=await secureApi({action:"member_reviews",token:tk});
+    const r=await secureApi({action:"member_reviews",phone:member.phone,token:tk});
     if(r&&r.ok)list=r.reviews;
     else if(r&&r.error==="unknown action")list=await (await fetch(API_URL+"?action=myreviews&phone="+encodeURIComponent(member.phone))).json();   // 後端還是舊版
-    else if(r&&r.error==="auth_required")tokenExpired();
     if(Array.isArray(list)){
       list.forEach(r=>{if(r&&r.product)myRatings[r.product]={aroma:Number(r.aroma)||0,acidity:Number(r.acidity)||0,sweetness:Number(r.sweetness)||0,body:Number(r.body)||0,bitterness:Number(r.bitterness)||0,liked:Number(r.liked)||0};});
     }

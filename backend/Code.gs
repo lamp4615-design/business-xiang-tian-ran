@@ -39,8 +39,8 @@ function doGet(e){
   if (action === "reviews")  return json(getReviews());
   // 2026-10-17：個人資料查詢改走 POST＋憑證（member_stats／member_reviews）。
   // 這兩個舊 GET 只留給還沒更新的舊網頁：mystats 只回點數（不含評過哪些豆子），myreviews 一律要求驗證。
-  if (action === "mystats")  return json(memberStatsLimited_(p.phone));
-  if (action === "myreviews")return json({ ok:false, error:"auth_required", needAuth:true });
+  if (action === "mystats")  return json(memberStats({ phone:p.phone }));
+  if (action === "myreviews"){ const r = memberReviews({ phone:p.phone }); return json(r.ok ? r.reviews : []); }
   if (action === "posts")    return json(getPosts(p.site));
   if (action === "unsub")    return unsubscribe_(p);
   return json({ ok:false, error:"unknown action" });
@@ -721,12 +721,22 @@ function readOrders_(ss){
 }
 const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags });
 
-/* 看自己的購買紀錄：2026-10-17 起需要憑證（Email 驗證碼／店家發碼驗證後取得）。
+/* 查看用的手機 key（CR-20261018-02，董事會決定恢復原本設計）：看自己的購買紀錄、點數、評分「不用驗證」，只憑手機登入；
+   有帶有效憑證就以憑證裡的手機為準。只有「修改會員資料」（member_update）和「更新已評過的評分」才需要憑證。
+   已知取捨：知道別人手機的人可以看到他的訂購品項、金額、點數、評分（不含姓名、地址、Email）；已加全站與單號限速。 */
+function viewerKey_(d){
+  const k = verifyToken_(d.token);
+  if (k) return k;
+  const p = normPhone_(d.phone);
+  return (p.length >= 8 && p.length <= 12) ? p : null;
+}
+
+/* （2026-10-17 舊說明，已被 CR-20261018-02 取代）看自己的購買紀錄：曾經需要憑證（Email 驗證碼／店家發碼驗證後取得）。
    以前只要知道手機就能看別人的購買紀錄，現在沒有有效憑證一律回 auth_required，不透露任何訂單內容。
    手機以憑證裡的為準，前端送來的 phone 不採用。只回傳訂單內容，不含姓名／地址／Email。 */
 function memberOrders(d){
-  const key = verifyToken_(d.token);
-  if (!key) return { ok:false, error:"auth_required", needAuth:true };
+  const key = viewerKey_(d);
+  if (!key) return { ok:false, error:"bad phone" };
   if (!rateLimit_("mo_" + key, 3)) return { ok:false, error:"rate_limited" };
   if (!globalCap_("mo_all", 120, 600)) return { ok:false, error:"busy" };
   const ss = SpreadsheetApp.openById(SHEET_ID);
@@ -739,16 +749,13 @@ function memberOrders(d){
    有有效憑證 → 完整資料（點數、效期、抽獎券、評過哪些豆子）；
    沒有憑證   → 只回點數與效期（最少資訊），並標 needAuth:true，前端據此提示「驗證後可看完整紀錄」。 */
 function memberStats(d){
-  const key = verifyToken_(d.token);
-  if (key){
-    if (!rateLimit_("ms_" + key, 2)) return { ok:false, error:"rate_limited" };
-    if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false, needAuth:true };
-    const st = getMyStats(key);
-    return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry };
-  }
-  const r = memberStatsLimited_(d.phone);
-  if (d.token) r.tokenInvalid = true;   // 帶了憑證但已失效（過期或換過號碼），前端會清掉重新驗證
-  return r;
+  const key = viewerKey_(d);
+  if (!key) return { ok:false, error:"bad phone" };
+  if (!rateLimit_("ms_" + key, 2)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("ms_all", 150, 600)) return { ok:false, error:"busy" };
+  if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false };
+  const st = getMyStats(key);
+  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry };
 }
 /* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
 function memberStatsLimited_(phone){
@@ -763,9 +770,10 @@ function memberStatsLimited_(phone){
 
 /* 自己評過的豆子（五軸＋喜歡程度）：需要憑證 */
 function memberReviews(d){
-  const key = verifyToken_(d.token);
-  if (!key) return { ok:false, error:"auth_required", needAuth:true };
+  const key = viewerKey_(d);
+  if (!key) return { ok:false, error:"bad phone" };
   if (!rateLimit_("mr_" + key, 2)) return { ok:false, error:"rate_limited" };
+  if (!globalCap_("mr_all", 150, 600)) return { ok:false, error:"busy" };
   return { ok:true, reviews:getMyReviews(key) };
 }
 
