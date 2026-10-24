@@ -174,6 +174,7 @@
   .add-btn:active{transform:scale(.94)}
   .prod-card.sold-out .prod-visual img,.prod-card.sold-out .prod-visual svg{filter:grayscale(.6);opacity:.75}
   .so-badge{background:#7a7068!important;color:#fff!important}
+  .lc-badge{background:#C0562C!important;color:#fff!important}
   .want-btn{background:transparent!important;color:var(--pine)!important;border:1px solid var(--pine)!important}
   .want-btn:disabled{opacity:.6;cursor:default}
   .prod-state{text-align:center;padding:80px 0;color:var(--ink-45)}
@@ -321,6 +322,27 @@
   .hero-logo{display:block;margin-bottom:22px;opacity:0;animation:fadeUp 1s ease .08s forwards}
   @media (prefers-reduced-motion:reduce){.hero-logo{animation:none;opacity:1}}
   .hero-scrim{position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,rgba(245,243,235,.96) 0%,rgba(245,243,235,.72) 44%,rgba(245,243,235,0) 74%)}
+  /* 首屏右側：兩張手繪標籤相片卡（各約 20 KB 的 WebP，不影響載入速度） */
+  .hero-cards{position:absolute;z-index:2;right:5vw;top:7%;width:clamp(330px,40vw,560px);height:clamp(380px,46vw,620px);pointer-events:none}
+  .hcard{position:absolute;margin:0;background:#FFFDF8;padding:10px 10px 0;border-radius:6px;box-shadow:0 18px 38px rgba(36,28,21,.2),0 2px 6px rgba(36,28,21,.12);animation:cardIn 1.1s cubic-bezier(.22,1,.36,1) .35s both,cardFloat 7s ease-in-out 1.6s infinite}
+  .hcard img{display:block;width:100%;height:auto;aspect-ratio:520/560;object-fit:cover;border-radius:3px;background:#EDE8DC}
+  .hcard figcaption{padding:9px 4px 11px;text-align:center;font-family:"Kaiti TC","BiauKai","DFKai-SB","標楷體",serif;font-size:.95rem;color:var(--pine);letter-spacing:.06em}
+  .hcard.c1{left:0;top:0;width:58%;--r:-5deg}
+  .hcard.c2{right:0;bottom:0;width:54%;--r:6deg;animation-delay:.6s,2s}
+  .hcard::before{content:"";position:absolute;top:-11px;left:50%;width:74px;height:22px;margin-left:-37px;background:rgba(214,170,98,.55);transform:rotate(-3deg);border-radius:2px}
+  @keyframes cardIn{from{opacity:0;transform:translateY(40px) rotate(0)}to{opacity:1;transform:translateY(0) rotate(var(--r))}}
+  @keyframes cardFloat{0%,100%{transform:translateY(0) rotate(var(--r))}50%{transform:translateY(-9px) rotate(calc(var(--r) + 1deg))}}
+  .bean,.leaf{transform-box:fill-box;transform-origin:center;animation:beanBob 6s ease-in-out infinite}
+  .bean:nth-of-type(2n),.leaf:nth-of-type(2n){animation-duration:8s;animation-delay:-3s}
+  @keyframes beanBob{0%,100%{transform:translateY(0) rotate(var(--br,0deg))}50%{transform:translateY(-7px) rotate(calc(var(--br,0deg) + 6deg))}}
+  @media (prefers-reduced-motion:reduce){.hcard,.bean,.leaf{animation:none}.hcard.c1{transform:rotate(-5deg)}.hcard.c2{transform:rotate(6deg)}}
+  @media (max-width:700px){
+    .hero-cards{right:12px;top:10px;width:230px;height:200px}
+    .hcard{padding:6px 6px 0;border-radius:4px}
+    .hcard figcaption{font-size:.7rem;padding:5px 2px 6px}
+    .hcard::before{width:44px;height:14px;margin-left:-22px;top:-7px}
+    .hcard.c1{width:54%}.hcard.c2{width:50%}
+  }
   .buy-steps{display:flex;flex-wrap:wrap;gap:12px 26px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 24px;margin-bottom:40px}
   .bs{display:flex;align-items:center;gap:11px;font-size:.96rem;color:var(--pine);font-weight:500}
   .bs .n{width:26px;height:26px;border-radius:50%;background:var(--dawn);color:var(--espresso);display:flex;align-items:center;justify-content:center;font-size:.84rem;font-weight:700;flex:none}
@@ -560,17 +582,30 @@
     <div class="hero-sky"></div>
     <div class="hero-art" aria-hidden="true">
       <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMax slice">
-        <circle class="sun" cx="900" cy="300" r="168" fill="#F0D6A6" opacity="0.55"/>
-        <circle class="sun" cx="900" cy="300" r="128" fill="#DDB871" opacity="0.75"/>
-        <circle class="sun" cx="900" cy="300" r="90" fill="#C58A3D" opacity="0.95"/>
         <path class="soar" d="M120 300 C260 250 340 300 470 285" stroke="#C58A3D" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <defs>
+          <g id="bean"><ellipse rx="15" ry="10" fill="#C58A3D"/><path d="M-12 1.5 Q0 -6 12 -1.5" stroke="#F4EFE4" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".85"/></g>
+          <path id="leaf" d="M0 0 C10 -16 28 -18 40 -14 C36 -2 20 8 0 0 Z M0 0 L30 -10" fill="#9DB89B"/>
+        </defs>
         <g class="ridge">
           <path d="M0 560 C160 470 300 520 430 500 C560 480 640 430 760 455 C900 484 1000 520 1200 470 L1200 700 L0 700 Z" fill="#6E8C70" opacity="0.82"/>
           <path d="M0 620 C180 560 320 600 470 585 C640 568 760 540 900 560 C1030 578 1120 600 1200 575 L1200 700 L0 700 Z" fill="#3A5140"/>
+          <use class="leaf" href="#leaf" x="640" y="520" style="--br:-10deg" opacity=".9"/>
+          <use class="leaf" href="#leaf" x="1010" y="500" style="--br:12deg" opacity=".85"/>
+          <use class="leaf" href="#leaf" x="1120" y="545" style="--br:-6deg" opacity=".8"/>
+          <use class="bean" href="#bean" x="760" y="640" style="--br:-20deg" opacity=".95"/>
+          <use class="bean" href="#bean" x="870" y="660" style="--br:25deg" opacity=".9"/>
+          <use class="bean" href="#bean" x="980" y="635" style="--br:-8deg" opacity=".95"/>
+          <use class="bean" href="#bean" x="1090" y="665" style="--br:35deg" opacity=".85"/>
+          <use class="bean" href="#bean" x="560" y="672" style="--br:15deg" opacity=".7"/>
         </g>
       </svg>
     </div>
     <div class="hero-scrim" aria-hidden="true"></div>
+    <div class="hero-cards">
+      <figure class="hcard c1"><img src="images/label-lyrical.webp" width="520" height="578" alt="手繪標籤：熊貓廚師，品名 Lyrical Tastes" decoding="async"><figcaption>Lyrical Tastes</figcaption></figure>
+      <figure class="hcard c2"><img src="images/label-feast.webp" width="520" height="602" alt="手繪標籤：兩隻相依的貓，品名 盛宴" decoding="async"><figcaption>盛宴</figcaption></figure>
+    </div>
     <div class="wrap hero-content">
       <span class="logo-mark hero-logo" aria-hidden="true" style="width:100px;height:72px"></span>
       <span class="eyebrow">Natural · At ease</span>
@@ -965,7 +1000,7 @@ function openProductDetail(id){
 }
 function card(p){
   return `<article class="prod-card${p.soldOut?" sold-out":""}">
-    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.soldOut?`<span class="prod-badge so-badge">已售完・待補貨</span>`:p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
+    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.soldOut?`<span class="prod-badge so-badge">已售完・待補貨</span>`:p.lastCall?`<span class="prod-badge lc-badge">庫存不多</span>`:p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
     <div class="prod-body"><h3 onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
       <div class="prod-meta">${(p.specs||[]).map(s=>`<div class="meta-row"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join("")}</div>
       <div class="prod-tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>
