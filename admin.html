@@ -123,6 +123,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 <nav>
   <button data-t="orders" class="on">訂單</button>
   <button data-t="products">商品</button>
+  <button data-t="traffic">流量</button>
   <button data-t="members">會員</button>
   <button data-t="flavor">風味評分</button>
   <button data-t="costs">成本</button>
@@ -202,6 +203,27 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <tbody id="prodBody"></tbody>
     </table></div>
     <p class="sub">狀態：<b>正常販售</b>＝可下單；<b>已售完・待補貨</b>＝前台保留商品與風味輪、不能下單，顧客可按「想再喝到這支」（上表可看人數，顧客不會被告知會補貨）；<b>已下架</b>＝前台與風味輪都不顯示。<br><b>即將完售</b>勾選後（生豆快用完時），前台商品卡片與商品頁會標示「即將完售」，<b>不會寄信</b>。改成「已下架」時，系統會依原本設定寄下架通知給同意收行銷通知的會員。變更後前台約 15 分鐘內更新。</p>
+  </section>
+
+  <section class="panel" id="t-traffic" hidden>
+    <div class="tools">
+      <select id="trDays" onchange="loadTraffic()"><option value="1">今天（近 24 小時）</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option></select>
+      <button class="sm" onclick="loadTraffic(true)">重新整理</button>
+      <span class="sub" id="trSum"></span>
+    </div>
+    <div id="trSetup" class="sub" style="display:none;line-height:1.9"></div>
+    <div id="trBody">
+      <div class="tiles" id="trTiles" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 16px"></div>
+      <h3>每日瀏覽</h3><div id="trChart" style="display:flex;align-items:flex-end;gap:3px;height:110px;margin-bottom:6px"></div>
+      <h3>文章 <span class="sub">（分享天地）</span></h3>
+      <div class="wrap"><table><thead><tr><th>文章</th><th class="num">瀏覽次數</th></tr></thead><tbody id="trPosts"></tbody></table></div>
+      <h3>商品頁</h3>
+      <div class="wrap"><table><thead><tr><th>商品</th><th class="num">瀏覽次數</th></tr></thead><tbody id="trProds"></tbody></table></div>
+      <h3>其他頁面與來源</h3>
+      <div class="wrap"><table><thead><tr><th>頁面</th><th class="num">瀏覽次數</th></tr></thead><tbody id="trOthers"></tbody></table></div>
+      <div class="wrap" style="margin-top:14px"><table><thead><tr><th>流量來源</th><th class="num">次數</th><th>裝置</th><th class="num">次數</th></tr></thead><tbody id="trRefs"></tbody></table></div>
+    </div>
+    <p class="sub">資料來自 Cloudflare Web Analytics，不使用 Cookie、不記個人資料；數字約有數分鐘到 1 小時的延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>首頁內切換分頁（理念／風味／分享天地…）不會另外計算，只算「有獨立網址」的頁面：首頁、每個商品頁、每篇文章頁。來源空白＝直接輸入網址、掃 QR 或從 LINE 等 App 點開。</p>
   </section>
 
   <section class="panel" id="t-costs" hidden>
@@ -418,7 +440,8 @@ try{sessionStorage.removeItem("xn_admin");}catch(e){}   // 舊版曾把密碼存
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
-  ["orders","products","members","flavor","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  ["orders","products","traffic","members","flavor","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  if(b.dataset.t==="traffic"&&!TR_LOADED)loadTraffic();
   if(b.dataset.t==="products"&&!PROD_LOADED)loadProducts();
   if(b.dataset.t==="members"&&!MEM_LOADED)loadMembers();
   if(b.dataset.t==="flavor"&&!FLAVOR_LOADED)loadFlavorSummary();
@@ -648,6 +671,55 @@ function renderMembers(){
 function exportMembers(){
   downloadCsv("會員.csv",[["會員編號","姓名","手機","所在地區","Email","行銷同意","來源","加入日","首購日","最近下單","訂單數(已完成)","取消單數","累計消費","客單價","包數","常購品項","平均購買間隔(天)","近90天訂單","分類","高價值","點數","點數到期","評分次數","喜歡評分(4~5星)","風味偏好","資料更新","異動次數","待追蹤客服"]]
     .concat(MEMBERS.map(m=>[m.id,m.name,m.phone,m.city,m.email,m.consent?"同意":"不同意",srcOf(m),mDate(m.joined),m.firstOrder?mDate(m.firstOrder):"",m.lastOrder?mDate(m.lastOrder):"",m.done,m.cancelled,m.spent,m.avg,m.bags,m.topItems,m.gapDays||"",m.orders90,SEG_LABEL[memSeg(m)],isVip(m)?"是":"",m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.likedReviews||0,m.flavorPref||"",m.updated?mDate(m.updated):"",m.changes,m.openNotes])));
+}
+
+/* ---------- 流量（Cloudflare Web Analytics）---------- */
+let TR_LOADED=false,TR_MAP=null;
+const SITE_BASE="https://lamp4615-design.github.io/business-xiang-tian-ran/";
+async function trNames(){   // 路徑 → 商品名／文章標題（讀前台公開的 product-urls.json、posts.json）
+  if(TR_MAP)return TR_MAP;
+  const m={prod:{},post:{}};
+  try{const u=await (await fetch(SITE_BASE+"product-urls.json",{cache:"no-store"})).json();for(const k in u){m.prod[decodeURIComponent(new URL(u[k]).pathname).replace(/\/$/,"")]=k;}}catch(e){}
+  try{const p=await (await fetch(SITE_BASE+"posts.json",{cache:"no-store"})).json();p.forEach(x=>{m.post["/business-xiang-tian-ran/articles/"+x.id]=x.title;});}catch(e){}
+  return TR_MAP=m;
+}
+async function loadTraffic(force){
+  $("trSum").textContent="讀取中…";$("trSetup").style.display="none";
+  try{
+    const d=await api({action:"admin_traffic",days:Number($("trDays").value)});
+    const names=await trNames();TR_LOADED=true;$("trBody").style.display="";renderTraffic(d,names);
+    $("trSum").textContent="";
+  }catch(e){
+    $("trSum").textContent="";
+    if(e.message==="cloudflare_not_configured"){
+      $("trBody").style.display="none";$("trSetup").style.display="block";
+      $("trSetup").innerHTML="<b>還沒設定 Cloudflare 金鑰。</b><br>① 開啟 Apps Script →「專案設定」（齒輪）→ 最下面「指令碼屬性」→「編輯指令碼屬性」→「新增指令碼屬性」。<br>② 屬性填 <b>CLOUDFLARE_API_TOKEN</b>，值貼上你的 Cloudflare 金鑰（權限只有 Account Analytics: Read 那一組）。<br>③ 儲存後回到這裡重新整理（不需要重新部署）。";
+    }else toast("讀取流量失敗："+e.message);
+  }
+}
+function renderTraffic(d,names){
+  const tile=(n,l)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:12px 18px;min-width:130px"><div style="font-size:26px;font-weight:700">${Number(n).toLocaleString()}</div><div class="sub">${l}</div></div>`;
+  const lab={1:"今天",7:"近 7 天",30:"近 30 天"}[d.days];
+  const homePath="/business-xiang-tian-ran";
+  const posts=[],prods=[],others=[];
+  d.pages.forEach(p=>{
+    const path=p.path.replace(/\/$/,"");
+    const dp=(()=>{try{return decodeURIComponent(path);}catch(e){return path;}})();
+    const post=Object.keys(names.post).find(k=>dp===k);
+    if(post)posts.push({t:names.post[post],n:p.n});
+    else if(names.prod[dp]!==undefined)prods.push({t:names.prod[dp],n:p.n});
+    else others.push({t:path===homePath||path===""?"首頁":dp.replace(homePath,"")||"/",n:p.n});
+  });
+  const rows=(a,empty)=>a.length?a.sort((x,y)=>y.n-x.n).map(x=>`<tr><td>${esc(x.t)}</td><td class="num">${x.n}</td></tr>`).join(""):`<tr><td colspan="2" class="empty">${empty}</td></tr>`;
+  $("trTiles").innerHTML=tile(d.views,lab+"瀏覽次數")+tile(d.visits,lab+"訪次");
+  const max=Math.max(1,...d.daily.map(x=>x.n));
+  $("trChart").innerHTML=d.daily.length?d.daily.map(x=>`<div title="${esc(x.date)}：${x.n}" style="flex:1;min-width:6px;background:var(--green);border-radius:3px 3px 0 0;height:${Math.max(4,x.n/max*100)}%;opacity:.85"></div>`).join(""):'<span class="sub">這段期間還沒有資料</span>';
+  $("trPosts").innerHTML=rows(posts,"這段期間還沒有人看文章頁");
+  $("trProds").innerHTML=rows(prods,"這段期間還沒有人看商品頁");
+  $("trOthers").innerHTML=rows(others,"沒有資料");
+  const n=Math.max(d.refs.length,d.devs.length);
+  const DEV={desktop:"電腦",mobile:"手機",tablet:"平板"};
+  $("trRefs").innerHTML=n?Array.from({length:n},(_,i)=>{const r=d.refs[i],v=d.devs[i];return `<tr><td>${r?esc(r.host||"（直接輸入／QR／App）"):""}</td><td class="num">${r?r.n:""}</td><td>${v?esc(DEV[v.type]||v.type):""}</td><td class="num">${v?v.n:""}</td></tr>`;}).join(""):'<tr><td colspan="4" class="empty">沒有資料</td></tr>';
 }
 
 /* ---------- 商品：狀態切換＋需求一覽 ---------- */

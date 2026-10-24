@@ -1264,6 +1264,44 @@ function adminProductStatus(ss, d){
   return { ok:true };
 }
 
+/* ========================= 後台「流量」分頁：讀 Cloudflare Web Analytics =========================
+   金鑰只放在 Apps Script →「專案設定」→「指令碼屬性」：CLOUDFLARE_API_TOKEN（權限只有 Account Analytics: Read）。
+   帳號 ID 與站台識別碼（site tag）不是密碼，直接寫在下面。結果快取 5 分鐘，避免一直打 Cloudflare。
+   沒設定金鑰時回傳 cloudflare_not_configured，後台會顯示設定提示。 */
+const CF_ACCOUNT  = "5d8572dcc7e53e26cf3d11327f246ead";
+const CF_SITE_TAG = "edaa2a49b7584d1880eedf4948f97af5";
+function adminTraffic_(d){
+  const token = String(PropertiesService.getScriptProperties().getProperty("CLOUDFLARE_API_TOKEN") || "").trim();
+  if (!token) return { ok:false, error:"cloudflare_not_configured" };
+  const days = Number(d.days) === 1 ? 1 : (Number(d.days) === 30 ? 30 : 7);
+  const cache = CacheService.getScriptCache(), ck = "cf_traffic_" + days;
+  const hit = cache.get(ck);
+  if (hit) return JSON.parse(hit);
+  const end = new Date(), start = new Date(end.getTime() - days * 86400000);
+  const f = "filter:{siteTag:$t,datetime_geq:$s,datetime_leq:$e}";
+  const grp = (dim, limit, order) => "rumPageloadEventsAdaptiveGroups(limit:" + limit + "," + f + ",orderBy:[" + order + "]){count dimensions{" + dim + "}}";
+  const query = "query($a:string!,$s:Time!,$e:Time!,$t:string!){viewer{accounts(filter:{accountTag:$a}){" +
+    "total:rumPageloadEventsAdaptiveGroups(limit:1," + f + "){count sum{visits}} " +
+    "daily:" + grp("date", 40, "date_ASC") + " pages:" + grp("requestPath", 60, "count_DESC") + " refs:" + grp("refererHost", 12, "count_DESC") +
+    " devs:" + grp("deviceType", 5, "count_DESC") + "}}}";
+  const res = UrlFetchApp.fetch("https://api.cloudflare.com/client/v4/graphql", {
+    method:"post", contentType:"application/json", muteHttpExceptions:true,
+    headers:{ Authorization:"Bearer " + token },
+    payload: JSON.stringify({ query:query, variables:{ a:CF_ACCOUNT, t:CF_SITE_TAG, s:start.toISOString(), e:end.toISOString() } })
+  });
+  let j; try{ j = JSON.parse(res.getContentText()); }catch(err){ return { ok:false, error:"Cloudflare 回應無法解析" }; }
+  if (j.errors && j.errors.length) return { ok:false, error:"Cloudflare：" + String(j.errors[0].message || "查詢失敗").slice(0, 120) };
+  const acc = (((j.data || {}).viewer || {}).accounts || [])[0] || {};
+  const one = (acc.total || [])[0] || {};
+  const out = { ok:true, days:days, views:one.count || 0, visits:(one.sum || {}).visits || 0,
+    daily:(acc.daily || []).map(x => ({ date:x.dimensions.date, n:x.count })),
+    pages:(acc.pages || []).map(x => ({ path:x.dimensions.requestPath, n:x.count })),
+    refs:(acc.refs || []).map(x => ({ host:x.dimensions.refererHost, n:x.count })),
+    devs:(acc.devs || []).map(x => ({ type:x.dimensions.deviceType, n:x.count })) };
+  cache.put(ck, JSON.stringify(out), 300);
+  return out;
+}
+
 function getReviews(){
   const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
   if (!sh) return [];
@@ -1728,6 +1766,7 @@ function adminDispatch_(ss, d){
     if (d.action === "admin_member_detail") { ensureMemberSchema_(ss, false); return adminMemberDetail(ss, d); }
     if (d.action === "admin_flavor_summary") return { ok:true, items:adminFlavorSummary(ss) };
     if (d.action === "admin_products") return { ok:true, items:adminProducts(ss) };
+    if (d.action === "admin_traffic") return adminTraffic_(d);
     if (d.action === "admin_product_status") return adminProductStatus(ss, d);
     if (d.action === "admin_member_update") return adminMemberUpdate(ss, d);
     if (d.action === "admin_note_add") return adminNoteAdd(ss, d);
