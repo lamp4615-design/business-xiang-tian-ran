@@ -147,6 +147,7 @@ function shell({ title, desc, canonical, image, type = "website", ld = [], body 
 ${WEB_FONT_HEAD}
 ${ld.map(ldJson).join("\n")}
 <style>${CSS}</style>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0983c24b22934644914ceb51ef122b23"}'></script><!-- End Cloudflare Web Analytics -->
 </head>
 <body>
 <header class="top"><div class="wrap"><a class="brand" href="${SITE}">${BRAND}</a>
@@ -164,6 +165,13 @@ ${body}
   var KEY="xn_cart";
   function load(){try{var a=JSON.parse(localStorage.getItem(KEY)||"[]");return Array.isArray(a)?a:[];}catch(e){return [];}}
   function save(c){try{localStorage.setItem(KEY,JSON.stringify(c));}catch(e){}}
+  document.querySelectorAll("[data-want]").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      var cid="";try{cid=localStorage.getItem("xn_cid")||"";if(!cid){cid=Math.random().toString(36).slice(2,12);localStorage.setItem("xn_cid",cid);}}catch(e){}
+      fetch("https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec",{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"restock_interest",product_id:btn.getAttribute("data-want"),client_id:cid})}).catch(function(){});
+      btn.textContent="收到了，謝謝 ✓";btn.disabled=true;
+    });
+  });
   document.querySelectorAll("[data-atc]").forEach(function(btn){
     btn.addEventListener("click",function(){
       var id=btn.getAttribute("data-atc");
@@ -241,7 +249,7 @@ products.forEach((p) => {
     <dl class="specs">${(p.specs || []).map((s) => `<div><dt>${esc(s.label)}</dt><dd>${esc(s.value)}</dd></div>`).join("")}</dl>
     ${(p.tags || []).length ? `<ul class="tags" aria-label="風味">${p.tags.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
     <div class="price">${money(p.price)}${p.unit ? `<small>／ ${esc(p.unit)}</small>` : ""}</div>
-    <p><button type="button" class="btn" data-atc="${esc(p.id)}">加入購物袋</button><a class="btn ghost" id="cartlink" href="${SITE}#products" style="display:none">前往購物袋結帳 →</a></p>
+    ${p.soldOut ? `<p class="soldout"><strong>已售完・待補貨</strong></p><p><button type="button" class="btn ghost" data-want="${esc(p.id)}">想再喝到這支</button></p><p style="display:none">` : `<p><button type="button" class="btn" data-atc="${esc(p.id)}">加入購物袋</button>`}<a class="btn ghost" id="cartlink" href="${SITE}#products" style="display:none">前往購物袋結帳 →</a></p>
     <p class="atc-msg" id="atc-msg"></p>
   </div>
 </article>
@@ -253,7 +261,7 @@ ${posts.length ? `<section><h2>延伸閱讀</h2><ul class="list">${posts.slice(0
     "@context": "https://schema.org", "@type": "Product", name: p.name, description: desc, sku: String(p.id), category: cat,
     ...(p.image ? { image: [p.image] } : {}),
     brand: { "@type": "Brand", name: BRAND },
-    offers: { "@type": "Offer", url: p._url, priceCurrency: "TWD", price: Number(p.price) || 0, availability: "https://schema.org/InStock", itemCondition: "https://schema.org/NewCondition" },
+    offers: { "@type": "Offer", url: p._url, priceCurrency: "TWD", price: Number(p.price) || 0, availability: p.soldOut ? "https://schema.org/OutOfStock" : "https://schema.org/InStock", itemCondition: "https://schema.org/NewCondition" },
   }, breadcrumb([[BRAND, SITE], ["咖啡豆與文章", SITE + "explore/"], [p.name, p._url]])];
   write(`products/${p._slug}/index.html`, shell({ title, desc, canonical: p._url, image: shareImg(p.image), type: "product", ld, body }));
 });

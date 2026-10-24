@@ -66,7 +66,8 @@ function getProducts(){
       id: String(id), category: String(r[at("category")] || "其他"), name: String(r[at("name")] || ""),
       subtitle: String(r[at("subtitle")] || ""), price: Number(r[at("price")]) || 0, unit: String(r[at("unit")] || ""),
       image: toImageUrl(r[at("image")]), hue: String(r[at("hue")] || "green"), badge: String(r[at("badge")] || ""),
-      tags: String(r[at("tags")] || "").split(",").map(s => s.trim()).filter(Boolean), specs: specs
+      tags: String(r[at("tags")] || "").split(",").map(s => s.trim()).filter(Boolean), specs: specs,
+      soldOut: String(r[at("stock_status")] || "").trim().toLowerCase() === "sold_out"   // 已售完，待補貨（仍顯示、不能下單）
     });
   });
   return out;
@@ -412,6 +413,7 @@ function doPost(e){
     if (d.action === "join")  return json(addMember(d));
     if (d.action === "order") return json(addOrder(d));
     if (d.action === "review") return json(addReview(d));
+    if (d.action === "restock_interest") return json(addRestockInterest(d));
     if (d.action === "member_code_request") return json(requestCode(d));
     if (d.action === "member_code_verify")  return json(verifyCode(d));
     if (d.action === "member_orders")       return json(memberOrders(d));
@@ -484,7 +486,7 @@ function findOrderRow_(sh, orderId){
 /* 商品價格表（只算上架中的商品）：{ byId:{id:{name,price}}, byName:{name:{id,price}} } */
 function priceTable_(){
   const byId = {}, byName = {};
-  getProducts().forEach(p => { byId[p.id] = { name:p.name, price:p.price }; byName[p.name] = { id:p.id, price:p.price }; });
+  getProducts().forEach(p => { if (p.soldOut) return; byId[p.id] = { name:p.name, price:p.price }; byName[p.name] = { id:p.id, price:p.price }; });   // 已售完（stock_status=sold_out）不能下單
   return { byId:byId, byName:byName };
 }
 /* 依 products 分頁的單價重算訂單：
@@ -1110,8 +1112,7 @@ function modeOf_(nums){
    給店家一眼看出「大家覺得這支豆子怎麼樣」，不用一筆一筆會員資料去拼。 */
 function adminFlavorSummary(ss){
   const sh = ss.getSheetByName(REVIEWS_TAB);
-  if (!sh || sh.getLastRow() < 2) return [];
-  const rows = sh.getDataRange().getValues().slice(1);
+  const rows = (sh && sh.getLastRow() >= 2) ? sh.getDataRange().getValues().slice(1) : [];
   const byProduct = {};
   rows.forEach(r => {
     const product = String(r[2] || "").trim();
@@ -1122,6 +1123,8 @@ function adminFlavorSummary(ss){
     const liked = Number(r[8]) || 0;
     if (liked > 0) o.likedVals.push(liked);
   });
+  const restock = restockCounts_(ss);
+  Object.keys(restock).forEach(n => { if (!byProduct[n]) byProduct[n] = { count:0, axes:{ aroma:[], acidity:[], sweetness:[], body:[], bitterness:[] }, likedVals:[] }; });
   return Object.keys(byProduct).map(name => {
     const o = byProduct[name];
     const axes = {};
@@ -1130,11 +1133,133 @@ function adminFlavorSummary(ss){
     const likedAvg = likedN ? o.likedVals.reduce((s, n) => s + n, 0) / likedN : 0;
     const likedHigh = o.likedVals.filter(n => n >= 4).length;
     return {
-      product:name, count:o.count, axes:axes,
+      product:name, count:o.count, axes:axes, restock:restock[name] || 0,
       likedCount:likedN, likedAvg:Math.round(likedAvg * 10) / 10,
       likedHighPct: likedN ? Math.round(likedHigh / likedN * 100) : 0
     };
   }).sort((a, b) => b.count - a.count);
+}
+
+/* ========================= 售完商品「想再喝到」心意 =========================
+   商品在 products 分頁的 stock_status 欄填 sold_out＝「已售完，待補貨」：商品與風味輪都保留，只是不能下單。
+   訪客可按「想再喝到這支」，這裡只記一筆（時間、商品代號、商品名），不收任何個資；
+   後台「風味評分」分頁會顯示每支豆子被按了幾次，當作你要不要補生豆的參考。
+   stock_status 欄要自己在 products 分頁最右邊加（標題填 stock_status），沒有這欄就一切照舊。 */
+const RESTOCK_TAB = "restock_interest";
+function addRestockInterest(d){
+  const pid = safeText_(d.product_id, 60);
+  const cid = safeText_(d.client_id, 40) || "anon";
+  if (!pid) return { ok:false, error:"bad input" };
+  if (!rateLimit_("ri_" + cid + "_" + pid, 21600)) return { ok:true, dup:true };   // 同一個瀏覽器同一支豆子 6 小時只算一次
+  if (!globalCap_("ri_all", 120, 600)) return { ok:false, error:"busy" };
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const psh = ss.getSheetByName(PRODUCTS_TAB);
+  if (!psh) return { ok:false, error:"bad input" };
+  const rows = psh.getDataRange().getValues();
+  const head = rows.shift().map(h => String(h).trim());
+  const row = rows.find(r => String(r[head.indexOf("id")]) === pid);
+  if (!row || String(row[head.indexOf("stock_status")] || "").trim().toLowerCase() !== "sold_out") return { ok:false, error:"bad input" };   // 只收售完商品
+  const name = String(row[head.indexOf("name")] || "");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try{
+    let sh = ss.getSheetByName(RESTOCK_TAB);
+    if (!sh){ sh = ss.insertSheet(RESTOCK_TAB); sh.appendRow(["時間","商品代號","商品名稱"]); }
+    sh.appendRow([new Date(), pid, name]);
+  } finally { lock.releaseLock(); }
+  return { ok:true };
+}
+function restockCounts_(ss){
+  const sh = ss.getSheetByName(RESTOCK_TAB);
+  const out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 3, sh.getLastRow() - 1, 1).getValues().forEach(r => { const n = String(r[0] || "").trim(); if (n) out[n] = (out[n] || 0) + 1; });
+  return out;
+}
+
+/* ========================= 後台「商品」分頁：狀態切換＋需求一覽 =========================
+   狀態三種：正常販售／已售完待補貨（stock_status=sold_out）／已下架（active=FALSE）。
+   需求＝「想再喝到」按鈕次數（restock_interest 分頁）、近 90 天已完成訂單賣出包數、風味評分數與喜歡程度。 */
+function adminProducts(ss){
+  const psh = ss.getSheetByName(PRODUCTS_TAB);
+  if (!psh || psh.getLastRow() < 2) return [];
+  const rows = psh.getDataRange().getValues();
+  const head = rows.shift().map(h => String(h).trim());
+  const at = n => head.indexOf(n);
+  const get = (r, n) => at(n) > -1 ? r[at(n)] : "";
+
+  const want = {};
+  const rsh = ss.getSheetByName(RESTOCK_TAB);
+  const since30 = Date.now() - 30 * 86400000;
+  if (rsh && rsh.getLastRow() > 1){
+    rsh.getRange(2, 1, rsh.getLastRow() - 1, 2).getValues().forEach(x => {
+      const pid = String(x[1] || ""); if (!pid) return;
+      const o = want[pid] || (want[pid] = { total:0, d30:0, last:0 });
+      const t = x[0] ? new Date(x[0]).getTime() : 0;
+      o.total++; if (t >= since30) o.d30++; if (t > o.last) o.last = t;
+    });
+  }
+
+  const sold = {};
+  const osh = ss.getSheetByName(ORDERS_TAB);
+  if (osh && osh.getLastRow() > 1){
+    const orows = osh.getDataRange().getValues();
+    const oh = orows.shift().map(h => String(h).trim());
+    const iT = oh.indexOf("建立時間"), iI = oh.indexOf("訂購內容"), iS = oh.indexOf("狀態");
+    const since90 = Date.now() - 90 * 86400000;
+    orows.forEach(r => {
+      if (String(r[iS]).trim() !== "已完成") return;
+      const t = r[iT] ? new Date(r[iT]).getTime() : 0;
+      if (t < since90) return;
+      const it = parseItems_(r[iI]);
+      Object.keys(it).forEach(n => { sold[n] = (sold[n] || 0) + it[n]; });
+    });
+  }
+
+  const rev = {};
+  adminFlavorSummary(ss).forEach(x => { rev[x.product] = x; });
+
+  const out = [];
+  rows.forEach(r => {
+    const id = String(get(r, "id") || ""); if (!id) return;
+    const name = String(get(r, "name") || "");
+    const off = isOff_(get(r, "active"));
+    const so = String(get(r, "stock_status") || "").trim().toLowerCase() === "sold_out";
+    const w = want[id] || { total:0, d30:0, last:0 };
+    const v = rev[name] || {};
+    out.push({
+      id:id, name:name, subtitle:String(get(r, "subtitle") || ""), price:Number(get(r, "price")) || 0, unit:String(get(r, "unit") || ""),
+      status: off ? "off" : (so ? "sold_out" : "normal"),
+      lastCall: isTrue_(get(r, "last_call")),
+      want:w.total, want30:w.d30, wantLast: w.last ? new Date(w.last).toISOString() : "",
+      sold90: sold[name] || 0,
+      reviews: v.count || 0, likedAvg: v.likedAvg || 0, likedCount: v.likedCount || 0
+    });
+  });
+  return out;
+}
+
+function adminProductStatus(ss, d){
+  const id = String(d.id || ""), status = String(d.status || "");
+  if (!id || ["normal","sold_out","off"].indexOf(status) < 0) return { ok:false, error:"bad input" };
+  const psh = ss.getSheetByName(PRODUCTS_TAB);
+  if (!psh) return { ok:false, error:"找不到商品分頁" };
+  const rows = psh.getDataRange().getValues();
+  const head = rows[0].map(h => String(h).trim());
+  const idI = head.indexOf("id"), actI = head.indexOf("active");
+  if (idI < 0 || actI < 0) return { ok:false, error:"商品分頁缺少 id 或 active 欄" };
+  let row = -1;
+  for (let i = 1; i < rows.length; i++){ if (String(rows[i][idI]) === id){ row = i + 1; break; } }
+  if (row < 0) return { ok:false, error:"找不到這個商品" };
+  const ssCol = ensureCol_(psh, "stock_status").col;
+  psh.getRange(row, actI + 1).setValue(status !== "off");
+  psh.getRange(row, ssCol).setValue(status === "sold_out" ? "sold_out" : "");
+  if (d.lastCall !== undefined){
+    const lcCol = ensureCol_(psh, "last_call").col;
+    psh.getRange(row, lcCol).setValue(!!d.lastCall);
+  }
+  adminLog_(ss, "商品狀態", status + (d.lastCall ? "＋最後預購" : ""), id);
+  return { ok:true };
 }
 
 function getReviews(){
@@ -1494,7 +1619,7 @@ const COST_GROUPS = {
 const COST_LEGACY = { "濾紙":"銷貨成本", "其他":"管理費用" };   // 舊分類名稱 → 群組（生豆／包裝袋／運費本來就在新清單裡）
 const COST_CATEGORIES = [].concat(COST_GROUPS["銷貨成本"], COST_GROUPS["銷售費用"], COST_GROUPS["管理費用"], ["濾紙","其他"]);
 const ORDER_STATUSES  = ["待處理","已完成","已取消"];
-const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1 };
+const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1, admin_product_status:1 };
 
 /* ----- 後台認證（2026-10-17 強化）-----
  * ① 登入：admin.html 用密碼呼叫一次 admin_login，換一張「短效憑證」（ADMIN_SESSION_HOURS 小時），之後每個請求只帶憑證，
@@ -1555,7 +1680,7 @@ const ADMIN_LOG_LABEL = {
   admin_update_order:"改訂單", admin_add_cost:"新增成本", admin_delete_cost:"刪除成本", admin_save_post:"儲存文章", admin_delete_post:"刪除文章",
   admin_upload_image:"上傳圖片（雲端硬碟）", admin_member_update:"修改會員資料", admin_member_code:"產生會員驗證碼", admin_points_adjust:"調整點數",
   admin_note_add:"新增客服紀錄", admin_note_status:"客服紀錄標記已處理", admin_member_delete:"刪除會員（匿名化）", admin_member_detail:"查看會員詳情",
-  admin_cloudinary_sign:"取得圖片上傳簽章"
+  admin_cloudinary_sign:"取得圖片上傳簽章", admin_product_status:"改商品狀態"
 };
 /* 對象摘要：訂單 → 訂單編號（沒有編號才記列號）；會員 → 會員編號。絕不記手機、姓名 */
 function adminTarget_(ss, d){
@@ -1600,6 +1725,8 @@ function adminDispatch_(ss, d){
     if (d.action === "admin_members") { ensureMemberSchema_(ss, false); return { ok:true, members:adminMembers(ss), warnings:memberWarnings_(ss) }; }
     if (d.action === "admin_member_detail") { ensureMemberSchema_(ss, false); return adminMemberDetail(ss, d); }
     if (d.action === "admin_flavor_summary") return { ok:true, items:adminFlavorSummary(ss) };
+    if (d.action === "admin_products") return { ok:true, items:adminProducts(ss) };
+    if (d.action === "admin_product_status") return adminProductStatus(ss, d);
     if (d.action === "admin_member_update") return adminMemberUpdate(ss, d);
     if (d.action === "admin_note_add") return adminNoteAdd(ss, d);
     if (d.action === "admin_note_status") return adminNoteStatus(ss, d);

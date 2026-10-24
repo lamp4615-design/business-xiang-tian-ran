@@ -172,6 +172,10 @@
   .add-btn{background:var(--dawn);color:var(--espresso);border:none;cursor:pointer;font-family:var(--sans);font-size:.88rem;font-weight:700;letter-spacing:.05em;padding:11px 18px;border-radius:100px;transition:background .2s,transform .15s;white-space:nowrap}
   .add-btn:hover{background:#D97D1E}
   .add-btn:active{transform:scale(.94)}
+  .prod-card.sold-out .prod-visual img,.prod-card.sold-out .prod-visual svg{filter:grayscale(.6);opacity:.75}
+  .so-badge{background:#7a7068!important;color:#fff!important}
+  .want-btn{background:transparent!important;color:var(--pine)!important;border:1px solid var(--pine)!important}
+  .want-btn:disabled{opacity:.6;cursor:default}
   .prod-state{text-align:center;padding:80px 0;color:var(--ink-45)}
   .skeleton{display:grid;grid-template-columns:repeat(3,1fr);gap:30px}
   .sk-card{background:var(--card);border:1px solid var(--line);border-radius:22px;height:400px;overflow:hidden;position:relative}
@@ -509,6 +513,7 @@
   .wl-skip{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:.85rem;color:var(--ink-45);cursor:pointer;user-select:none}
   .wl-skip input{width:17px;height:17px;accent-color:var(--pine)}
 </style>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0983c24b22934644914ceb51ef122b23"}'></script><!-- End Cloudflare Web Analytics -->
 </head>
 <body>
 
@@ -786,7 +791,7 @@
     </div>
     <div class="radar-count" id="fvCount"></div>
     <div class="fv-cta">
-      <button class="btn btn-primary" onclick="addToCart(fvProductId)">加入購物袋</button>
+      <button class="btn btn-primary" id="fvAddBtn" onclick="fvAdd()">加入購物袋</button>
       <button class="btn" onclick="fvGoFlavorPage()">看完整風味頁 →</button>
     </div>
   </div>
@@ -959,14 +964,14 @@ function openProductDetail(id){
   if(url){location.href=url;}else{openFlavorView(id);}
 }
 function card(p){
-  return `<article class="prod-card">
-    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
+  return `<article class="prod-card${p.soldOut?" sold-out":""}">
+    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.soldOut?`<span class="prod-badge so-badge">已售完・待補貨</span>`:p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
     <div class="prod-body"><h3 onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
       <div class="prod-meta">${(p.specs||[]).map(s=>`<div class="meta-row"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join("")}</div>
       <div class="prod-tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>
       <button class="fv-trigger" onclick="event.stopPropagation();openFlavorView('${esc(p.id)}')">看風味輪，跟大家比比看 →</button>
       <div class="prod-foot"><div class="price">NT$ ${Number(p.price).toLocaleString()}${p.unit?`<small>/ ${esc(p.unit)}</small>`:""}</div>
-        <button class="add-btn" onclick="event.stopPropagation();addToCart('${esc(p.id)}')">加入購物袋</button></div>
+        ${p.soldOut?`<button class="add-btn want-btn" onclick="event.stopPropagation();wantRestock('${esc(p.id)}',this)">想再喝到這支</button>`:`<button class="add-btn" onclick="event.stopPropagation();addToCart('${esc(p.id)}')">加入購物袋</button>`}</div>
     </div></article>`;
 }
 
@@ -978,6 +983,7 @@ async function openFlavorView(id){
   const p=findProduct(id);if(!p)return;
   fvProductId=id;
   $("fvTitle").textContent=p.name;
+  const fb=$("fvAddBtn");if(fb){fb.disabled=false;fb.textContent=p.soldOut?"想再喝到這支（目前已售完）":"加入購物袋";}
   $("fvModal").classList.add("open");
   $("fvRadarBox").innerHTML='<p style="color:var(--ink-45);font-size:.85rem;padding:30px 0">載入中…</p>';
   if(!reviewsLoaded){
@@ -997,6 +1003,7 @@ function renderFlavorViewContent(p){
   $("fvCount").textContent=count?`共 ${count} 位喝過的人評分`:"目前還沒有人評分，成為第一個吧。";
 }
 function closeFlavorView(){const m=$("fvModal");if(m)m.classList.remove("open");}
+function fvAdd(){const p=findProduct(fvProductId);if(p&&p.soldOut)wantRestock(fvProductId,$("fvAddBtn"));else addToCart(fvProductId);}
 function fvGoFlavorPage(){
   if(fvProductId){const p=findProduct(fvProductId);if(p)flavorFilterProduct=p.name;}
   closeFlavorView();
@@ -1012,7 +1019,15 @@ function syncProductUrl(productName){
     history.replaceState(null,"",url.toString());
   }catch(e){}
 }
+/* 售完商品的「想再喝到」：只記一筆匿名心意到後台，不收個資 */
+function wantRestock(id,btn){
+  let cid="";try{cid=localStorage.getItem("xn_cid")||"";if(!cid){cid=Math.random().toString(36).slice(2,12);localStorage.setItem("xn_cid",cid);}}catch(e){}
+  fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"restock_interest",product_id:String(id),client_id:cid})}).catch(()=>{});
+  if(btn){btn.textContent="收到了，謝謝 ✓";btn.disabled=true;}
+  showToast("收到你的心意了，謝謝");
+}
 function addToCart(id){
+  const pp=findProduct(id);if(pp&&pp.soldOut){showToast("這支目前已售完，待補貨");return;}
   const f=cart.find(c=>String(c.id)===String(id));
   if(f)f.qty++;else cart.push({id,qty:1});
   saveCart();renderCart();const p=findProduct(id);showToast(`已加入「${p?p.name:"商品"}」`);
@@ -1055,7 +1070,7 @@ async function confirmPurchase(){
       const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags,lines})});
       let r=null;try{r=await res.json();}catch(e){}
       if(r&&r.ok===false){
-        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":r.error==="product_unavailable"?"有商品已下架或更新，請重新整理頁面後再下單":"訂單送出失敗，請稍後再試或聯絡我們");
+        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":r.error==="product_unavailable"?"有商品已下架、售完或更新，請重新整理頁面後再下單":"訂單送出失敗，請稍後再試或聯絡我們");
         btn.disabled=false;btn.textContent=old;return;
       }
       if(r&&r.orderId)orderId=String(r.orderId);   // 舊版後端沒有訂單編號，就不顯示

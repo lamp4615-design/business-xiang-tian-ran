@@ -122,6 +122,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 <header><h1>翔天然 管理後台</h1><button onclick="logout()">登出</button></header>
 <nav>
   <button data-t="orders" class="on">訂單</button>
+  <button data-t="products">商品</button>
   <button data-t="members">會員</button>
   <button data-t="flavor">風味評分</button>
   <button data-t="costs">成本</button>
@@ -189,6 +190,18 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <tbody id="flavorBody"></tbody>
     </table></div>
     <p class="sub">五軸是全部評分（含訪客）取眾數；「喜歡程度」只有登入會員評分才會填，用來看這支豆子討不討喜，訪客評分不計入。</p>
+  </section>
+
+  <section class="panel" id="t-products" hidden>
+    <div class="tools">
+      <button class="sm" onclick="loadProducts()">重新整理</button>
+      <span class="sub" id="prodSum"></span>
+    </div>
+    <div class="wrap"><table>
+      <thead><tr><th>商品</th><th class="num">價格</th><th>狀態</th><th>最後預購</th><th class="num">想再喝到(累計)</th><th class="num">近30天</th><th>最近一次</th><th class="num">近90天賣出(包)</th><th class="num">風味評分</th><th>平均喜歡</th></tr></thead>
+      <tbody id="prodBody"></tbody>
+    </table></div>
+    <p class="sub">狀態：<b>正常販售</b>＝可下單；<b>已售完・待補貨</b>＝前台保留商品與風味輪、不能下單，顧客可按「想再喝到這支」（上表可看人數，顧客不會被告知會補貨）；<b>已下架</b>＝前台與風味輪都不顯示。<br>改成「已下架」時，系統會依原本設定寄下架通知給同意收行銷通知的會員；「最後預購」勾選後約一小時內會寄最後預購通知。變更後前台約 15 分鐘內更新。</p>
   </section>
 
   <section class="panel" id="t-costs" hidden>
@@ -405,7 +418,8 @@ try{sessionStorage.removeItem("xn_admin");}catch(e){}   // 舊版曾把密碼存
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
-  ["orders","members","flavor","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  ["orders","products","members","flavor","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  if(b.dataset.t==="products"&&!PROD_LOADED)loadProducts();
   if(b.dataset.t==="members"&&!MEM_LOADED)loadMembers();
   if(b.dataset.t==="flavor"&&!FLAVOR_LOADED)loadFlavorSummary();
 });
@@ -636,6 +650,44 @@ function exportMembers(){
     .concat(MEMBERS.map(m=>[m.id,m.name,m.phone,m.city,m.email,m.consent?"同意":"不同意",srcOf(m),mDate(m.joined),m.firstOrder?mDate(m.firstOrder):"",m.lastOrder?mDate(m.lastOrder):"",m.done,m.cancelled,m.spent,m.avg,m.bags,m.topItems,m.gapDays||"",m.orders90,SEG_LABEL[memSeg(m)],isVip(m)?"是":"",m.points,m.pointsExpiry?mDate(m.pointsExpiry):"",m.reviews,m.likedReviews||0,m.flavorPref||"",m.updated?mDate(m.updated):"",m.changes,m.openNotes])));
 }
 
+/* ---------- 商品：狀態切換＋需求一覽 ---------- */
+let PROD_ITEMS=[],PROD_LOADED=false;
+const PROD_ST={normal:"正常販售",sold_out:"已售完・待補貨",off:"已下架"};
+async function loadProducts(){
+  $("prodSum").textContent="讀取中…";
+  try{const d=await api({action:"admin_products"});PROD_ITEMS=d.items||[];PROD_LOADED=true;renderProducts();}
+  catch(e){$("prodSum").textContent="";toast("讀取商品失敗："+e.message);}
+}
+function renderProducts(){
+  const ord={sold_out:0,normal:1,off:2};
+  const list=PROD_ITEMS.slice().sort((a,b)=>ord[a.status]-ord[b.status]||b.want-a.want||b.sold90-a.sold90);
+  const n=s=>PROD_ITEMS.filter(x=>x.status===s).length;
+  const top=PROD_ITEMS.filter(x=>x.status==="sold_out"&&x.want>0).sort((a,b)=>b.want-a.want)[0];
+  $("prodSum").textContent=`正常 ${n("normal")}・待補貨 ${n("sold_out")}・已下架 ${n("off")}`+(top?`　｜　待補貨中最多人想要：${top.name}（${top.want} 次）`:"");
+  const maxW=Math.max(1,...list.map(x=>x.want));
+  $("prodBody").innerHTML=list.length?list.map(p=>`<tr${p.status==="off"?' style="opacity:.55"':''}>
+    <td><b>${esc(p.name)}</b><div class="sub">${esc(p.subtitle)}</div></td>
+    <td class="num">${p.price.toLocaleString()}${p.unit?`<span class="sub"> / ${esc(p.unit)}</span>`:""}</td>
+    <td><select onchange="setProductStatus('${esc(p.id)}',this.value,${p.lastCall})">${Object.keys(PROD_ST).map(k=>`<option value="${k}"${k===p.status?" selected":""}>${PROD_ST[k]}</option>`).join("")}</select></td>
+    <td>${p.status==="off"?'<span class="sub">—</span>':`<input type="checkbox"${p.lastCall?" checked":""} onchange="setProductStatus('${esc(p.id)}','${p.status}',this.checked)">`}</td>
+    <td><div class="axbar"><div class="bar"><span style="width:${p.want/maxW*100}%"></span></div><span class="n">${p.want}</span></div></td>
+    <td class="num">${p.want30||'<span class="sub">0</span>'}</td>
+    <td class="sub">${p.wantLast?new Date(p.wantLast).toLocaleDateString("zh-TW"):"—"}</td>
+    <td class="num">${p.sold90||'<span class="sub">0</span>'}</td>
+    <td class="num">${p.reviews||'<span class="sub">0</span>'}</td>
+    <td>${p.likedCount?`<span class="pos">${p.likedAvg.toFixed(1)}</span><span class="sub"> / 5（${p.likedCount} 人）</span>`:'<span class="sub">—</span>'}</td>
+  </tr>`).join(""):'<tr><td colspan="10" class="empty">試算表「products」分頁還沒有商品</td></tr>';
+}
+async function setProductStatus(id,status,lastCall){
+  const p=PROD_ITEMS.find(x=>x.id===id);if(!p)return;
+  if(typeof status==="boolean"){lastCall=status;status=p.status;}
+  if(status==="off"&&p.status!=="off"&&!confirm(`確定要下架「${p.name}」？\n前台商品與風味輪都會消失；若曾通知過會員，系統也會寄下架通知。\n（只是暫時沒貨、之後還會補，請選「已售完・待補貨」）`)){renderProducts();return;}
+  try{
+    await api({action:"admin_product_status",id,status,lastCall:!!lastCall});
+    p.status=status;p.lastCall=!!lastCall;renderProducts();toast(`「${p.name}」→ ${PROD_ST[status]}`);
+  }catch(e){toast("更新失敗："+e.message);renderProducts();}
+}
+
 /* ---------- 風味評分總覽（每支豆子，不是每個會員） ---------- */
 let FLAVOR_ITEMS=[],FLAVOR_LOADED=false;
 async function loadFlavorSummary(){
@@ -652,7 +704,8 @@ function renderFlavorSummary(){
     <td class="num">${it.likedCount}</td>
     <td>${it.likedCount?`<span class="pos">${it.likedAvg.toFixed(1)}</span><span class="sub"> / 5</span>`:'<span class="sub">—</span>'}</td>
     <td>${it.likedCount?`<div class="axbar"><div class="bar"><span style="width:${it.likedHighPct}%"></span></div><span class="n">${it.likedHighPct}%</span></div>`:'<span class="sub">—</span>'}</td>
-  </tr>`).join(""):'<tr><td colspan="10" class="empty">還沒有任何風味評分</td></tr>';
+    <td class="num">${it.restock||'<span class="sub">—</span>'}</td>
+  </tr>`).join(""):'<tr><td colspan="11" class="empty">還沒有任何風味評分</td></tr>';
 }
 
 /* ----- 會員詳情視窗 ----- */
