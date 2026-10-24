@@ -1000,7 +1000,7 @@ function openProductDetail(id){
 }
 function card(p){
   return `<article class="prod-card${p.soldOut?" sold-out":""}">
-    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.soldOut?`<span class="prod-badge so-badge">已售完・待補貨</span>`:p.lastCall?`<span class="prod-badge lc-badge">庫存不多</span>`:p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
+    <div class="prod-visual" onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${thumb(p)}${p.soldOut?`<span class="prod-badge so-badge">已售完・待補貨</span>`:p.lastCall?`<span class="prod-badge lc-badge">即將完售</span>`:p.badge?`<span class="prod-badge">${esc(p.badge)}</span>`:""}</div>
     <div class="prod-body"><h3 onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
       <div class="prod-meta">${(p.specs||[]).map(s=>`<div class="meta-row"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join("")}</div>
       <div class="prod-tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>

@@ -68,7 +68,7 @@ function getProducts(){
       image: toImageUrl(r[at("image")]), hue: String(r[at("hue")] || "green"), badge: String(r[at("badge")] || ""),
       tags: String(r[at("tags")] || "").split(",").map(s => s.trim()).filter(Boolean), specs: specs,
       soldOut: String(r[at("stock_status")] || "").trim().toLowerCase() === "sold_out",   // 已售完，待補貨（仍顯示、不能下單）
-      lastCall: isTrue_(r[at("last_call")])   // 庫存不多（原「最後預購」）：只在網站上標示，不寄信（2026-10-24 起）
+      lastCall: isTrue_(r[at("last_call")])   // 即將完售（原「最後預購」）：只在網站上標示，不寄信（2026-10-24 起）
     });
   });
   return out;
@@ -972,7 +972,7 @@ function notifyNewProducts(){
 
 /* ========================= 最後預購 / 下架通知 =========================
    【最後預購】2026-10-24 起不再寄信：在 products 分頁（或後台「商品」分頁）把某商品的 last_call 勾選／填 TRUE，
-              商品仍上架，前台商品卡片與商品頁會直接標示「庫存不多」（意思是生豆快用完，不代表停賣）。notifyLastCall() 已停用（保留空函式，避免舊的觸發器報錯）。
+              商品仍上架，前台商品卡片與商品頁會直接標示「即將完售」（意思是生豆快用完，不代表停賣）。notifyLastCall() 已停用（保留空函式，避免舊的觸發器報錯）。
    【下架通知】商品曾經上架通知過（notified=TRUE），之後把 active 改成 FALSE，
               就會寄「已下架」通知，寄過自動標記 off_notified=TRUE。
    這兩欄（last_call、last_call_notified、off_notified）程式會自動在 products 分頁最右邊補上，不用自己加。

@@ -243,7 +243,7 @@ products.forEach((p) => {
 <article class="prod">
   <div class="pimg">${p.image ? `<img src="${esc(p.image)}" alt="${esc(p.name)} ${esc(cat)}" width="800" height="600">` : ""}</div>
   <div>
-    ${p.soldOut ? "" : p.lastCall ? `<span class="badge">庫存不多</span>` : p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ""}
+    ${p.soldOut ? "" : p.lastCall ? `<span class="badge">即將完售</span>` : p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ""}
     <h1>${esc(p.name)}</h1>
     <p class="origin">${esc(p.subtitle)}・${esc(cat)}</p>
     <dl class="specs">${(p.specs || []).map((s) => `<div><dt>${esc(s.label)}</dt><dd>${esc(s.value)}</dd></div>`).join("")}</dl>

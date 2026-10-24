@@ -29,7 +29,7 @@ C:\github\翔天然\
 1. 後台「商品圖片」分頁上傳圖片（走 Cloudinary，自動縮圖），複製網址
 2. 試算表 `products` 分頁新增一列：`id`、`name`、`price`、`image`（貼網址）、`active=true`（建議先 false，確認好再改 true）
 3. 約 15 分鐘內網站會自動更新；急的話到 GitHub → Actions →「更新商品清單」→ Run workflow
-4. 新品通知、下架通知：觸發條件請設 `notifyProductChanges`（每小時）。`last_call` 填 TRUE＝前台標示「庫存不多」（2026-10-24 起不寄信）；`active` 改 FALSE＝寄下架通知。只會寄給**同意收行銷通知**的會員，信尾有一鍵取消
+4. 新品通知、下架通知：觸發條件請設 `notifyProductChanges`（每小時）。`last_call` 填 TRUE＝前台標示「即將完售」（2026-10-24 起不寄信）；`active` 改 FALSE＝寄下架通知。只會寄給**同意收行銷通知**的會員，信尾有一鍵取消
 5. 為新商品做 QR code：參考 `4-素材與工具\咖啡QRcode\連結清單.txt` 的格式
 
 **集點流程**（出貨後在後台確認）
