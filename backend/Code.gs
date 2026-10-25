@@ -1270,36 +1270,71 @@ function adminProductStatus(ss, d){
    沒設定金鑰時回傳 cloudflare_not_configured，後台會顯示設定提示。 */
 const CF_ACCOUNT  = "5d8572dcc7e53e26cf3d11327f246ead";
 const CF_SITE_TAG = "edaa2a49b7584d1880eedf4948f97af5";
-function adminTraffic_(d){
+function adminTraffic_(d, ss){
   const token = String(PropertiesService.getScriptProperties().getProperty("CLOUDFLARE_API_TOKEN") || "").trim();
   if (!token) return { ok:false, error:"cloudflare_not_configured" };
-  const days = Number(d.days) === 1 ? 1 : (Number(d.days) === 30 ? 30 : 7);
-  const cache = CacheService.getScriptCache(), ck = "cf_traffic_" + days;
-  const hit = cache.get(ck);
-  if (hit) return JSON.parse(hit);
-  const end = new Date(), start = new Date(end.getTime() - days * 86400000);
-  const f = "filter:{siteTag:$t,datetime_geq:$s,datetime_leq:$e}";
-  const grp = (dim, limit, order) => "rumPageloadEventsAdaptiveGroups(limit:" + limit + "," + f + ",orderBy:[" + order + "]){count dimensions{" + dim + "}}";
-  const query = "query($a:string!,$s:Time!,$e:Time!,$t:string!){viewer{accounts(filter:{accountTag:$a}){" +
-    "total:rumPageloadEventsAdaptiveGroups(limit:1," + f + "){count sum{visits}} " +
-    "daily:" + grp("date", 40, "date_ASC") + " pages:" + grp("requestPath", 60, "count_DESC") + " refs:" + grp("refererHost", 12, "count_DESC") +
-    " devs:" + grp("deviceType", 5, "count_DESC") + "}}}";
-  const res = UrlFetchApp.fetch("https://api.cloudflare.com/client/v4/graphql", {
-    method:"post", contentType:"application/json", muteHttpExceptions:true,
-    headers:{ Authorization:"Bearer " + token },
-    payload: JSON.stringify({ query:query, variables:{ a:CF_ACCOUNT, t:CF_SITE_TAG, s:start.toISOString(), e:end.toISOString() } })
-  });
-  let j; try{ j = JSON.parse(res.getContentText()); }catch(err){ return { ok:false, error:"Cloudflare 回應無法解析" }; }
-  if (j.errors && j.errors.length) return { ok:false, error:"Cloudflare：" + String(j.errors[0].message || "查詢失敗").slice(0, 120) };
-  const acc = (((j.data || {}).viewer || {}).accounts || [])[0] || {};
-  const one = (acc.total || [])[0] || {};
-  const out = { ok:true, days:days, views:one.count || 0, visits:(one.sum || {}).visits || 0,
-    daily:(acc.daily || []).map(x => ({ date:x.dimensions.date, n:x.count })),
-    pages:(acc.pages || []).map(x => ({ path:x.dimensions.requestPath, n:x.count })),
-    refs:(acc.refs || []).map(x => ({ host:x.dimensions.refererHost, n:x.count })),
-    devs:(acc.devs || []).map(x => ({ type:x.dimensions.deviceType, n:x.count })) };
-  cache.put(ck, JSON.stringify(out), 300);
+  const days = [1, 7, 30, 90].indexOf(Number(d.days)) > -1 ? Number(d.days) : 7;
+  const cache = CacheService.getScriptCache(), ck = "cf_traffic2_" + days;
+  let out; const hit = cache.get(ck);
+  if (hit) out = JSON.parse(hit);
+  else {
+    const end = new Date(), start = new Date(end.getTime() - days * 86400000), pStart = new Date(start.getTime() - days * 86400000);
+    const f = "filter:{siteTag:$t,datetime_geq:$s,datetime_leq:$e}";
+    const grp = (dim, limit, order) => "rumPageloadEventsAdaptiveGroups(limit:" + limit + "," + f + (order ? ",orderBy:[" + order + "]" : "") + "){count dimensions{" + dim + "}}";
+    const query = "query($a:string!,$s:Time!,$e:Time!,$ps:Time!,$t:string!){viewer{accounts(filter:{accountTag:$a}){" +
+      "total:rumPageloadEventsAdaptiveGroups(limit:1," + f + "){count sum{visits}} " +
+      "prev:rumPageloadEventsAdaptiveGroups(limit:1,filter:{siteTag:$t,datetime_geq:$ps,datetime_lt:$s}){count sum{visits}} " +
+      "hourly:" + grp("datetimeHour", 2300, "datetimeHour_ASC") + " pages:" + grp("requestPath", 120, "count_DESC") +
+      " refs:" + grp("refererHost", 20, "count_DESC") + " devs:" + grp("deviceType", 5, "count_DESC") +
+      " countries:" + grp("countryName", 12, "count_DESC") + " browsers:" + grp("userAgentBrowser", 8, "count_DESC") + " oses:" + grp("userAgentOS", 8, "count_DESC") +
+      " vitals:rumWebVitalsEventsAdaptiveGroups(limit:1," + f + "){count quantiles{largestContentfulPaintP75 cumulativeLayoutShiftP75 interactionToNextPaintP75} sum{lcpGood lcpNeedsImprovement lcpPoor}} " +
+      "perf:rumPerformanceEventsAdaptiveGroups(limit:1," + f + "){count quantiles{pageLoadTimeP50 firstContentfulPaintP75}}" +
+      "}}}";
+    const payload = JSON.stringify({ query:query, variables:{ a:CF_ACCOUNT, t:CF_SITE_TAG, s:start.toISOString(), e:end.toISOString(), ps:pStart.toISOString() } });
+    let j = null;
+    for (let tries = 0; tries < 2 && !j; tries++){   // Cloudflare 偶爾暫時擋下連續查詢：等 2 秒再試一次
+      if (tries) Utilities.sleep(2000);
+      try{
+        const res = UrlFetchApp.fetch("https://api.cloudflare.com/client/v4/graphql", {
+          method:"post", contentType:"application/json", muteHttpExceptions:true, headers:{ Authorization:"Bearer " + token }, payload:payload });
+        j = JSON.parse(res.getContentText());
+      }catch(err){ j = null; }
+    }
+    if (!j) return { ok:false, error:"Cloudflare 暫時沒有回應，請稍後再按「重新整理」" };
+    if (j.errors && j.errors.length) return { ok:false, error:"Cloudflare：" + String(j.errors[0].message || "查詢失敗").slice(0, 120) };
+    const acc = (((j.data || {}).viewer || {}).accounts || [])[0] || {};
+    const one = (acc.total || [])[0] || {}, pv = (acc.prev || [])[0] || {};
+    const list = (arr, key) => (arr || []).map(x => ({ k:x.dimensions[key], n:x.count }));
+    const vt = (acc.vitals || [])[0] || {}, pf = (acc.perf || [])[0] || {};
+    out = { ok:true, days:days, start:start.toISOString(), end:end.toISOString(),
+      views:one.count || 0, visits:(one.sum || {}).visits || 0, prevViews:pv.count || 0, prevVisits:(pv.sum || {}).visits || 0,
+      hourly:list(acc.hourly, "datetimeHour"), pages:list(acc.pages, "requestPath"), refs:list(acc.refs, "refererHost"),
+      devs:list(acc.devs, "deviceType"), countries:list(acc.countries, "countryName"),
+      browsers:list(acc.browsers, "userAgentBrowser"), oses:list(acc.oses, "userAgentOS"),
+      vitals:{ n:vt.count || 0, lcp:((vt.quantiles || {}).largestContentfulPaintP75 || 0) / 1000, cls:(vt.quantiles || {}).cumulativeLayoutShiftP75 || 0,
+               inp:((vt.quantiles || {}).interactionToNextPaintP75 || 0) / 1000,
+               lcpGood:(vt.sum || {}).lcpGood || 0, lcpOk:(vt.sum || {}).lcpNeedsImprovement || 0, lcpPoor:(vt.sum || {}).lcpPoor || 0,
+               fcp:((pf.quantiles || {}).firstContentfulPaintP75 || 0) / 1000, load:((pf.quantiles || {}).pageLoadTimeP50 || 0) / 1000 } };
+    cache.put(ck, JSON.stringify(out), 300);
+  }
+  // 訂單（不快取，永遠是最新）：同一期間的訂單數與營收，用來算「瀏覽 → 下單」轉換率
+  try{
+    const t0 = new Date(out.start).getTime(), t1 = new Date(out.end).getTime(), span = t1 - t0;
+    const orders = adminListOrders(ss).filter(o => o.status !== "已取消" && o.time);
+    const inR = (o, a, b) => { const t = new Date(o.time).getTime(); return t >= a && t < b; };
+    const cur = orders.filter(o => inR(o, t0, t1 + 1)), prv = orders.filter(o => inR(o, t0 - span, t0));
+    out.orders = cur.length; out.prevOrders = prv.length;
+    out.revenue = cur.filter(o => o.status === "已完成").reduce((s2, o) => s2 + o.total, 0);
+    out.prevRevenue = prv.filter(o => o.status === "已完成").reduce((s2, o) => s2 + o.total, 0);
+  }catch(err){ out.orders = null; }
   return out;
+}
+
+/* 第一次使用「流量」分頁前，在 Apps Script 編輯器選這個函式 → 執行一次，跳出授權視窗按「允許」即可
+   （Google 要求第一次連外部網站要本人同意）。同意後記得「部署 → 管理部署作業 → 編輯 → 新版本」。 */
+function 授權外部連線(){
+  const r = adminTraffic_({ days:7 }, SpreadsheetApp.openById(SHEET_ID));
+  Logger.log(r.ok ? "成功：近 7 天瀏覽 " + r.views + " 次" : "尚未成功：" + r.error);
 }
 
 function getReviews(){
@@ -1766,7 +1801,7 @@ function adminDispatch_(ss, d){
     if (d.action === "admin_member_detail") { ensureMemberSchema_(ss, false); return adminMemberDetail(ss, d); }
     if (d.action === "admin_flavor_summary") return { ok:true, items:adminFlavorSummary(ss) };
     if (d.action === "admin_products") return { ok:true, items:adminProducts(ss) };
-    if (d.action === "admin_traffic") return adminTraffic_(d);
+    if (d.action === "admin_traffic") return adminTraffic_(d, ss);
     if (d.action === "admin_product_status") return adminProductStatus(ss, d);
     if (d.action === "admin_member_update") return adminMemberUpdate(ss, d);
     if (d.action === "admin_note_add") return adminNoteAdd(ss, d);

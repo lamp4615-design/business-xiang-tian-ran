@@ -206,24 +206,67 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
   </section>
 
   <section class="panel" id="t-traffic" hidden>
+    <style>
+      .trk{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 14px}
+      @media (max-width:640px){.trk{grid-template-columns:repeat(2,1fr)}}
+      .trk .k{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg)}
+      .trk .k .v{font-size:26px;font-weight:700;line-height:1.2}
+      .trk .k .l{font-size:12.5px;color:var(--mute);margin-top:2px}
+      .trk .k .d{font-size:12.5px;margin-top:4px}
+      .up{color:var(--ok)}.dn{color:var(--red)}.fl{color:var(--mute)}
+      .trgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:12px 0}
+      .trgrid.two{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+      @media (max-width:640px){.trgrid,.trgrid.two{grid-template-columns:1fr}}
+      .trbox{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+      .trbox h4{margin:0 0 8px;font-size:14px}
+      .trbox .sub2{font-size:12px;color:var(--mute);margin:-4px 0 8px}
+      .bl{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(60px,1fr) auto;gap:8px;align-items:center;font-size:13.5px;padding:3px 0}
+      .bl .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .bl .b{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+      .bl .b i{display:block;height:100%;background:var(--green);border-radius:4px}
+      .bl .n{font-variant-numeric:tabular-nums;color:var(--mute);min-width:70px;text-align:right}
+      .cols{display:flex;align-items:flex-end;gap:2px;height:96px}
+      .cols i{flex:1;min-width:3px;background:var(--green);border-radius:3px 3px 0 0;opacity:.85}
+      .cols i:hover{opacity:1}
+      .axis{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);margin-top:3px}
+      .insight{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13.5px;line-height:1.9;margin:6px 0}
+      .chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;color:#fff}
+      .chip.g{background:var(--ok)}.chip.y{background:var(--orange)}.chip.r{background:var(--red)}.chip.n{background:var(--mute)}
+      .vit{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+      .vit>div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+      .vit .v{font-size:20px;font-weight:700;margin:2px 0 4px}.vit .l{font-size:12px;color:var(--mute)}
+      .stack{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:8px 0 4px;background:var(--line)}
+      .stack i{display:block;height:100%}
+    </style>
     <div class="tools">
-      <select id="trDays" onchange="loadTraffic()"><option value="1">今天（近 24 小時）</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option></select>
+      <select id="trDays" onchange="loadTraffic()"><option value="1">今天（近 24 小時）</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option><option value="90">近 90 天</option></select>
       <button class="sm" onclick="loadTraffic(true)">重新整理</button>
+      <button class="sm" onclick="exportTraffic()">匯出 CSV</button>
       <span class="sub" id="trSum"></span>
     </div>
     <div id="trSetup" class="sub" style="display:none;line-height:1.9"></div>
     <div id="trBody">
-      <div class="tiles" id="trTiles" style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 16px"></div>
-      <h3>每日瀏覽</h3><div id="trChart" style="display:flex;align-items:flex-end;gap:3px;height:110px;margin-bottom:6px"></div>
-      <h3>文章 <span class="sub">（分享天地）</span></h3>
-      <div class="wrap"><table><thead><tr><th>文章</th><th class="num">瀏覽次數</th></tr></thead><tbody id="trPosts"></tbody></table></div>
-      <h3>商品頁</h3>
-      <div class="wrap"><table><thead><tr><th>商品</th><th class="num">瀏覽次數</th></tr></thead><tbody id="trProds"></tbody></table></div>
-      <h3>其他頁面與來源</h3>
-      <div class="wrap"><table><thead><tr><th>頁面</th><th class="num">瀏覽次數</th></tr></thead><tbody id="trOthers"></tbody></table></div>
-      <div class="wrap" style="margin-top:14px"><table><thead><tr><th>流量來源</th><th class="num">次數</th><th>裝置</th><th class="num">次數</th></tr></thead><tbody id="trRefs"></tbody></table></div>
+      <div class="trk" id="trKpi"></div>
+      <div class="insight" id="trInsight"></div>
+      <div class="trgrid two">
+        <div class="trbox" style="grid-column:1/-1"><h4>每日瀏覽趨勢</h4><div class="cols" id="trDaily"></div><div class="axis" id="trDailyAx"></div></div>
+        <div class="trbox"><h4>幾點最多人看 <span class="sub">（台灣時間）</span></h4><div class="cols" id="trHour"></div><div class="axis"><span>0 時</span><span>6</span><span>12</span><span>18</span><span>23</span></div></div>
+        <div class="trbox"><h4>星期幾最多人看</h4><div class="cols" id="trWeek"></div><div class="axis"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div></div>
+      </div>
+      <div class="trgrid">
+        <div class="trbox"><h4>分享文章排行</h4><div id="trPosts"></div></div>
+        <div class="trbox"><h4>商品頁排行</h4><div id="trProds"></div></div>
+        <div class="trbox"><h4>其他頁面</h4><div id="trOthers"></div></div>
+      </div>
+      <div class="trgrid two">
+        <div class="trbox"><h4>流量來源</h4><div id="trRefs"></div></div>
+        <div class="trbox"><h4>裝置</h4><div id="trDevs"></div></div>
+        <div class="trbox"><h4>地區</h4><div id="trCountries"></div></div>
+        <div class="trbox"><h4>瀏覽器與系統</h4><div id="trBrowsers"></div><div style="height:8px"></div><div id="trOses"></div></div>
+      </div>
+      <div class="trbox"><h4>網站速度 <span class="sub">（真實訪客的使用感受，取第 75 百分位）</span></h4><div class="vit" id="trVit"></div><div id="trVitNote" class="sub" style="margin-top:8px;line-height:1.8"></div></div>
     </div>
-    <p class="sub">資料來自 Cloudflare Web Analytics，不使用 Cookie、不記個人資料；數字約有數分鐘到 1 小時的延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>首頁內切換分頁（理念／風味／分享天地…）不會另外計算，只算「有獨立網址」的頁面：首頁、每個商品頁、每篇文章頁。來源空白＝直接輸入網址、掃 QR 或從 LINE 等 App 點開。</p>
+    <p class="sub" style="margin-top:12px">資料來自 Cloudflare Web Analytics（不使用 Cookie、不記個人資料），是取樣估計值，適合看趨勢與排行，不是逐筆精確計數；約有數分鐘到 1 小時延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>「轉換率」＝期間內訂單數 ÷ 訪次，是粗略參考（訂單包含客人線下聯絡後才下的單）。「與上期比」是跟前一段等長時間比較。首頁內切換分頁不另外計算，只算有獨立網址的頁面。來源「直接」＝直接輸入網址、掃 QR 或從 LINE 等 App 點開。</p>
   </section>
 
   <section class="panel" id="t-costs" hidden>
@@ -674,20 +717,20 @@ function exportMembers(){
 }
 
 /* ---------- 流量（Cloudflare Web Analytics）---------- */
-let TR_LOADED=false,TR_MAP=null;
-const SITE_BASE="https://lamp4615-design.github.io/business-xiang-tian-ran/";
+let TR_LOADED=false,TR_MAP=null,TR_LAST=null,TR_ROWS=[];
+const SITE_BASE="https://lamp4615-design.github.io/business-xiang-tian-ran/",SITE_PATH="/business-xiang-tian-ran";
 async function trNames(){   // 路徑 → 商品名／文章標題（讀前台公開的 product-urls.json、posts.json）
   if(TR_MAP)return TR_MAP;
   const m={prod:{},post:{}};
   try{const u=await (await fetch(SITE_BASE+"product-urls.json",{cache:"no-store"})).json();for(const k in u){m.prod[decodeURIComponent(new URL(u[k]).pathname).replace(/\/$/,"")]=k;}}catch(e){}
-  try{const p=await (await fetch(SITE_BASE+"posts.json",{cache:"no-store"})).json();p.forEach(x=>{m.post["/business-xiang-tian-ran/articles/"+x.id]=x.title;});}catch(e){}
+  try{const p=await (await fetch(SITE_BASE+"posts.json",{cache:"no-store"})).json();p.forEach(x=>{m.post[SITE_PATH+"/articles/"+x.id]=x.title;});}catch(e){}
   return TR_MAP=m;
 }
-async function loadTraffic(force){
+async function loadTraffic(){
   $("trSum").textContent="讀取中…";$("trSetup").style.display="none";
   try{
     const d=await api({action:"admin_traffic",days:Number($("trDays").value)});
-    const names=await trNames();TR_LOADED=true;$("trBody").style.display="";renderTraffic(d,names);
+    const names=await trNames();TR_LOADED=true;TR_LAST=d;$("trBody").style.display="";renderTraffic(d,names);
     $("trSum").textContent="";
   }catch(e){
     $("trSum").textContent="";
@@ -697,29 +740,116 @@ async function loadTraffic(force){
     }else toast("讀取流量失敗："+e.message);
   }
 }
+const nf=n=>Number(n).toLocaleString();
+function delta(cur,prev,fmt){
+  if(prev==null)return '<span class="fl">—</span>';
+  if(!prev)return cur?'<span class="up">▲ 新增</span>':'<span class="fl">與上期持平</span>';
+  const p=(cur-prev)/prev*100;if(Math.abs(p)<0.5)return '<span class="fl">與上期持平</span>';
+  return '<span class="'+(p>0?"up":"dn")+'">'+(p>0?"▲ ":"▼ ")+Math.abs(p).toFixed(p>=100?0:1)+'%</span> <span class="fl">較上期</span>';
+}
+function bars(rows,total,empty,fmtName){
+  if(!rows.length)return '<div class="sub">'+(empty||"沒有資料")+'</div>';
+  const max=Math.max(...rows.map(r=>r.n));
+  return rows.map(r=>'<div class="bl" title="'+esc(r.t)+'"><span class="nm">'+(fmtName?fmtName(r.t):esc(r.t))+'</span><span class="b"><i style="width:'+Math.max(2,r.n/max*100)+'%"></i></span><span class="n">'+nf(r.n)+(total?" · "+Math.round(r.n/total*100)+"%":"")+'</span></div>').join("");
+}
+function refGroup(h){
+  h=String(h||"").toLowerCase();
+  if(!h)return "直接／QR／App";
+  if(h.includes("google"))return "Google 搜尋";
+  if(h.includes("facebook")||h==="fb.com"||h.endsWith(".fb.com"))return "Facebook";
+  if(h.includes("instagram"))return "Instagram";
+  if(h.includes("line.me")||h.includes("line.naver")||h.includes("lin.ee"))return "LINE";
+  if(h.includes("youtube")||h==="youtu.be")return "YouTube";
+  if(h.includes("bing")||h.includes("yahoo")||h.includes("duckduckgo"))return "其他搜尋引擎";
+  if(h.includes("github.io"))return "本站內部";
+  if(h==="t.co"||h.includes("twitter")||h.includes("x.com"))return "X（Twitter）";
+  if(h.includes("threads"))return "Threads";
+  return h;
+}
+const CTRY={TW:"台灣",HK:"香港",JP:"日本",US:"美國",CN:"中國",SG:"新加坡",MY:"馬來西亞",KR:"韓國",GB:"英國",CA:"加拿大",AU:"澳洲",DE:"德國",FR:"法國",TH:"泰國",VN:"越南"};
+const DEVN={desktop:"電腦",mobile:"手機",tablet:"平板"};
+function agg(list,keyFn){const m={};(list||[]).forEach(x=>{const k=keyFn(x.k);m[k]=(m[k]||0)+x.n;});return Object.entries(m).map(([t,n])=>({t,n})).sort((a,b)=>b.n-a.n);}
+function twDate(iso){const d=new Date(new Date(iso).getTime()+8*3600e3);return d.toISOString().slice(0,10);}
+function vitChip(kind,v){
+  if(v==null||v===0)return '<span class="chip n">資料不足</span>';
+  const t={lcp:[2500,4000],fcp:[1800,3000],load:[3000,5000],cls:[0.1,0.25],inp:[200,500]}[kind];
+  return v<=t[0]?'<span class="chip g">良好</span>':v<=t[1]?'<span class="chip y">待改善</span>':'<span class="chip r">偏慢</span>';
+}
 function renderTraffic(d,names){
-  const tile=(n,l)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:12px 18px;min-width:130px"><div style="font-size:26px;font-weight:700">${Number(n).toLocaleString()}</div><div class="sub">${l}</div></div>`;
-  const lab={1:"今天",7:"近 7 天",30:"近 30 天"}[d.days];
-  const homePath="/business-xiang-tian-ran";
+  const lab={1:"今天",7:"近 7 天",30:"近 30 天",90:"近 90 天"}[d.days];
+  // ---- 頁面分類 ----
   const posts=[],prods=[],others=[];
   d.pages.forEach(p=>{
-    const path=p.path.replace(/\/$/,"");
-    const dp=(()=>{try{return decodeURIComponent(path);}catch(e){return path;}})();
-    const post=Object.keys(names.post).find(k=>dp===k);
-    if(post)posts.push({t:names.post[post],n:p.n});
-    else if(names.prod[dp]!==undefined)prods.push({t:names.prod[dp],n:p.n});
-    else others.push({t:path===homePath||path===""?"首頁":dp.replace(homePath,"")||"/",n:p.n});
+    const path=String(p.k||"").replace(/\/$/,"");
+    let dp=path;try{dp=decodeURIComponent(path);}catch(e){}
+    if(names.post[dp]!==undefined)posts.push({t:names.post[dp],n:p.n,path:dp});
+    else if(names.prod[dp]!==undefined)prods.push({t:names.prod[dp],n:p.n,path:dp});
+    else others.push({t:(dp===SITE_PATH||dp==="")?"首頁":(dp.replace(SITE_PATH,"")||"/"),n:p.n,path:dp});
   });
-  const rows=(a,empty)=>a.length?a.sort((x,y)=>y.n-x.n).map(x=>`<tr><td>${esc(x.t)}</td><td class="num">${x.n}</td></tr>`).join(""):`<tr><td colspan="2" class="empty">${empty}</td></tr>`;
-  $("trTiles").innerHTML=tile(d.views,lab+"瀏覽次數")+tile(d.visits,lab+"訪次");
-  const max=Math.max(1,...d.daily.map(x=>x.n));
-  $("trChart").innerHTML=d.daily.length?d.daily.map(x=>`<div title="${esc(x.date)}：${x.n}" style="flex:1;min-width:6px;background:var(--green);border-radius:3px 3px 0 0;height:${Math.max(4,x.n/max*100)}%;opacity:.85"></div>`).join(""):'<span class="sub">這段期間還沒有資料</span>';
-  $("trPosts").innerHTML=rows(posts,"這段期間還沒有人看文章頁");
-  $("trProds").innerHTML=rows(prods,"這段期間還沒有人看商品頁");
-  $("trOthers").innerHTML=rows(others,"沒有資料");
-  const n=Math.max(d.refs.length,d.devs.length);
-  const DEV={desktop:"電腦",mobile:"手機",tablet:"平板"};
-  $("trRefs").innerHTML=n?Array.from({length:n},(_,i)=>{const r=d.refs[i],v=d.devs[i];return `<tr><td>${r?esc(r.host||"（直接輸入／QR／App）"):""}</td><td class="num">${r?r.n:""}</td><td>${v?esc(DEV[v.type]||v.type):""}</td><td class="num">${v?v.n:""}</td></tr>`;}).join(""):'<tr><td colspan="4" class="empty">沒有資料</td></tr>';
+  [posts,prods,others].forEach(a=>a.sort((x,y)=>y.n-x.n));
+  TR_ROWS=[].concat(posts.map(x=>["文章",x.t,x.path,x.n]),prods.map(x=>["商品",x.t,x.path,x.n]),others.map(x=>["其他",x.t,x.path,x.n]));
+  // ---- KPI ----
+  const perVisit=d.visits?d.views/d.visits:0,prevPer=d.prevVisits?d.prevViews/d.prevVisits:null;
+  const conv=d.visits&&d.orders!=null?d.orders/d.visits*100:null,prevConv=d.prevVisits&&d.prevOrders!=null?d.prevOrders/d.prevVisits*100:null;
+  const K=(v,l,dh)=>'<div class="k"><div class="v">'+v+'</div><div class="l">'+l+'</div><div class="d">'+dh+'</div></div>';
+  $("trKpi").innerHTML=
+    K(nf(d.views),lab+"瀏覽次數",delta(d.views,d.prevViews))+
+    K(nf(d.visits),lab+"訪次",delta(d.visits,d.prevVisits))+
+    K(perVisit?perVisit.toFixed(1):"—","每次造訪看幾頁",prevPer==null?"":delta(perVisit,prevPer))+
+    K(d.orders==null?"—":nf(d.orders),lab+"訂單數（不含取消）",d.orders==null?"":delta(d.orders,d.prevOrders))+
+    K(conv==null?"—":conv.toFixed(1)+"%","轉換率（訂單÷訪次）",prevConv==null?"":delta(conv,prevConv))+
+    K(d.orders==null?"—":"NT$ "+nf(d.revenue||0),lab+"已完成營收",d.orders==null?"":delta(d.revenue||0,d.prevRevenue));
+  // ---- 每日／時段／星期（台灣時間）----
+  const day={},hour=Array(24).fill(0),week=Array(7).fill(0);
+  d.hourly.forEach(x=>{const t=new Date(new Date(x.k).getTime()+8*3600e3);const k=t.toISOString().slice(0,10);day[k]=(day[k]||0)+x.n;hour[t.getUTCHours()]+=x.n;week[t.getUTCDay()]+=x.n;});
+  const days=[];if(d.days>1){const s=new Date(twDate(d.start)+"T00:00:00Z"),e=new Date(twDate(d.end)+"T00:00:00Z");for(let t=s;t<=e;t=new Date(t.getTime()+864e5))days.push(t.toISOString().slice(0,10));}else Object.keys(day).sort().forEach(k=>days.push(k));
+  const dmax=Math.max(1,...days.map(k=>day[k]||0)),hmax=Math.max(1,...hour),wmax=Math.max(1,...week);
+  const col=(v,max,tip)=>'<i title="'+esc(tip)+'" style="height:'+(v?Math.max(4,v/max*100):1)+'%;'+(v?"":"opacity:.25")+'"></i>';
+  $("trDaily").innerHTML=days.length?days.map(k=>col(day[k]||0,dmax,k+"：瀏覽 "+(day[k]||0)+" 次")).join(""):'<span class="sub">這段期間還沒有資料</span>';
+  $("trDailyAx").innerHTML=days.length?'<span>'+days[0].slice(5)+'</span><span>最高 '+nf(dmax)+' 次／日</span><span>'+days[days.length-1].slice(5)+'</span>':"";
+  $("trHour").innerHTML=hour.map((v,i)=>col(v,hmax,i+":00～"+i+":59：瀏覽 "+v+" 次")).join("");
+  $("trWeek").innerHTML=week.map((v,i)=>col(v,wmax,"星期"+"日一二三四五六"[i]+"：瀏覽 "+v+" 次")).join("");
+  // ---- 重點摘要 ----
+  const ins=[];
+  if(d.views){
+    const ph=hour.indexOf(Math.max(...hour)),pw=week.indexOf(Math.max(...week));
+    ins.push("📈 "+lab+"共 <b>"+nf(d.views)+"</b> 次瀏覽、<b>"+nf(d.visits)+"</b> 次造訪。");
+    if(posts[0])ins.push("📝 最多人看的文章：<b>"+esc(posts[0].t)+"</b>（"+posts[0].n+" 次）。");
+    else ins.push("📝 這段期間還沒有人看分享文章。");
+    if(prods[0])ins.push("☕ 最多人看的商品：<b>"+esc(prods[0].t)+"</b>（"+prods[0].n+" 次）。");
+    if(hour.some(Boolean))ins.push("🕒 最多人上線的時段：<b>"+ph+":00～"+ph+":59</b>；"+(week.some(Boolean)?"星期<b>"+"日一二三四五六"[pw]+"</b>最熱鬧。":""));
+    const rg=agg(d.refs,refGroup);if(rg[0])ins.push("🔗 最大來源：<b>"+esc(rg[0].t)+"</b>（"+Math.round(rg[0].n/d.views*100)+"%）。");
+  }else ins.push("這段期間還沒有資料。商品頁與文章頁的追蹤是剛啟用的，等有人瀏覽後就會出現排行。");
+  $("trInsight").innerHTML=ins.join("<br>");
+  // ---- 排行 ----
+  const ptotal=d.views;
+  $("trPosts").innerHTML=bars(posts.slice(0,10),ptotal,"這段期間還沒有人看文章頁");
+  $("trProds").innerHTML=bars(prods.slice(0,10),ptotal,"這段期間還沒有人看商品頁");
+  $("trOthers").innerHTML=bars(others.slice(0,8),ptotal,"沒有資料");
+  $("trRefs").innerHTML=bars(agg(d.refs,refGroup).slice(0,10),d.views,"沒有資料");
+  $("trDevs").innerHTML=bars(agg(d.devs,k=>DEVN[k]||k||"未知"),d.views,"沒有資料");
+  $("trCountries").innerHTML=bars(agg(d.countries,k=>CTRY[k]||k||"未知").slice(0,8),d.views,"沒有資料");
+  $("trBrowsers").innerHTML='<div class="sub2">瀏覽器</div>'+bars(agg(d.browsers,k=>k||"未知").slice(0,5),d.views,"沒有資料");
+  $("trOses").innerHTML='<div class="sub2">作業系統</div>'+bars(agg(d.oses,k=>k||"未知").slice(0,5),d.views,"沒有資料");
+  // ---- 網站速度 ----
+  const v=d.vitals||{};
+  const sec=ms=>ms?(ms/1000).toFixed(2)+" 秒":"—";
+  $("trVit").innerHTML=
+    '<div><div class="l">主要內容出現（LCP）</div><div class="v">'+sec(v.lcp)+'</div>'+vitChip("lcp",v.lcp)+'</div>'+
+    '<div><div class="l">畫面跳動（CLS）</div><div class="v">'+(v.n?Number(v.cls).toFixed(3):"—")+'</div>'+vitChip("cls",v.n?v.cls:null)+'</div>'+
+    '<div><div class="l">點擊反應（INP）</div><div class="v">'+(v.inp?Math.round(v.inp)+" 毫秒":"—")+'</div>'+vitChip("inp",v.inp)+'</div>'+
+    '<div><div class="l">首次內容出現（FCP）</div><div class="v">'+sec(v.fcp)+'</div>'+vitChip("fcp",v.fcp)+'</div>'+
+    '<div><div class="l">頁面載入完成（中位數）</div><div class="v">'+sec(v.load)+'</div>'+vitChip("load",v.load)+'</div>';
+  const lt=(v.lcpGood||0)+(v.lcpOk||0)+(v.lcpPoor||0);
+  $("trVitNote").innerHTML=lt?'訪客的「主要內容出現」速度分布：<div class="stack"><i style="width:'+v.lcpGood/lt*100+'%;background:var(--ok)"></i><i style="width:'+v.lcpOk/lt*100+'%;background:var(--orange)"></i><i style="width:'+v.lcpPoor/lt*100+'%;background:var(--red)"></i></div>良好 '+v.lcpGood+'、待改善 '+v.lcpOk+'、偏慢 '+v.lcpPoor+'（共 '+lt+' 次）。判斷標準：LCP ≤2.5 秒良好、CLS ≤0.1 良好、INP ≤200 毫秒良好（Google 的 Core Web Vitals，影響搜尋排名）。':"還沒有足夠的速度資料。";
+}
+function exportTraffic(){
+  if(!TR_LAST){toast("還沒有資料可匯出");return;}
+  const d=TR_LAST,q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const lines=[["項目","名稱","路徑","瀏覽次數"].map(q).join(",")].concat(TR_ROWS.map(r=>r.map(q).join(",")));
+  lines.push("",["摘要","期間（天）",d.days].map(q).join(","),["摘要","瀏覽次數",d.views].map(q).join(","),["摘要","訪次",d.visits].map(q).join(","),["摘要","上期瀏覽次數",d.prevViews].map(q).join(","),["摘要","訂單數",d.orders==null?"":d.orders].map(q).join(","),["摘要","已完成營收",d.revenue==null?"":d.revenue].map(q).join(","));
+  const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="流量_近"+d.days+"天_"+new Date().toISOString().slice(0,10)+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
 /* ---------- 商品：狀態切換＋需求一覽 ---------- */
