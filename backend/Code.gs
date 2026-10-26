@@ -6,6 +6,7 @@
  *   POST {action:"member_login"}     → 用手機比對會員（登入；只回是否為會員，不回姓名）
  *   POST {action:"join"}             → 寫入會員
  *   POST {action:"order"}            → 寫入訂單（後端依價格表重算金額、產生訂單編號），並自動寄 Email 通知你
+ *                                      lines 裡 kind:"drip" 的是耳掛（一組 10 包，見下方「耳掛包」）
  *   POST {action:"member_stats"／"member_orders"／"member_reviews"／"member_profile"} → 會員本人資料，需憑證
  *   POST {action:"admin_login"} → 後台用密碼換短效憑證；其餘 admin_xxx 帶憑證
  *   （2026-10-17 資安更新：GET login／mystats／myreviews 只留給舊網頁，回傳內容已縮減）
@@ -28,6 +29,26 @@ const POINTS_TAB    = "points";
 const POINT_EXPIRE_MONTHS = 3;   // 點數效期：最後一次消費起算幾個月
 const COSTS_TAB     = "costs";
 const DASHBOARD_TAB = "總覽";
+
+/* ========================= 耳掛包（2026-10-27） =========================
+ * 一組 10 包同口味、每包 12 克，每包 35 元＝一組 350 元。口味＝products 分頁 drip 欄是 TRUE 的半磅品項
+ * （第一次請在 Apps Script 執行一次 setupDrip()：補欄位，除了阿里山都先設成 TRUE；之後在後台「商品」分頁勾選）。
+ * 庫存跟著半磅走：半磅 stock_status=sold_out → 同口味耳掛也不能下單；last_call → 前台一樣標「即將完售」。
+ * 集點：一組 1 點；同一張訂單耳掛滿 5 組再送 5 點（訂單改成「已完成」才加，跟半磅一樣）。
+ * 訂單的訂購內容寫成「耳掛 品名 x3組」，組數記在 orders「耳掛組數」欄；「包數」欄仍然只算半磅。 */
+const DRIP_COL          = "drip";       // products 分頁：這個品項有沒有做耳掛
+const DRIP_ORDER_COL    = "耳掛組數";    // orders 分頁
+const DRIP_NAME_PREFIX  = "耳掛 ";
+const DRIP_SET_BAGS     = 10;           // 一組幾包
+const DRIP_BAG_GRAMS    = 12;           // 每包幾克（給備貨估算用豆量）
+const DRIP_BAG_PRICE    = 35;
+const DRIP_SET_PRICE    = DRIP_SET_BAGS * DRIP_BAG_PRICE;
+const DRIP_BONUS_SETS   = 5;            // 同一張訂單滿幾組…
+const DRIP_BONUS_POINTS = 5;            // …多送幾點
+function dripPoints_(sets){
+  sets = Math.max(0, Math.floor(Number(sets) || 0));
+  return sets + (sets >= DRIP_BONUS_SETS ? DRIP_BONUS_POINTS : 0);
+}
 
 
 /* ========================= 讀取 ========================= */
@@ -62,14 +83,17 @@ function getProducts(){
     const spec = (l, v) => ({ label: String(r[at(l)] || ""), value: String(r[at(v)] || "") });
     const specs = [ spec("spec1_label","spec1_value"), spec("spec2_label","spec2_value"), spec("spec3_label","spec3_value") ]
                   .filter(s => s.label && s.value);
-    out.push({
+    const p = {
       id: String(id), category: String(r[at("category")] || "其他"), name: String(r[at("name")] || ""),
       subtitle: String(r[at("subtitle")] || ""), price: Number(r[at("price")]) || 0, unit: String(r[at("unit")] || ""),
       image: toImageUrl(r[at("image")]), hue: String(r[at("hue")] || "green"), badge: String(r[at("badge")] || ""),
       tags: String(r[at("tags")] || "").split(",").map(s => s.trim()).filter(Boolean), specs: specs,
       soldOut: String(r[at("stock_status")] || "").trim().toLowerCase() === "sold_out",   // 已售完，待補貨（仍顯示、不能下單）
-      lastCall: isTrue_(r[at("last_call")])   // 即將完售（原「最後預購」）：只在網站上標示，不寄信（2026-10-24 起）
-    });
+      lastCall: isTrue_(r[at("last_call")]),   // 即將完售（原「最後預購」）：只在網站上標示，不寄信（2026-10-24 起）
+      drip: isTrue_(r[at(DRIP_COL)])           // 也有耳掛包
+    };
+    if (p.drip) p.dripPrice = DRIP_SET_PRICE;  // 一組的價格（前台顯示用；下單時後端一樣會重算）
+    out.push(p);
   });
   return out;
 }
@@ -484,16 +508,17 @@ function findOrderRow_(sh, orderId){
   return 0;
 }
 
-/* 商品價格表（只算上架中的商品）：{ byId:{id:{name,price}}, byName:{name:{id,price}} } */
+/* 商品價格表（只算上架中的商品）：{ byId:{id:{name,price,drip}}, byName:{name:{id,price}} } */
 function priceTable_(){
   const byId = {}, byName = {};
-  getProducts().forEach(p => { if (p.soldOut) return; byId[p.id] = { name:p.name, price:p.price }; byName[p.name] = { id:p.id, price:p.price }; });   // 已售完（stock_status=sold_out）不能下單
+  getProducts().forEach(p => { if (p.soldOut) return; byId[p.id] = { name:p.name, price:p.price, drip:p.drip }; byName[p.name] = { id:p.id, price:p.price }; });   // 已售完（stock_status=sold_out）不能下單（耳掛也一樣）
   return { byId:byId, byName:byName };
 }
 /* 依 products 分頁的單價重算訂單：
    新版前台送 lines:[{id, qty}]；舊版前台只送文字「名稱 x數量、…」，就照名稱對。
+   耳掛是 {id, qty, kind:"drip"}，qty＝組數，一組固定 DRIP_SET_PRICE 元；該品項沒勾 drip 就拒收。
    任何一項對不到上架中的商品（已下架、改名、亂填）就整張拒收，避免被改價或下到不存在的商品。
-   回傳 { ok, items（後端重組的訂購內容）, total, bags } 或 { ok:false, error } */
+   回傳 { ok, items（後端重組的訂購內容）, total, bags（半磅包數）, dripSets（耳掛組數） } 或 { ok:false, error } */
 function priceOrder_(d){
   const t = priceTable_();
   const lines = [];
@@ -501,9 +526,10 @@ function priceOrder_(d){
     for (let i = 0; i < d.lines.length && i < 50; i++){
       const l = d.lines[i] || {}, p = t.byId[String(l.id || "")];
       const qty = Math.floor(Number(l.qty));
-      if (!p) return { ok:false, error:"product_unavailable" };
+      const drip = l.kind === "drip";
+      if (!p || (drip && !p.drip)) return { ok:false, error:"product_unavailable" };
       if (!(qty >= 1 && qty <= 100)) return { ok:false, error:"bad order" };
-      lines.push({ name:p.name, price:p.price, qty:qty });
+      lines.push(drip ? { name:DRIP_NAME_PREFIX + p.name, price:DRIP_SET_PRICE, qty:qty, drip:true } : { name:p.name, price:p.price, qty:qty });
     }
   } else {
     const parsed = parseItems_(d.items);
@@ -516,14 +542,16 @@ function priceOrder_(d){
       lines.push({ name:names[i], price:p.price, qty:qty });
     }
   }
-  // 同一商品出現兩次就合併
+  // 同一商品出現兩次就合併（半磅與耳掛名稱不同，不會合在一起）
   const merged = {}, order = [];
-  lines.forEach(l => { if (!merged[l.name]){ merged[l.name] = { name:l.name, price:l.price, qty:0 }; order.push(l.name); } merged[l.name].qty += l.qty; });
+  lines.forEach(l => { if (!merged[l.name]){ merged[l.name] = { name:l.name, price:l.price, qty:0, drip:!!l.drip }; order.push(l.name); } merged[l.name].qty += l.qty; });
   const list = order.map(n => merged[n]);
   const total = list.reduce((s, l) => s + l.price * l.qty, 0);
-  const bags = list.reduce((s, l) => s + l.qty, 0);
+  const bags = list.reduce((s, l) => s + (l.drip ? 0 : l.qty), 0);
+  const dripSets = list.reduce((s, l) => s + (l.drip ? l.qty : 0), 0);
   if (!(total > 0) || total > 1000000) return { ok:false, error:"bad order" };
-  return { ok:true, items:safeText_(list.map(l => l.name + " x" + l.qty).join("、"), 500), total:total, bags:Math.min(1000, bags) };
+  return { ok:true, items:safeText_(list.map(l => l.name + " x" + l.qty + (l.drip ? "組" : "")).join("、"), 500), total:total,
+           bags:Math.min(1000, bags), dripSets:Math.min(1000, dripSets) };
 }
 
 function addOrder(d){
@@ -551,21 +579,23 @@ function addOrder(d){
     const sh = ss.getSheetByName(ORDERS_TAB);
     const idCol = ensureCol_(sh, ORDER_ID_COL).col;
     const memCol = ensureCol_(sh, "會員編號").col;
+    const dripCol = ensureCol_(sh, DRIP_ORDER_COL).col;
     orderId = nextOrderId_(sh, idCol, now);
     const width = sh.getLastColumn();
     const row = new Array(width).fill("");
-    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點（＋最右邊的會員編號、訂單編號…）
+    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點（＋最右邊的會員編號、訂單編號、耳掛組數…）
     // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
     [now, name, phoneText, city, priced.items, priced.total, "待處理", priced.bags, 0].forEach((v, i) => { row[i] = v; });
     row[memCol - 1] = m && m.id ? m.id : "";   // 訂單記會員編號，換手機也對得上
     row[idCol - 1] = orderId;
+    row[dripCol - 1] = priced.dripSets;
     const r = sh.getLastRow() + 1;
     sh.getRange(r, 3).setNumberFormat("@");   // 手機存成文字，開頭的 0 才不會被吃掉
     sh.getRange(r, 1, 1, width).setValues([row]);
   } finally { lock.releaseLock(); }
   const diff = clientTotal && clientTotal !== priced.total;
   if (diff) adminLog_(ss, "訂單金額差異", "前端 " + clientTotal + "／後端依價格表 " + priced.total + "（以後端為準）", orderId);
-  notifyOrder({ orderId:orderId, name:name, phone:phoneText, city:city, items:priced.items, total:priced.total,
+  notifyOrder({ orderId:orderId, name:name, phone:phoneText, city:city, items:priced.items, total:priced.total, dripSets:priced.dripSets,
                 note: diff ? "網頁送來的金額是 NT$ " + clientTotal + "，已依商品價格表改為 NT$ " + priced.total + "（可能是客人的網頁價格還沒更新）" : "" });   // 寄 Email 通知
   return { ok:true, orderId:orderId, total:priced.total, items:priced.items };
 }
@@ -717,12 +747,13 @@ function readOrders_(ss){
       items: String(r[at("訂購內容")] || ""),
       total: Number(r[at("金額")]) || 0,
       status: String(r[at("狀態")] || "待處理"),
-      bags: Number(r[at("包數")]) || 0
+      bags: Number(r[at("包數")]) || 0,
+      dripSets: orderDripSets_(r[at(DRIP_ORDER_COL)], r[at("訂購內容")])
     });
   }
   return out;
 }
-const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags });
+const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags, dripSets: o.dripSets });
 
 /* 查看用的手機 key（CR-20261018-02，董事會決定恢復原本設計）：看自己的購買紀錄、點數、評分「不用驗證」，只憑手機登入；
    有帶有效憑證就以憑證裡的手機為準。只有「修改會員資料」（member_update）和「更新已評過的評分」才需要憑證。
@@ -911,10 +942,11 @@ function notifyOrder(d){
       "手機：" + (d.phone || ""),
       "地區：" + (d.city || ""),
       "內容：" + (d.items || ""),
+      d.dripSets ? "耳掛備貨：" + d.dripSets + " 組＝" + d.dripSets * DRIP_SET_BAGS + " 包，約需 " + d.dripSets * DRIP_SET_BAGS * DRIP_BAG_GRAMS + " 克咖啡粉（每包 " + DRIP_BAG_GRAMS + " 克）" : null,
       "金額：NT$ " + (Number(d.total) || 0),
       "時間：" + new Date().toLocaleString("zh-TW"), "",
       "— 訂單也已存入試算表 orders 分頁。"
-    ];
+    ].filter(s => s !== null);
     if (d.note) lines.splice(lines.length - 1, 0, "⚠ " + d.note, "");
     MailApp.sendEmail(NOTIFY_EMAIL, subject, lines.join("\n"));
   }catch(err){ /* 寄信失敗不影響訂單寫入 */ }
@@ -1233,8 +1265,10 @@ function adminProducts(ss){
       id:id, name:name, subtitle:String(get(r, "subtitle") || ""), price:Number(get(r, "price")) || 0, unit:String(get(r, "unit") || ""),
       status: off ? "off" : (so ? "sold_out" : "normal"),
       lastCall: isTrue_(get(r, "last_call")),
+      drip: isTrue_(get(r, DRIP_COL)),
       want:w.total, want30:w.d30, wantLast: w.last ? new Date(w.last).toISOString() : "",
       sold90: sold[name] || 0,
+      dripSold90: sold[DRIP_NAME_PREFIX + name] || 0,   // 近 90 天賣出的耳掛組數
       reviews: v.count || 0, likedAvg: v.likedAvg || 0, likedCount: v.likedCount || 0
     });
   });
@@ -1260,7 +1294,10 @@ function adminProductStatus(ss, d){
     const lcCol = ensureCol_(psh, "last_call").col;
     psh.getRange(row, lcCol).setValue(!!d.lastCall);
   }
-  adminLog_(ss, "商品狀態", status + (d.lastCall ? "＋最後預購" : ""), id);
+  if (d.drip !== undefined){   // 耳掛：有沒有做這支豆子的耳掛包
+    psh.getRange(row, ensureCol_(psh, DRIP_COL).col).setValue(!!d.drip);
+  }
+  adminLog_(ss, "商品狀態", status + (d.lastCall ? "＋最後預購" : "") + (d.drip === undefined ? "" : d.drip ? "＋做耳掛" : "＋不做耳掛"), id);
   return { ok:true };
 }
 
@@ -1492,13 +1529,40 @@ function pointsAdjust(ss, phone, delta){
 }
 function pointsAdd(ss, phone, pts){ pointsAdjust(ss, phone, Math.max(0, Number(pts) || 0)); }
 
-/* 從訂購內容文字（如「阿里山 x2、緬甸精品 x1」）粗估總包數，作為沒有「包數」欄位時的備援 */
+/* 從訂購內容文字（如「阿里山 x2、緬甸精品 x1」）粗估總包數，作為沒有「包數」欄位時的備援。
+   「耳掛 …」開頭的品項不算（耳掛另外記組數，見 parseDripSets_） */
 function parseBags(text){
-  text = String(text || "");
-  const re = /x\s*(\d+)/gi;
-  let m, sum = 0;
-  while ((m = re.exec(text)) !== null) sum += Number(m[1]) || 0;
+  let sum = 0;
+  String(text || "").split("、").forEach(seg => {
+    if (seg.trim().indexOf(DRIP_NAME_PREFIX.trim()) === 0) return;
+    const re = /x\s*(\d+)/gi;
+    let m;
+    while ((m = re.exec(seg)) !== null) sum += Number(m[1]) || 0;
+  });
   return sum;
+}
+/* 從訂購內容推算耳掛組數（「耳掛 琉璃光 x3組」→ 3） */
+function parseDripSets_(text){
+  let sum = 0;
+  String(text || "").split("、").forEach(seg => {
+    seg = seg.trim();
+    if (seg.indexOf(DRIP_NAME_PREFIX.trim()) !== 0) return;
+    const m = seg.match(/[x×]\s*(\d+)\s*組?$/i);
+    if (m) sum += Number(m[1]) || 0;
+  });
+  return sum;
+}
+/* 一張訂單的耳掛組數：「耳掛組數」欄有填就照填的（填 0 也算數）；空白（舊訂單、直接在試算表手動加的單）才從訂購內容推算 */
+function orderDripSets_(cell, itemsText){
+  if (cell === "" || cell == null) return parseDripSets_(itemsText);
+  return Math.max(0, Math.floor(Number(cell) || 0));
+}
+/* 出貨信用的數量文字：「2 包」／「耳掛 3 組（30 包）」／「半磅 2 包、耳掛 3 組（30 包）」 */
+function qtyText_(bags, dripSets){
+  const parts = [];
+  if (bags) parts.push((dripSets ? "半磅 " : "") + bags + " 包");
+  if (dripSets) parts.push("耳掛 " + dripSets + " 組（" + dripSets * DRIP_SET_BAGS + " 包）");
+  return parts.join("、") || "0 包";
 }
 
 /* 抽獎：在 Apps Script 手動執行這個函式，會依「抽獎券數（評過的不同豆子數）」
@@ -1533,12 +1597,12 @@ function drawWinner(){
 
 /* ========================= 訂單處理 → 自動加點 =========================
  * 管理者網頁（或你直接在試算表）操作：
- *   1. 狀態選「已完成」          → 依「包數」幫會員加點，「已加點」欄自動記下已加的點數
- *   2. 之後改「包數」             → 自動補差額（例如 4 改 3，會扣回 1 點）
+ *   1. 狀態選「已完成」          → 依「包數」幫會員加點（耳掛依「耳掛組數」：一組 1 點，滿 5 組再送 5 點），「已加點」欄自動記下已加的點數
+ *   2. 之後改「包數」或「耳掛組數」→ 自動補差額（例如 4 改 3，會扣回 1 點）
  *   3. 狀態改回「待處理／已取消」 → 已加的點數自動扣回，「已加點」歸零
  * 「已加點」欄是系統記帳用，請勿手動輸入。 */
 
-/* 依該列目前的「狀態」「包數」對帳並調整點數（onEdit 與管理者網頁共用） */
+/* 依該列目前的「狀態」「包數」「耳掛組數」對帳並調整點數（onEdit 與管理者網頁共用） */
 function syncOrderPoints(ss, sh, row){
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
   const statusCol  = headers.indexOf("狀態") + 1;
@@ -1546,19 +1610,22 @@ function syncOrderPoints(ss, sh, row){
   const bagsCol    = headers.indexOf("包數") + 1;
   const itemsCol   = headers.indexOf("訂購內容") + 1;
   const awardedCol = headers.indexOf("已加點") + 1;
+  const dripCol    = headers.indexOf(DRIP_ORDER_COL) + 1;
   if (!statusCol || !phoneCol || !awardedCol) return;
 
   const status = String(sh.getRange(row, statusCol).getValue()).trim();
   const phone  = String(sh.getRange(row, phoneCol).getValue());
+  const items  = itemsCol ? sh.getRange(row, itemsCol).getValue() : "";
   let bags = bagsCol ? Number(sh.getRange(row, bagsCol).getValue()) : 0;
   if (!bags || bags < 0){
-    bags = parseBags(itemsCol ? sh.getRange(row, itemsCol).getValue() : "");
+    bags = parseBags(items);
   }
+  const dripSets = orderDripSets_(dripCol ? sh.getRange(row, dripCol).getValue() : "", items);
   const rawAwarded = sh.getRange(row, awardedCol).getValue();
-  // 舊資料的 TRUE 視為「已照包數加過」；其餘當成數字
+  // 舊資料的 TRUE 視為「已照包數加過」（那時還沒有耳掛）；其餘當成數字
   const awarded = (rawAwarded === true || String(rawAwarded).toLowerCase() === "true") ? bags : (Number(rawAwarded) || 0);
 
-  const target = (status === "已完成") ? bags : 0;
+  const target = (status === "已完成") ? bags + dripPoints_(dripSets) : 0;
   const delta = target - awarded;
   if (delta !== 0 && phone) pointsAdjust(ss, phone, delta);
   sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
@@ -1608,12 +1675,13 @@ function sendShipNotice_(ss, sh, row){
   try{ quota = MailApp.getRemainingDailyQuota(); }catch(err){ quota = 0; }
   if (quota < 1){ adminLog_(ss, "出貨通知信", "未寄：今天的寄信額度已用完（明天把狀態改回待處理、再改成已完成即可補寄）", target); return "quota"; }
   const bags = Number(v[at("包數")]) || parseBags(v[at("訂購內容")]);
+  const dripSets = orderDripSets_(at(DRIP_ORDER_COL) > -1 ? v[at(DRIP_ORDER_COL)] : "", v[at("訂購內容")]);
   const lines = [
     "你好：", "",
     "你的訂單已經出貨了，謝謝你的訂購！", "",
     orderId ? "訂單編號：" + orderId : "",
     "品項：" + String(v[at("訂購內容")] || ""),
-    "包數：" + bags + " 包", "",
+    (dripSets ? "數量：" : "包數：") + qtyText_(bags, dripSets), "",
     "收到商品後如果有任何問題，請透過 LINE 聯繫我們：",
     LINE_CONTACT_URL, "",
     "（這是訂單出貨的交易通知，依你的訂單自動寄出。）", "",
@@ -1671,7 +1739,7 @@ function onEdit(e){
     if (row === 1) return;
     const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
     const col = e.range.getColumn();
-    if (col !== headers.indexOf("狀態") + 1 && col !== headers.indexOf("包數") + 1) return;
+    if (col !== headers.indexOf("狀態") + 1 && col !== headers.indexOf("包數") + 1 && col !== headers.indexOf(DRIP_ORDER_COL) + 1) return;
 
     const lock = LockService.getScriptLock();
     lock.waitLock(20000);
@@ -1836,10 +1904,10 @@ function notesSheet_(ss){
   if (!sh){ sh = ss.insertSheet(NOTES_TAB); sh.appendRow(["時間", "會員編號", "分類", "內容", "狀態", "需追蹤", "處理時間"]); }
   return sh;
 }
-function parseItems_(text){
+function parseItems_(text){   // 「Snow Bloom x2、耳掛 琉璃光 x3組」→ {"Snow Bloom":2, "耳掛 琉璃光":3}
   const out = {};
   String(text || "").split("、").forEach(seg => {
-    const m = seg.trim().match(/^(.+?)\s*[x×]\s*(\d+)$/i);
+    const m = seg.trim().match(/^(.+?)\s*[x×]\s*(\d+)\s*組?$/i);
     if (m) out[m[1].trim()] = (out[m[1].trim()] || 0) + Number(m[2]);
   });
   return out;
@@ -2108,6 +2176,7 @@ function adminListOrders(ss){
       total: Number(r[at("金額")]) || 0,
       status: String(r[at("狀態")] || "待處理"),
       bags: Number(r[at("包數")]) || 0,
+      dripSets: orderDripSets_(r[at(DRIP_ORDER_COL)], r[at("訂購內容")]),
       awarded: Number(r[at("已加點")]) || 0
     });
   }
@@ -2140,14 +2209,19 @@ function adminUpdateOrder(ss, d){
   if (d.status !== undefined){
     if (ORDER_STATUSES.indexOf(d.status) < 0) return { ok:false, error:"bad status" };
   }
-  let b;
+  let b, ds;
   if (d.bags !== undefined){
     b = Math.floor(Number(d.bags));
     if (!(b >= 0)) return { ok:false, error:"bad bags" };
   }
+  if (d.dripSets !== undefined && d.dripSets !== null && d.dripSets !== ""){
+    ds = Math.floor(Number(d.dripSets));
+    if (!(ds >= 0)) return { ok:false, error:"bad dripSets" };
+  }
   // 檢查都過了才寫入
   if (d.status !== undefined) sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
   if (d.bags !== undefined) sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
+  if (ds !== undefined) sh.getRange(row, ensureCol_(sh, DRIP_ORDER_COL).col).setValue(ds);
   syncOrderPoints(ss, sh, row);   // 程式改儲存格不會觸發 onEdit，所以這裡主動對帳
   // 出貨通知：只在「改成已完成」那一刻寄；寄信任何問題都不影響上面已完成的狀態與加點
   let shipNotice = "";
@@ -2400,6 +2474,8 @@ function setupSheets(){
   }
   // 2026-10-17：訂單編號（補在最右邊，不動既有欄位；既有訂單請再執行 backfillOrderIds()）
   ensureCol_(o, ORDER_ID_COL);
+  // 2026-10-27：耳掛組數（耳掛另外記組數；「包數」只算半磅）
+  ensureCol_(o, DRIP_ORDER_COL);
   // 出貨通知時間（第一次建立時，既有已完成的舊訂單會標「啟用前已完成（不寄）」，不會補寄）
   ensureShipCol_(o, 0);
 
@@ -2439,6 +2515,36 @@ function setupSheets(){
     d.setColumnWidth(1, 340);
     d.setColumnWidth(2, 160);
   }
+}
+
+/* 耳掛開賣前手動執行一次（Apps Script 上方選 setupDrip → 執行）：
+   ① products 分頁補 drip 欄：第一次建立時，除了名稱有「阿里山」的品項，其他先全部設成 TRUE（做耳掛）；
+      之後要調整，到後台「商品」分頁勾選「耳掛」即可。已經有 drip 欄就不會動到你設定好的值。
+   ② orders 分頁補「耳掛組數」欄。可重複執行。 */
+function setupDrip(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const psh = ss.getSheetByName(PRODUCTS_TAB);
+  let n = 0, created = false;
+  if (psh){
+    const c = ensureCol_(psh, DRIP_COL);
+    created = c.created;
+    if (c.created && psh.getLastRow() > 1){
+      const rows = psh.getRange(1, 1, psh.getLastRow(), psh.getLastColumn()).getValues();
+      const head = rows.shift().map(h => String(h).trim());
+      const idI = head.indexOf("id"), nameI = head.indexOf("name");
+      const col = rows.map(r => {
+        const on = !!r[idI] && String(r[nameI] || "").indexOf("阿里山") < 0;
+        if (on) n++;
+        return [r[idI] ? on : ""];
+      });
+      psh.getRange(2, c.col, col.length, 1).setValues(col);
+    }
+  }
+  const osh = ss.getSheetByName(ORDERS_TAB);
+  if (osh) ensureCol_(osh, DRIP_ORDER_COL);
+  const msg = created ? "已建立 drip 欄，" + n + " 個品項設為做耳掛（阿里山除外）" : "drip 欄已經存在，沒有變動";
+  adminLog_(ss, "耳掛設定", msg, "");
+  Logger.log(msg + "。請到後台「商品」分頁確認哪些品項做耳掛。");
 }
 
 /* 選用：測試 Email 是否能正常寄出（會寄一封測試信到 NOTIFY_EMAIL） */

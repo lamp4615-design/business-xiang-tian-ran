@@ -291,7 +291,7 @@
   .guide-back{margin-top:34px}
 
   /* TOAST */
-  .toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,140%);background:var(--espresso);color:var(--paper);padding:14px 26px;border-radius:100px;font-size:.9rem;letter-spacing:.04em;z-index:130;transition:transform .4s cubic-bezier(.22,1,.36,1);box-shadow:0 14px 40px rgba(36,28,21,.3);display:flex;align-items:center;gap:10px;max-width:90vw}
+  .toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,140%);background:var(--espresso);color:var(--paper);padding:14px 26px;border-radius:100px;font-size:.9rem;letter-spacing:.04em;z-index:130;transition:transform .4s cubic-bezier(.22,1,.36,1);box-shadow:0 14px 40px rgba(36,28,21,.3);display:flex;align-items:center;gap:10px;max-width:90vw;pointer-events:none}   /* 提示只是看的，不擋住底下的按鈕（例如購物袋的「確認購買」） */
   .toast.show{transform:translate(-50%,0)}
   .toast svg{width:18px;height:18px;color:var(--dawn-soft);flex:none}
 
@@ -535,6 +535,20 @@
   .wl-act .btn{flex:1;padding:13px 10px}
   .wl-skip{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:.85rem;color:var(--ink-45);cursor:pointer;user-select:none}
   .wl-skip input{width:17px;height:17px;accent-color:var(--pine)}
+  /* ---------- 耳掛（2026-10-27）：後端有品項勾了 drip 才會顯示（data-drip-only） ---------- */
+  [data-drip-only][hidden]{display:none!important}
+  .drip-banner{display:flex;align-items:center;justify-content:space-between;gap:14px 20px;flex-wrap:wrap;background:var(--pine);color:var(--paper);border-radius:18px;padding:20px 26px;margin:-14px 0 40px;transition:transform .2s,box-shadow .2s}
+  .drip-banner:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(36,28,21,.18)}
+  .drip-banner b{display:block;font-size:1.12rem;letter-spacing:.06em}
+  .drip-banner small{display:block;font-size:.9rem;opacity:.85;margin-top:2px}
+  .drip-banner .go{background:var(--dawn);color:var(--espresso);font-weight:700;padding:10px 20px;border-radius:100px;white-space:nowrap;font-size:.92rem}
+  .drip-link{display:block;margin:-10px 0 14px;font-size:.86rem;color:#B96E1E;font-weight:500}
+  .drip-link:hover{text-decoration:underline}
+  .ci-tag{display:inline-block;margin-left:8px;padding:0 8px;border-radius:99px;background:rgba(228,137,43,.16);color:#B96E1E;font-family:var(--sans);font-size:.7rem;font-weight:700;vertical-align:2px;letter-spacing:.06em}
+  .ci-warn{font-size:.78rem;color:#a4432f;margin:-4px 0 8px}
+  .cart-drip{margin:16px 0 4px;padding:14px 16px;border-radius:14px;background:#FFF4E0;border:1px solid #F0D49B;color:#6B4510;font-size:.86rem;line-height:1.75}
+  .cart-drip b{color:var(--espresso)}
+  .cart-drip .ship{display:block;margin-top:6px;color:var(--ink-70);font-size:.8rem}
 </style>
 <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0983c24b22934644914ceb51ef122b23"}'></script><!-- End Cloudflare Web Analytics -->
 </head>
@@ -550,6 +564,7 @@
     <div class="nav-links">
       <a data-page="home" href="#home">理念</a>
       <a data-page="products" href="#products">產品</a>
+      <a href="drip/" data-drip-only hidden>耳掛</a>
       <a data-page="flavor" href="#flavor">風味</a>
       <a data-page="share" href="#share">分享</a>
       <a data-page="member" href="#member">會員</a>
@@ -570,6 +585,7 @@
   <div class="mobile-menu" id="mobileMenu">
     <a href="#home" onclick="closeMenu()">理念</a>
     <a href="#products" onclick="closeMenu()">產品</a>
+    <a href="drip/" data-drip-only hidden>耳掛咖啡</a>
     <a href="#flavor" onclick="closeMenu()">風味</a>
     <a href="#share" onclick="closeMenu()">分享天地</a>
     <a href="#member" onclick="closeMenu()">會員</a>
@@ -675,6 +691,7 @@
         <div class="bs"><span class="n">2</span>挑選並加入購物袋</div>
         <div class="bs"><span class="n">3</span>確認購買，我們與你聯繫</div>
       </div>
+      <a class="drip-banner" href="drip/" data-drip-only hidden><span><b>也有耳掛咖啡</b><small>一組 10 包同口味 NT$<span data-drip-price>350</span>，撕開掛上杯子就能沖；可以和半磅咖啡豆一起結帳</small></span><span class="go">看耳掛口味 →</span></a>
       <div id="prodContainer">
         <div class="skeleton"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
       </div>
@@ -701,7 +718,7 @@
         <p class="intro">登入後選購，確認購買時我們就會收到你的訂單與所在地區，再與你聯繫寄送方式，省去每次重填的麻煩。</p>
         <ul class="perks">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>用手機號碼快速登入，回購免重填</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>集點回饋：一包 1 點，滿 10 點折 100 元</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span>集點回饋：一包 1 點，滿 10 點折 100 元<span data-drip-only hidden>（耳掛一組 1 點，一次買滿 5 組再送 5 點）</span></span></li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>留 Email 並勾選同意，新品上架寄信通知你</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>幫喝過的豆子評分，會員中心推薦風味相近的豆子</li>
         </ul>
@@ -753,6 +770,7 @@
       <div class="guide-list">
         <div class="guide-item"><h3>付款方式與運費</h3><p>目前不需要線上付款。下單後我們會主動與您聯繫，確認付款方式與運費。</p></div>
         <div class="guide-item"><h3>出貨通知</h3><p>出貨時會以 Email 通知您，請在<a href="#member">會員資料</a>中填寫 Email。</p></div>
+        <div class="guide-item" data-drip-only hidden><h3>耳掛咖啡</h3><p>耳掛是接單後才現磨、填裝，含耳掛的訂單約 5～7 天出貨。一組 10 包同口味，可以和半磅咖啡豆一起結帳。<a href="drip/">看耳掛口味 →</a></p></div>
         <div class="guide-item"><h3>退換貨</h3><p>如需退換貨，請透過 LINE 與我們聯繫，我們會依消費者保護法相關規定處理。</p>
           <a class="btn btn-ghost guide-line" data-line-link target="_blank" rel="noopener">用 LINE 聯絡我們 →</a></div>
       </div>
@@ -776,6 +794,7 @@
         <h4>逛逛</h4>
         <a class="navlink" href="#home">理念</a>
         <a class="navlink" href="#products">產品</a>
+        <a class="navlink" href="drip/" data-drip-only hidden>耳掛咖啡</a>
         <a class="navlink" href="#flavor">風味</a>
         <a class="navlink" href="#member">會員</a>
         <a class="navlink" href="#guide">購物須知</a>
@@ -905,8 +924,19 @@ let member=null;      // {name, phone, city}
 /* 購物袋存 localStorage，這樣在商品介紹頁（products/.../index.html）按「加入購物袋」後，
    回到官網也看得到同一個購物袋（商品介紹頁沒有在跑官網的程式，只會直接寫這個 key）。 */
 const CART_KEY="xn_cart";
-function loadCart(){try{const a=JSON.parse(localStorage.getItem(CART_KEY)||"[]");if(Array.isArray(a))cart=a;}catch(e){}}
-function saveCart(){try{localStorage.setItem(CART_KEY,JSON.stringify(cart));}catch(e){}}
+/* 耳掛（2026-10-27）另外存一個 key（耳掛頁 drip/ 也寫這個）：qty＝組數。
+   分開存是為了舊版網頁（瀏覽器還留著舊的 index.html）不會把耳掛當成半磅送出。 */
+const DRIP_CART_KEY="xn_cart_drip";
+let dripCart=[];      // {id, qty}
+// 跟 Code.gs 的 DRIP_ 常數一致；價格優先用商品資料裡的 dripPrice，下單時後端一樣會重算
+const DRIP_SET_BAGS=10,DRIP_BAG_GRAMS=12,DRIP_BONUS_SETS=5,DRIP_BONUS_POINTS=5,DRIP_SET_PRICE_DEFAULT=350;
+const dripPrice=p=>Number(p&&p.dripPrice)||DRIP_SET_PRICE_DEFAULT;
+const dripPoints=sets=>sets+(sets>=DRIP_BONUS_SETS?DRIP_BONUS_POINTS:0);
+function loadCart(){
+  try{const a=JSON.parse(localStorage.getItem(CART_KEY)||"[]");if(Array.isArray(a))cart=a;}catch(e){}
+  try{const a=JSON.parse(localStorage.getItem(DRIP_CART_KEY)||"[]");if(Array.isArray(a))dripCart=a;}catch(e){}
+}
+function saveCart(){try{localStorage.setItem(CART_KEY,JSON.stringify(cart));localStorage.setItem(DRIP_CART_KEY,JSON.stringify(dripCart));}catch(e){}}
 
 /* ---------- 小工具 ---------- */
 function $(id){return document.getElementById(id);}
@@ -950,11 +980,12 @@ function thumb(p){return productArt(p.hue)+(p.image?`<img src="${esc(smallImg(p.
 /* ---------- 讀取產品 ---------- */
 const PROD_LS_KEY="xtr_products_v1";
 function readProdCache(){try{const a=JSON.parse(localStorage.getItem(PROD_LS_KEY)||"null");return Array.isArray(a)&&a.length?a:null;}catch(e){return null;}}
+let productsFresh=false;   // 這次進站已經跟後端拿到最新商品清單（結帳前核對購物袋用）
 async function fetchProducts(){
   const res=await fetch(API_URL+"?action=products");
   const data=await res.json();
   const list=Array.isArray(data)?data:(data.products||[]);
-  if(list.length){try{localStorage.setItem(PROD_LS_KEY,JSON.stringify(list));}catch(e){}}
+  if(list.length){productsFresh=true;try{localStorage.setItem(PROD_LS_KEY,JSON.stringify(list));}catch(e){}}
   return list;
 }
 async function ensureProducts(){
@@ -981,6 +1012,8 @@ async function ensureProducts(){
   productsLoaded=true;productsLoading=false;renderProducts();
 }
 function renderProducts(){
+  updateDripUI();
+  renderCart();   // 購物袋要等商品資料到了才畫得出品名與金額（從商品介紹頁、耳掛頁回來時，購物袋裡已經有東西）
   const box=$("prodContainer");
   if(!PRODUCTS_CACHE.length){box.innerHTML='<div class="prod-state">目前還沒有上架商品。</div>';return;}
   const groups={};
@@ -988,6 +1021,14 @@ function renderProducts(){
   box.innerHTML=Object.entries(groups).map(([cat,items])=>`
     <div class="prod-group"><div class="group-title">${esc(cat)}<span class="count">${items.length} 款</span></div>
       <div class="prod-grid">${items.map(card).join("")}</div></div>`).join("");
+}
+/* 有品項做耳掛時，才顯示選單的「耳掛」、產品頁的耳掛介紹等（data-drip-only）；後端還沒設定耳掛前都不會出現 */
+let HAS_DRIP=false;
+function updateDripUI(){
+  const d=PRODUCTS_CACHE.find(p=>p.drip);
+  HAS_DRIP=!!d;
+  document.querySelectorAll("[data-drip-only]").forEach(el=>{el.hidden=!HAS_DRIP;});
+  if(d)document.querySelectorAll("[data-drip-price]").forEach(el=>{el.textContent=dripPrice(d).toLocaleString();});   // 一組的價格跟著後端
 }
 async function loadProductUrls(){
   try{
@@ -1006,6 +1047,7 @@ function card(p){
     <div class="prod-body"><h3 onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
       <div class="prod-meta">${(p.specs||[]).map(s=>`<div class="meta-row"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join("")}</div>
       <div class="prod-tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>
+      ${p.drip&&!p.soldOut?`<a class="drip-link" href="drip/#d-${encodeURIComponent(p.id)}" onclick="event.stopPropagation()">也有耳掛包・一組 ${DRIP_SET_BAGS} 包 NT$${dripPrice(p).toLocaleString()} →</a>`:""}
       <button class="fv-trigger" onclick="event.stopPropagation();openFlavorView('${esc(p.id)}')">看風味輪，跟大家比比看 →</button>
       <div class="prod-foot"><div class="price">NT$ ${Number(p.price).toLocaleString()}${p.unit?`<small>/ ${esc(p.unit)}</small>`:""}</div>
         ${p.soldOut?`<button class="add-btn want-btn" onclick="event.stopPropagation();wantRestock('${esc(p.id)}',this)">想再喝到這支</button>`:`<button class="add-btn" onclick="event.stopPropagation();addToCart('${esc(p.id)}')">加入購物袋</button>`}</div>
@@ -1069,42 +1111,84 @@ function addToCart(id){
   if(f)f.qty++;else cart.push({id,qty:1});
   saveCart();renderCart();const p=findProduct(id);showToast(`已加入「${p?p.name:"商品"}」`);
 }
-function changeQty(id,d){const c=cart.find(x=>String(x.id)===String(id));if(!c)return;c.qty+=d;if(c.qty<=0)cart=cart.filter(x=>String(x.id)!==String(id));saveCart();renderCart();}
-function removeItem(id){cart=cart.filter(x=>String(x.id)!==String(id));saveCart();renderCart();}
+/* kind="drip" 是耳掛（數量＝組數），其餘是半磅 */
+function changeQty(id,d,kind){
+  const c=(kind==="drip"?dripCart:cart).find(x=>String(x.id)===String(id));if(!c)return;
+  c.qty=Math.min(100,c.qty+d);
+  if(c.qty<=0){removeItem(id,kind);return;}
+  saveCart();renderCart();
+}
+function removeItem(id,kind){
+  if(kind==="drip")dripCart=dripCart.filter(x=>String(x.id)!==String(id));
+  else cart=cart.filter(x=>String(x.id)!==String(id));
+  saveCart();renderCart();
+}
+/* 購物袋合計：bags 半磅包數、sets 耳掛組數、points 訂單完成後可得的點數（半磅一包 1 點；耳掛一組 1 點，滿 5 組再送 5 點） */
+function cartSums(){
+  const bags=cart.reduce((s,c)=>s+c.qty,0),sets=dripCart.reduce((s,c)=>s+c.qty,0);
+  const total=cart.reduce((s,c)=>{const p=findProduct(c.id);return s+(p?p.price:0)*c.qty;},0)
+             +dripCart.reduce((s,c)=>{const p=findProduct(c.id);return s+(p?dripPrice(p):0)*c.qty;},0);
+  return {bags,sets,count:bags+sets,total,points:bags+dripPoints(sets)};
+}
 function renderCart(){
   const body=$("cartBody");
-  const count=cart.reduce((s,c)=>s+c.qty,0);
-  const total=cart.reduce((s,c)=>{const p=findProduct(c.id);return s+(p?p.price:0)*c.qty;},0);
-  $("cartTotal").textContent="NT$ "+total.toLocaleString();
-  const badge=$("cartCount");badge.textContent=count;badge.classList.toggle("show",count>0);
-  const bar=$("cartbar");if(bar){$("cbCount").textContent=count+" 件商品";$("cbTotal").textContent="NT$ "+total.toLocaleString();bar.classList.toggle("show",count>0);}
-  $("authHint").style.display=(cart.length&&!member)?"block":"none";
+  const s=cartSums();
+  $("cartTotal").textContent="NT$ "+s.total.toLocaleString();
+  const badge=$("cartCount");badge.textContent=s.count;badge.classList.toggle("show",s.count>0);
+  const bar=$("cartbar");if(bar){$("cbCount").textContent=s.count+" 件商品";$("cbTotal").textContent="NT$ "+s.total.toLocaleString();bar.classList.toggle("show",s.count>0);}
+  const any=cart.length||dripCart.length;
+  $("authHint").style.display=(any&&!member)?"block":"none";
   $("confirmBtn").textContent=member?"確認購買":"登入後購買";
-  if(!cart.length){body.innerHTML='<div class="cart-empty">購物袋還是空的。<br>挑一樣喜歡的吧。</div>';return;}
+  if(!any){body.innerHTML='<div class="cart-empty">購物袋還是空的。<br>挑一樣喜歡的吧。</div>';return;}
   body.innerHTML=cart.map(c=>{const p=findProduct(c.id);if(!p)return"";return `<div class="cart-item">
     <div class="cart-thumb">${thumb(p)}</div>
-    <div class="cart-info"><h4>${esc(p.name)}</h4><div class="ci-sub">${esc(p.unit||"")}</div>
+    <div class="cart-info"><h4>${esc(p.name)}</h4><div class="ci-sub">${esc(p.unit||"")}</div>${p.soldOut?'<div class="ci-warn">已售完，請移除後再結帳</div>':""}
       <div class="qty"><button onclick="changeQty('${esc(p.id)}',-1)" aria-label="減少">−</button><span>${c.qty}</span><button onclick="changeQty('${esc(p.id)}',1)" aria-label="增加">＋</button></div></div>
     <div style="text-align:right"><div class="ci-price">NT$ ${(p.price*c.qty).toLocaleString()}</div><button class="ci-remove" onclick="removeItem('${esc(p.id)}')">移除</button></div>
-  </div>`;}).join("");
+  </div>`;}).join("")+dripCart.map(c=>{const p=findProduct(c.id);if(!p)return"";const off=p.soldOut||!p.drip;return `<div class="cart-item">
+    <div class="cart-thumb">${thumb(p)}</div>
+    <div class="cart-info"><h4>${esc(p.name)}<span class="ci-tag">耳掛</span></h4><div class="ci-sub">一組 ${DRIP_SET_BAGS} 包・每包 ${DRIP_BAG_GRAMS} 克</div>${off?`<div class="ci-warn">${p.soldOut?"已售完":"目前沒有供應耳掛"}，請移除後再結帳</div>`:""}
+      <div class="qty"><button onclick="changeQty('${esc(p.id)}',-1,'drip')" aria-label="少一組">−</button><span>${c.qty} 組</span><button onclick="changeQty('${esc(p.id)}',1,'drip')" aria-label="多一組">＋</button></div></div>
+    <div style="text-align:right"><div class="ci-price">NT$ ${(dripPrice(p)*c.qty).toLocaleString()}</div><button class="ci-remove" onclick="removeItem('${esc(p.id)}','drip')">移除</button></div>
+  </div>`;}).join("")
+    +(s.sets?`<div class="cart-drip"><b>耳掛 ${s.sets} 組（${s.sets*DRIP_SET_BAGS} 包）</b>：${s.sets>=DRIP_BONUS_SETS?`已滿 ${DRIP_BONUS_SETS} 組，多送 ${DRIP_BONUS_POINTS} 點 🎉`:`再 ${DRIP_BONUS_SETS-s.sets} 組就多送 ${DRIP_BONUS_POINTS} 點`}<br>這張訂單完成後可得 <b>${s.points}</b> 點<span class="ship">耳掛是接單後才現磨、填裝，含耳掛的訂單約 5～7 天出貨。</span></div>`:"");
 }
 const overlay=$("overlay");const drawer=$("drawer");
-function openCart(){overlay.classList.add("open");drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");}
+function openCart(){renderCart();overlay.classList.add("open");drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");}
+/* 別的分頁（耳掛頁、商品介紹頁）改了購物袋，或從那邊按「上一頁」回來：重讀購物袋 */
+window.addEventListener("storage",e=>{if(e.key===CART_KEY||e.key===DRIP_CART_KEY){loadCart();renderCart();}});
+window.addEventListener("pageshow",e=>{if(e.persisted){loadCart();renderCart();}});
 function closeCart(){drawer.classList.remove("open");drawer.setAttribute("aria-hidden","true");overlay.classList.remove("open");}
 
 /* ---------- 確認購買 → 送單到後台 ---------- */
 async function confirmPurchase(){
-  if(!cart.length){showToast("購物袋是空的");return;}
+  if(!cart.length&&!dripCart.length){showToast("購物袋是空的");return;}
   if(!member){closeCart();go("member");memberTab&&renderMember();showToast("請先登入會員再購買");return;}
-  const items=cart.map(c=>{const p=findProduct(c.id);return `${p.name} x${c.qty}`;}).join("、");
-  const total=cart.reduce((s,c)=>{const p=findProduct(c.id);return s+p.price*c.qty;},0);
-  const bags=cart.reduce((s,c)=>s+c.qty,0);   // 總包數，供集點用
-  const lines=cart.map(c=>({id:c.id,qty:c.qty}));   // 2026-10-17：金額由後端依商品價格表重算，這裡送商品代號與數量
+  // 購物袋裡每一項都要對得到商品資料：對不到時先跟後端拿最新清單；拿到了還是對不到＝已下架，從購物袋拿掉
+  const unknown=()=>cart.concat(dripCart).filter(c=>!findProduct(c.id));
+  if(unknown().length&&API_URL&&!productsFresh){
+    showToast("商品資料更新中，請稍候…");
+    try{const list=await fetchProducts();if(list.length){PRODUCTS_CACHE=list;renderProducts();}}catch(e){}
+  }
+  if(unknown().length){
+    if(API_URL&&!productsFresh){showToast("目前連不上伺服器，請稍後再試");return;}
+    const gone=new Set(unknown().map(c=>String(c.id)));
+    cart=cart.filter(c=>!gone.has(String(c.id)));dripCart=dripCart.filter(c=>!gone.has(String(c.id)));saveCart();renderCart();
+    showToast("有商品已下架，已從購物袋移除，請再確認一次");return;
+  }
+  const bad=cart.filter(c=>findProduct(c.id).soldOut).map(c=>findProduct(c.id).name)
+    .concat(dripCart.filter(c=>{const p=findProduct(c.id);return p.soldOut||!p.drip;}).map(c=>"耳掛 "+findProduct(c.id).name));
+  if(bad.length){showToast("「"+bad[0]+"」目前無法訂購，請先從購物袋移除");return;}
+  const items=cart.map(c=>`${findProduct(c.id).name} x${c.qty}`).concat(dripCart.map(c=>`耳掛 ${findProduct(c.id).name} x${c.qty}組`)).join("、");
+  const sums=cartSums(),total=sums.total;
+  const bags=sums.bags,dripSets=sums.sets;   // 半磅包數、耳掛組數，供集點用（後端會自己重算）
+  // 2026-10-17：金額由後端依商品價格表重算，這裡送商品代號與數量；耳掛加 kind:"drip"，qty＝組數
+  const lines=cart.map(c=>({id:c.id,qty:c.qty})).concat(dripCart.map(c=>({id:c.id,qty:c.qty,kind:"drip"})));
   const btn=$("confirmBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="送出中…";
   let orderId="",finalTotal=total;
   try{
     if(API_URL){
-      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags,lines})});
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags,dripSets,lines})});
       let r=null;try{r=await res.json();}catch(e){}
       if(r&&r.ok===false){
         showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":r.error==="product_unavailable"?"有商品已下架、售完或更新，請重新整理頁面後再下單":"訂單送出失敗，請稍後再試或聯絡我們");
@@ -1113,8 +1197,8 @@ async function confirmPurchase(){
       if(r&&r.orderId)orderId=String(r.orderId);   // 舊版後端沒有訂單編號，就不顯示
       if(r&&Number(r.total)>0)finalTotal=Number(r.total);
     }else{await new Promise(r=>setTimeout(r,600));}
-    cart=[];saveCart();renderCart();
-    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！'+(orderId?'<br>訂單編號：<strong>'+esc(orderId)+'</strong>（詢問訂單時請提供）':'')+(finalTotal!==total?'<br>訂單金額以 NT$ '+finalTotal.toLocaleString()+' 為準（價格已更新）':'')+'<br>我們會盡快透過 LINE 或電話與你聯繫。<br>訂單處理完成後，點數會自動加到會員中心。</div>';
+    cart=[];dripCart=[];saveCart();renderCart();
+    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！'+(orderId?'<br>訂單編號：<strong>'+esc(orderId)+'</strong>（詢問訂單時請提供）':'')+(finalTotal!==total?'<br>訂單金額以 NT$ '+finalTotal.toLocaleString()+' 為準（價格已更新）':'')+'<br>我們會盡快透過 LINE 或電話與你聯繫。'+(dripSets?'<br>耳掛接單後現磨填裝，約 5～7 天出貨。':'')+'<br>訂單處理完成後，點數會自動加到會員中心。</div>';
     showToast(orderId?"訂單已送出，編號 "+orderId:"訂單已送出，謝謝你");
     fetchMyStats();
   }catch(e){showToast("送出失敗，請稍後再試");}
@@ -1128,17 +1212,18 @@ function pointsPanelHtml(){
   const redeemable=Math.floor(pts/10);
   const inCycle=pts%10;
   let fill, mainLine, subLine;
-  if(pts===0){ fill=0; mainLine="目前 0 點"; subLine="還差 10 包可折 100 元"; }
+  const u=HAS_DRIP?" 點":" 包";   // 有耳掛之後，點數不只來自半磅包數，改說「點」
+  if(pts===0){ fill=0; mainLine="目前 0 點"; subLine="還差 10"+u+"可折 100 元"; }
   else if(redeemable>=1 && inCycle===0){ fill=100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元！"; }
-  else if(redeemable>=1){ fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元；再買 "+(10-inCycle)+" 包可再折 100"; }
-  else { fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="還差 "+(10-inCycle)+" 包可折 100 元"; }
+  else if(redeemable>=1){ fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元；"+(HAS_DRIP?"再集 ":"再買 ")+(10-inCycle)+u+"可再折 100"; }
+  else { fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="還差 "+(10-inCycle)+u+"可折 100 元"; }
   let expLine="";
   if(pts>0 && member.pointsExpiry){
     const d=new Date(member.pointsExpiry);
     if(!isNaN(d)) expLine=`<div class="pts-exp">點數效期至 ${d.getFullYear()}/${(d.getMonth()+1)}/${d.getDate()}（此日前有消費會自動延長）</div>`;
   }
   return `<div class="pts-panel">
-    <div class="pts-top"><span class="pts-num">${pts}</span><span class="pts-unit">點</span><span class="pts-goal">一包一點 · 滿 10 點折 100</span></div>
+    <div class="pts-top"><span class="pts-num">${pts}</span><span class="pts-unit">點</span><span class="pts-goal">${HAS_DRIP?"半磅一包、耳掛一組各 1 點 · 滿 10 點折 100":"一包一點 · 滿 10 點折 100"}</span></div>
     <div class="pts-bar"><span style="width:${fill}%"></span></div>
     <div class="pts-sub">${subLine}</div>
     ${expLine}
@@ -2048,9 +2133,11 @@ function go(p){location.hash=p;}   // 舊的 onclick 仍可用；導覽連結已
 const HOME_TITLE=document.title;
 const PAGE_TITLES={home:HOME_TITLE,products:"咖啡豆｜翔天然",flavor:"風味評分｜翔天然",share:"分享天地｜翔天然",member:"會員中心｜翔天然",guide:"購物須知｜翔天然"};
 function route(){
-  let h=(location.hash||"").replace("#",""),sharePost="";
+  let h=(location.hash||"").replace("#",""),sharePost="",wantCart=false;
   try{h=decodeURIComponent(h);}catch(e){}
   if(h.indexOf("share/")===0){sharePost=h.slice(6);h="share";}
+  // #cart：耳掛頁、商品介紹頁的「前往結帳」→ 到產品頁並打開購物袋（網址換回 #products，之後換頁再按上一頁才不會又自動打開購物袋）
+  if(h==="cart"){h="products";wantCart=true;try{history.replaceState(null,"","#products");}catch(e){}}
   if(!PAGES.includes(h))h="home";
   document.title=PAGE_TITLES[h]||HOME_TITLE;
   PAGES.forEach(p=>$("page-"+p).classList.toggle("active",p===h));
@@ -2060,6 +2147,7 @@ function route(){
   if(h==="member"){renderMember();if(member)fetchMyStats();}   // 每次進會員中心都重讀點數
   if(h==="flavor")flavorInit();
   if(h==="share")renderShare(sharePost);
+  if(wantCart)openCart();
 }
 window.addEventListener("hashchange",route);
 window.addEventListener("scroll",()=>$("nav").classList.toggle("scrolled",window.scrollY>20));

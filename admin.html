@@ -63,6 +63,14 @@ h3{margin:18px 0 8px;font-size:16px}
 .modal-x{position:absolute;right:14px;top:14px}
 
 .row{display:flex;gap:6px;align-items:center}
+.qcell{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute);white-space:nowrap}
+.qcell label{display:flex;gap:4px;align-items:center}
+.qcell input{width:64px}
+.drip-tag{display:inline-block;padding:0 7px;border-radius:99px;font-size:12px;color:var(--orange);border:1px solid var(--orange);margin-right:4px}
+#ordersBody button.sm{white-space:nowrap}
+.prep{border:1px solid var(--orange);background:rgba(224,138,44,.08);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:14px;line-height:1.8}
+.prep b{color:var(--orange)}
+.prep table{margin-top:4px}.prep td,.prep th{padding:3px 6px;border-bottom:1px dashed var(--line)}
 #pCoverPrev{max-height:72px;max-width:140px;border-radius:8px;border:1px solid var(--line)}
 .tb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:10px 10px 0 0;border-bottom:none}
 .tb .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
@@ -135,16 +143,18 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
   <section class="panel" id="t-orders">
     <div class="tools">
       <select id="fStatus" onchange="renderOrders()"><option value="">全部狀態</option></select>
+      <select id="fType" onchange="renderOrders()"><option value="">全部品項</option><option value="drip">含耳掛</option><option value="bean">只有半磅</option></select>
       <input id="fSearch" placeholder="搜尋姓名／手機／內容" oninput="renderOrders()">
       <button class="sm" onclick="loadAll()">重新整理</button>
       <button class="sm" onclick="exportOrders()">匯出 CSV</button>
       <span class="sub" id="ordersSum"></span>
     </div>
+    <div class="prep" id="dripPrep" hidden></div>
     <div class="wrap"><table>
-      <thead><tr><th>時間</th><th>顧客</th><th>訂購內容</th><th class="num">金額</th><th>包數</th><th>狀態</th><th class="num">已加點</th><th></th></tr></thead>
+      <thead><tr><th>時間</th><th>顧客</th><th>訂購內容</th><th class="num">金額</th><th>數量</th><th>狀態</th><th class="num">已加點</th><th></th></tr></thead>
       <tbody id="ordersBody"></tbody>
     </table></div>
-    <p class="sub">把狀態改成「已完成」→ 自動依包數幫會員加點；之後改包數會自動補差額；改回待處理／已取消會扣回。</p>
+    <p class="sub">把狀態改成「已完成」→ 自動幫會員加點：半磅依包數（一包 1 點）；耳掛依組數（一組 1 點，同一張訂單滿 5 組再送 5 點）。之後改包數／組數會自動補差額；改回待處理／已取消會扣回。</p>
   </section>
 
   <section class="panel" id="t-members" hidden>
@@ -199,9 +209,10 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <span class="sub" id="prodSum"></span>
     </div>
     <div class="wrap"><table>
-      <thead><tr><th>商品</th><th class="num">價格</th><th>狀態</th><th>即將完售</th><th class="num">想再喝到(累計)</th><th class="num">近30天</th><th>最近一次</th><th class="num">近90天賣出(包)</th><th class="num">風味評分</th><th>平均喜歡</th></tr></thead>
+      <thead><tr><th>商品</th><th class="num">價格</th><th>狀態</th><th>即將完售</th><th>耳掛</th><th class="num">想再喝到(累計)</th><th class="num">近30天</th><th>最近一次</th><th class="num">近90天賣出(包)</th><th class="num">近90天耳掛(組)</th><th class="num">風味評分</th><th>平均喜歡</th></tr></thead>
       <tbody id="prodBody"></tbody>
     </table></div>
+    <p class="sub"><b>耳掛</b>勾選＝這支豆子也賣耳掛包（一組 10 包 NT$350，前台「耳掛咖啡」頁約 15 分鐘內出現）。耳掛的庫存跟著半磅：半磅改「已售完」，耳掛也同時不能訂；勾「即將完售」，耳掛頁一樣會標示。</p>
     <p class="sub">狀態：<b>正常販售</b>＝可下單；<b>已售完・待補貨</b>＝前台保留商品與風味輪、不能下單，顧客可按「想再喝到這支」（上表可看人數，顧客不會被告知會補貨）；<b>已下架</b>＝前台與風味輪都不顯示。<br><b>即將完售</b>勾選後（生豆快用完時），前台商品卡片與商品頁會標示「即將完售」，<b>不會寄信</b>。改成「已下架」時，系統會依原本設定寄下架通知給同意收行銷通知的會員。變更後前台約 15 分鐘內更新。</p>
   </section>
 
@@ -385,7 +396,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
 
     <h3>各月份（<span id="yLabel"></span> 年）</h3>
     <div class="wrap"><table>
-      <thead><tr><th>月份</th><th class="num">營收</th><th class="num">銷貨成本</th><th class="num">毛利</th><th class="num">費用</th><th class="num">淨利</th><th class="num">出貨包數</th></tr></thead>
+      <thead><tr><th>月份</th><th class="num">營收</th><th class="num">銷貨成本</th><th class="num">毛利</th><th class="num">費用</th><th class="num">淨利</th><th class="num">半磅包數</th><th class="num">耳掛組數</th></tr></thead>
       <tbody id="monthsBody"></tbody>
     </table></div>
 
@@ -398,7 +409,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
     <h3>熱銷商品與客戶（<span id="pLabel3"></span>）</h3>
     <div class="cards" id="custCards"></div>
     <div class="wrap"><table>
-      <thead><tr><th>商品</th><th class="num">售出包數</th><th>占比</th></tr></thead>
+      <thead><tr><th>商品</th><th class="num">售出數量</th><th>占比</th></tr></thead>
       <tbody id="topBody"></tbody>
     </table></div>
   </section>
@@ -522,11 +533,17 @@ function buildPeriodSelects(){
 }
 
 /* ---------- 訂單 ---------- */
+const DRIP_SET_BAGS=10,DRIP_BAG_GRAMS=12;   // 耳掛：一組 10 包、每包 12 克（與 Code.gs 一致）
+const isDripOrder=o=>(o.dripSets||0)>0||/(^|、)\s*耳掛/.test(o.items||"");
+function filteredOrders(){
+  const st=$("fStatus").value,ty=$("fType").value,q=$("fSearch").value.trim().toLowerCase();
+  return ORDERS.filter(o=>(!st||o.status===st)&&(!ty||(ty==="drip")===isDripOrder(o))&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
+}
 function renderOrders(){
-  const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
-  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
+  const list=filteredOrders();
   const pend=list.filter(o=>o.status==="待處理");
   $("ordersSum").textContent=`${list.length} 筆`+(pend.length?`・待處理 ${pend.length} 筆（${money(pend.reduce((s,o)=>s+o.total,0))}）`:"");
+  renderDripPrep();
   if(!list.length){$("ordersBody").innerHTML='<tr><td colspan="8" class="empty">沒有訂單</td></tr>';return;}
   $("ordersBody").innerHTML=list.map(o=>{
     const d=o.time?new Date(o.time):null;
@@ -534,9 +551,9 @@ function renderOrders(){
     return `<tr>
       <td>${t}${o.orderId?`<div class="sub">${esc(o.orderId)}</div>`:""}</td>
       <td>${esc(o.name)}<div class="sub">${esc(o.phone)}・${esc(o.city)}</div></td>
-      <td>${esc(o.items)}</td>
+      <td>${isDripOrder(o)?'<span class="drip-tag">耳掛</span>':""}${esc(o.items)}</td>
       <td class="num">${money(o.total)}</td>
-      <td><input type="number" min="0" step="1" value="${o.bags}" id="b${o.row}"></td>
+      <td><div class="qcell"><label><input type="number" min="0" step="1" value="${o.bags}" id="b${o.row}"> 包</label>${isDripOrder(o)?`<label><input type="number" min="0" step="1" value="${o.dripSets||0}" id="d${o.row}"> 組耳掛</label>`:""}</div></td>
       <td><select id="s${o.row}" class="s-${esc(o.status)}">${STATUSES.map(s=>`<option${s===o.status?" selected":""}>${s}</option>`).join("")}</select></td>
       <td class="num">${o.awarded}</td>
       <td><button class="sm" onclick="saveOrder(${o.row},this)">儲存</button></td>
@@ -547,10 +564,25 @@ async function saveOrder(row,btn){
   try{
     // 以訂單編號定位（後端寫入前會再核對）；還沒補編號的舊訂單才用列號＋訂購內容核對。舊版後端會忽略 orderId／items，照舊用列號
     const o=ORDERS.find(x=>x.row===row)||{};
-    const r=await api({action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value});
+    const de=$("d"+row);   // 耳掛組數（只有含耳掛的訂單才有這格）
+    const r=await api({action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value,dripSets:de?de.value:undefined});
     const SHIP_MSG={sent:"，已寄出貨通知信",no_email:"（會員沒有 Email，未寄出貨通知）",quota:"，但今天寄信額度已用完，出貨通知未寄（見 admin_log）",failed:"，但出貨通知信寄送失敗（見 admin_log）"};
     toast("已儲存，點數已同步"+(SHIP_MSG[r&&r.shipNotice]||""));await loadAll();
   }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;if(/重新整理/.test(e.message))loadAll();}
+}
+/* 耳掛備貨：「待處理」訂單裡的耳掛依口味加總，算出要填幾包、要磨多少克豆 */
+function renderDripPrep(){
+  const box=$("dripPrep");
+  const pend=ORDERS.filter(o=>o.status==="待處理"&&isDripOrder(o));
+  if(!pend.length){box.hidden=true;box.innerHTML="";return;}
+  const by={};
+  pend.forEach(o=>{const it=parseItems(o.items);for(const k in it)if(k.indexOf("耳掛")===0){const n=k.replace(/^耳掛\s*/,"");by[n]=(by[n]||0)+it[k];}});
+  const names=Object.keys(by).sort((a,b)=>by[b]-by[a]);
+  const sets=names.reduce((s,n)=>s+by[n],0),g=n=>(n*DRIP_SET_BAGS*DRIP_BAG_GRAMS).toLocaleString();
+  box.hidden=false;
+  box.innerHTML=`<b>耳掛備貨</b>（待處理 ${pend.length} 張訂單）：共 ${sets} 組＝${sets*DRIP_SET_BAGS} 包，約需 ${g(sets)} 克咖啡粉（約 ${(sets*DRIP_SET_BAGS*DRIP_BAG_GRAMS/227).toFixed(1)} 包半磅的量）
+    <div class="wrap"><table><thead><tr><th>口味</th><th class="num">組數</th><th class="num">包數</th><th class="num">咖啡粉</th></tr></thead><tbody>${names.map(n=>`<tr><td>${esc(n)}</td><td class="num">${by[n]}</td><td class="num">${by[n]*DRIP_SET_BAGS}</td><td class="num">${g(by[n])} 克</td></tr>`).join("")}</tbody></table></div>
+    <div class="sub">依訂購內容加總，每包 ${DRIP_BAG_GRAMS} 克；實際備豆請再多抓一點研磨、填裝的耗損。豆子不夠賣半磅時，記得到「商品」分頁勾「即將完售」或改「已售完」。</div>`;
 }
 
 /* ---------- 成本 ---------- */
@@ -598,9 +630,8 @@ function exportCosts(){
   downloadCsv(`成本_${m||"全部"}.csv`,[["日期","項目","群組","分類","金額","備註"]].concat(list.map(x=>[x.date,x.item,groupOf(x.category),x.category,x.amount,x.note])));
 }
 function exportOrders(){
-  const st=$("fStatus").value,q=$("fSearch").value.trim().toLowerCase();
-  const list=ORDERS.filter(o=>(!st||o.status===st)&&(!q||(o.name+o.phone+o.items+(o.orderId||"")).toLowerCase().includes(q)));
-  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","狀態","訂單編號"]].concat(list.map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.status,o.orderId||""])));
+  const st=$("fStatus").value;
+  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","耳掛組數","狀態","訂單編號"]].concat(filteredOrders().map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.dripSets||0,o.status,o.orderId||""])));
 }
 async function addCost(){
   const item=$("cItem").value.trim(),amount=Number($("cAmt").value);
@@ -784,6 +815,7 @@ function renderTraffic(d,names){
     let dp=path;try{dp=decodeURIComponent(path);}catch(e){}
     if(names.post[dp]!==undefined)posts.push({t:names.post[dp],n:p.n,path:dp});
     else if(names.prod[dp]!==undefined)prods.push({t:names.prod[dp],n:p.n,path:dp});
+    else if(dp===SITE_PATH+"/drip")prods.push({t:"耳掛咖啡（全部口味）",n:p.n,path:dp});
     else others.push({t:(dp===SITE_PATH||dp==="")?"首頁":(dp.replace(SITE_PATH,"")||"/"),n:p.n,path:dp});
   });
   [posts,prods,others].forEach(a=>a.sort((x,y)=>y.n-x.n));
@@ -865,20 +897,30 @@ function renderProducts(){
   const list=PROD_ITEMS.slice().sort((a,b)=>ord[a.status]-ord[b.status]||b.want-a.want||b.sold90-a.sold90);
   const n=s=>PROD_ITEMS.filter(x=>x.status===s).length;
   const top=PROD_ITEMS.filter(x=>x.status==="sold_out"&&x.want>0).sort((a,b)=>b.want-a.want)[0];
-  $("prodSum").textContent=`正常 ${n("normal")}・待補貨 ${n("sold_out")}・已下架 ${n("off")}`+(top?`　｜　待補貨中最多人想要：${top.name}（${top.want} 次）`:"");
+  $("prodSum").textContent=`正常 ${n("normal")}・待補貨 ${n("sold_out")}・已下架 ${n("off")}・做耳掛 ${PROD_ITEMS.filter(x=>x.drip&&x.status!=="off").length}`+(top?`　｜　待補貨中最多人想要：${top.name}（${top.want} 次）`:"");
   const maxW=Math.max(1,...list.map(x=>x.want));
   $("prodBody").innerHTML=list.length?list.map(p=>`<tr${p.status==="off"?' style="opacity:.55"':''}>
     <td><b>${esc(p.name)}</b><div class="sub">${esc(p.subtitle)}</div></td>
     <td class="num">${p.price.toLocaleString()}${p.unit?`<span class="sub"> / ${esc(p.unit)}</span>`:""}</td>
     <td><select onchange="setProductStatus('${esc(p.id)}',this.value,${p.lastCall})">${Object.keys(PROD_ST).map(k=>`<option value="${k}"${k===p.status?" selected":""}>${PROD_ST[k]}</option>`).join("")}</select></td>
     <td>${p.status==="off"?'<span class="sub">—</span>':`<input type="checkbox"${p.lastCall?" checked":""} onchange="setProductStatus('${esc(p.id)}','${p.status}',this.checked)">`}</td>
+    <td>${p.status==="off"?'<span class="sub">—</span>':`<input type="checkbox"${p.drip?" checked":""} onchange="setProductDrip('${esc(p.id)}',this.checked)" title="這支豆子也賣耳掛包">`}</td>
     <td><div class="axbar"><div class="bar"><span style="width:${p.want/maxW*100}%"></span></div><span class="n">${p.want}</span></div></td>
     <td class="num">${p.want30||'<span class="sub">0</span>'}</td>
     <td class="sub">${p.wantLast?new Date(p.wantLast).toLocaleDateString("zh-TW"):"—"}</td>
     <td class="num">${p.sold90||'<span class="sub">0</span>'}</td>
+    <td class="num">${p.dripSold90||'<span class="sub">0</span>'}</td>
     <td class="num">${p.reviews||'<span class="sub">0</span>'}</td>
     <td>${p.likedCount?`<span class="pos">${p.likedAvg.toFixed(1)}</span><span class="sub"> / 5（${p.likedCount} 人）</span>`:'<span class="sub">—</span>'}</td>
-  </tr>`).join(""):'<tr><td colspan="10" class="empty">試算表「products」分頁還沒有商品</td></tr>';
+  </tr>`).join(""):'<tr><td colspan="12" class="empty">試算表「products」分頁還沒有商品</td></tr>';
+}
+/* 耳掛勾選：只改 drip，狀態與即將完售維持原樣 */
+async function setProductDrip(id,on){
+  const p=PROD_ITEMS.find(x=>x.id===id);if(!p)return;
+  try{
+    await api({action:"admin_product_status",id,status:p.status,lastCall:!!p.lastCall,drip:!!on});
+    p.drip=!!on;renderProducts();toast(`「${p.name}」${on?"開始賣耳掛":"不做耳掛"}（前台約 15 分鐘內更新）`);
+  }catch(e){toast("更新失敗："+e.message);renderProducts();}
 }
 async function setProductStatus(id,status,lastCall){
   const p=PROD_ITEMS.find(x=>x.id===id);if(!p)return;
@@ -971,8 +1013,8 @@ async function openMember(i){
     </tbody></table></div>
 
     <h3>購買紀錄（${det.orders.length}）</h3>
-    <div class="wrap"><table><thead><tr><th>時間</th><th>內容</th><th class="num">金額</th><th>包數</th><th>狀態</th></tr></thead><tbody>
-      ${det.orders.length?det.orders.map(o=>`<tr><td>${mDateTime(o.time)}</td><td>${esc(o.items)}</td><td class="num">${money(o.total)}</td><td>${o.bags}</td><td class="s-${esc(o.status)}">${esc(o.status)}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">沒有訂單</td></tr>'}
+    <div class="wrap"><table><thead><tr><th>時間</th><th>內容</th><th class="num">金額</th><th>數量</th><th>狀態</th></tr></thead><tbody>
+      ${det.orders.length?det.orders.map(o=>`<tr><td>${mDateTime(o.time)}</td><td>${esc(o.items)}</td><td class="num">${money(o.total)}</td><td>${o.bags} 包${o.dripSets?`・耳掛 ${o.dripSets} 組`:""}</td><td class="s-${esc(o.status)}">${esc(o.status)}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">沒有訂單</td></tr>'}
     </tbody></table></div>
 
     <h3>資料異動紀錄（${det.log.length}）</h3>
@@ -1061,12 +1103,12 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("memModal").hidd
 /* 損益結構（參考咖啡業）：營收 − 銷貨成本 = 毛利；毛利 − 銷售費用 − 管理費用 = 淨利。
    營收只計「已完成」訂單，依下單日歸月份；成本依登記日期歸月份。 */
 function sumBy(year,month){   // month 省略 = 全年
-  let rev=0,bags=0,orders=0,cogs=0,sell=0,admin=0;
+  let rev=0,bags=0,drip=0,orders=0,cogs=0,sell=0,admin=0;
   ORDERS.forEach(o=>{
     if(o.status!=="已完成"||!o.time)return;
     const d=new Date(o.time);
     if(d.getFullYear()!==year||(month&&d.getMonth()+1!==month))return;
-    rev+=o.total;bags+=o.bags;orders++;
+    rev+=o.total;bags+=o.bags;drip+=o.dripSets||0;orders++;
   });
   COSTS.forEach(c=>{
     if(!c.date)return;
@@ -1076,15 +1118,15 @@ function sumBy(year,month){   // month 省略 = 全年
     if(g==="銷貨成本")cogs+=c.amount;else if(g==="銷售費用")sell+=c.amount;else admin+=c.amount;
   });
   const gross=rev-cogs,exp=sell+admin,profit=gross-exp;
-  return{rev,bags,orders,cogs,sell,admin,gross,exp,profit,cost:cogs+exp};
+  return{rev,bags,drip,orders,cogs,sell,admin,gross,exp,profit,cost:cogs+exp};
 }
 const pc=n=>n>=0?"pos":"neg";
 const pct=(a,b)=>b>0?(a/b*100).toFixed(1)+"%":"—";
-/* 把「售出商品 x 數量、…」拆成 {商品: 包數} */
+/* 把「售出商品 x 數量、…」拆成 {商品: 包數}；耳掛「耳掛 琉璃光 x3組」→ {"耳掛 琉璃光": 3}（單位是組） */
 function parseItems(text){
   const out={};
   String(text||"").split("、").forEach(seg=>{
-    const m=seg.trim().match(/^(.+?)\s*[x×]\s*(\d+)$/i);
+    const m=seg.trim().match(/^(.+?)\s*[x×]\s*(\d+)\s*組?$/i);
     if(m)out[m[1].trim()]=(out[m[1].trim()]||0)+Number(m[2]);
   });
   return out;
@@ -1105,7 +1147,7 @@ function renderReport(){
     card("費用（銷售＋管理）",money(mo.exp),"",`銷售 ${money(mo.sell)}・管理 ${money(mo.admin)}`)+
     card(`${m} 月淨利`,money(mo.profit),pc(mo.profit),`淨利率 ${pct(mo.profit,mo.rev)}`)+
     card("損益兩平營收",be?money(be):"—","",be?(mo.rev>=be?"本月已達成 ✓":`還差 ${money(be-mo.rev)}`):"需先有營收與銷貨成本")+
-    card("客單價",mo.orders?money(mo.rev/mo.orders):"—","",`平均每包 ${mo.bags?money(mo.rev/mo.bags):"—"}`)+
+    card("客單價",mo.orders?money(mo.rev/mo.orders):"—","",mo.drip?`半磅 ${mo.bags} 包・耳掛 ${mo.drip} 組`:`平均每包 ${mo.bags?money(mo.rev/mo.bags):"—"}`)+
     card(`${y} 年淨利`,money(yr.profit),pc(yr.profit),`營收 ${money(yr.rev)}`)+
     card("待處理訂單金額",money(pending));
 
@@ -1119,8 +1161,8 @@ function renderReport(){
     row("淨利",mo.profit,yr.profit,pc(mo.profit),true);
 
   $("monthsBody").innerHTML=Array.from({length:12},(_,i)=>{const s=sumBy(y,i+1);
-    return `<tr><td>${i+1} 月</td><td class="num">${money(s.rev)}</td><td class="num">${money(s.cogs)}</td><td class="num ${pc(s.gross)}">${money(s.gross)}</td><td class="num">${money(s.exp)}</td><td class="num ${pc(s.profit)}">${money(s.profit)}</td><td class="num">${s.bags}</td></tr>`;}).join("")
-    +`<tr><th>全年</th><th class="num">${money(yr.rev)}</th><th class="num">${money(yr.cogs)}</th><th class="num ${pc(yr.gross)}">${money(yr.gross)}</th><th class="num">${money(yr.exp)}</th><th class="num ${pc(yr.profit)}">${money(yr.profit)}</th><th class="num">${yr.bags}</th></tr>`;
+    return `<tr><td>${i+1} 月</td><td class="num">${money(s.rev)}</td><td class="num">${money(s.cogs)}</td><td class="num ${pc(s.gross)}">${money(s.gross)}</td><td class="num">${money(s.exp)}</td><td class="num ${pc(s.profit)}">${money(s.profit)}</td><td class="num">${s.bags}</td><td class="num">${s.drip}</td></tr>`;}).join("")
+    +`<tr><th>全年</th><th class="num">${money(yr.rev)}</th><th class="num">${money(yr.cogs)}</th><th class="num ${pc(yr.gross)}">${money(yr.gross)}</th><th class="num">${money(yr.exp)}</th><th class="num ${pc(yr.profit)}">${money(yr.profit)}</th><th class="num">${yr.bags}</th><th class="num">${yr.drip}</th></tr>`;
 
   // 費用明細：先依群組，再依分類
   const byCat={},byGrp={};let tot=0;
@@ -1147,7 +1189,7 @@ function renderReport(){
   const back=buyers.size-fresh;
   $("custCards").innerHTML=card("購買人數",buyers.size)+card("新客",fresh)+card("回購客",back,"",buyers.size?`回購率 ${pct(back,buyers.size)}`:"");
   const keys=Object.keys(items).sort((a,b)=>items[b]-items[a]);
-  $("topBody").innerHTML=keys.length?keys.map(k=>`<tr><td>${esc(k)}</td><td class="num">${items[k]}</td><td><div class="bar"><span style="width:${items[k]/itemTot*100}%"></span></div></td></tr>`).join(""):'<tr><td colspan="3" class="empty">這個月沒有已完成的訂單</td></tr>';
+  $("topBody").innerHTML=keys.length?keys.map(k=>`<tr><td>${esc(k)}</td><td class="num">${items[k]} ${k.indexOf("耳掛")===0?"組":"包"}</td><td><div class="bar"><span style="width:${items[k]/itemTot*100}%"></span></div></td></tr>`).join(""):'<tr><td colspan="3" class="empty">這個月沒有已完成的訂單</td></tr>';
 }
 
 /* ---------- 內容（文章／圖片／影音） ---------- */
