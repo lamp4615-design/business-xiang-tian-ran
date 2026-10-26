@@ -1925,7 +1925,7 @@ async function shareShareCard(){
 
 /* ---------- 分享天地（文章／圖片／影音，在管理頁「內容」發佈，站台代號 xiang） ---------- */
 const SHARE_SITE="xiang";
-let SHARE_POSTS=null,SHARE_CAT="";
+let SHARE_POSTS=null,SHARE_CAT="",SHARE_STATIC=null;
 /* ===== 文章排版（index.html 與 admin.html 預覽共用，兩邊請保持一致）=====
    ## 大標題（自動編號）  ### 小標題  **粗體**  ==螢光重點==  {橘|彩色字}（橘紅綠藍褐）
    > 引言   [!提示]/[!重點]/[!注意] 提示框   - 清單   1. 編號清單   ---  分隔線
@@ -1993,6 +1993,9 @@ const SH_DECO=["☕","🌿","🌅","🫘"];
 function shDeco(p){const i=(SHARE_POSTS||[]).indexOf(p);return (i<0?0:i)%4;}
 async function renderShare(id){
   const box=$("shareContainer");
+  // 有獨立網頁（articles/<id>/）的文章：和 build-seo.js 一樣只算「發佈」；先查這個，舊連結不必等 Apps Script 就能導過去
+  if(SHARE_STATIC===null){SHARE_STATIC=new Set();try{const r=await fetch("posts.json");if(r.ok){const j=await r.json();if(Array.isArray(j))j.forEach(x=>{if(x.status==="發佈")SHARE_STATIC.add(x.id);});}}catch(e){}}
+  if(id&&SHARE_STATIC.has(id)){location.replace("articles/"+encodeURIComponent(id)+"/");return;}   // 舊的 #share/<id> 連結導向獨立頁，瀏覽數才算得到
   if(SHARE_POSTS===null){
     if(!API_URL){SHARE_POSTS=[];}
     else{
@@ -2027,11 +2030,15 @@ async function renderShare(id){
   const list=SHARE_POSTS.filter(p=>!SHARE_CAT||p.category===SHARE_CAT);
   box.innerHTML=`<div class="sh-hero"><span class="eyebrow">Sharing Corner</span><h2>分享天地</h2><p>烘豆日記、風味故事、影片與日常，慢慢分享給你。</p></div>`
     +(cats.length?`<div class="sh-chips"><button class="sh-chip${SHARE_CAT?"":" on"}" data-c="">全部</button>${cats.map(c=>`<button class="sh-chip${SHARE_CAT===c?" on":""}" data-c="${esc(c)}">${esc(c)}</button>`).join("")}</div>`:"")
-    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shSmall(shImgUrl(p.cover));return `<a class="sh-card" href="#share/${esc(p.id)}"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
+    +(list.length?`<div class="sh-grid">${list.map(p=>{const cv=shSmall(shImgUrl(p.cover));return `<a class="sh-card" href="${SHARE_STATIC.has(p.id)?"articles/"+esc(p.id)+"/":"#share/"+esc(p.id)}"><div class="sh-cover d${shDeco(p)}"><span class="sh-deco">${SH_DECO[shDeco(p)]}</span>${shImg(cv||"images/cover-"+shDeco(p)+".jpg",p.title,true)}${p.category?`<span class="sh-tag">${esc(p.category)}</span>`:""}${p.media?'<span class="sh-play">▶ 影片</span>':""}</div>
       <div class="sh-cbody"><div class="sh-meta">${esc((p.time||"").slice(0,10))}</div><h3>${esc(p.title)}</h3>${p.summary?`<p>${esc(p.summary)}</p>`:""}</div></a>`;}).join("")}</div>`
       :'<div class="sh-empty">還沒有文章，敬請期待。</div>')
     +`<div class="sh-band"><div><h3>一杯咖啡，一段故事</h3><p>讀完分享，也來挑一包適合你的豆子。</p></div><a href="#products">看看今天的豆子 →</a></div><div class="sh-credit">照片：<a href="https://unsplash.com" target="_blank" rel="noopener">Unsplash</a>（免費授權）</div>`;
   box.querySelectorAll(".sh-chip").forEach(b=>b.onclick=()=>{SHARE_CAT=b.dataset.c;renderShare("");});
+  box.querySelectorAll('a.sh-card[href^="articles/"]').forEach(a=>{   // 手指或滑鼠一靠近就先預載，點下去幾乎瞬間開啟
+    const pf=()=>{if(a.dataset.pf)return;a.dataset.pf="1";const l=document.createElement("link");l.rel="prefetch";l.href=a.getAttribute("href");document.head.appendChild(l);};
+    a.addEventListener("pointerenter",pf,{once:true});a.addEventListener("touchstart",pf,{once:true,passive:true});
+  });
 }
 
 /* ---------- 路由 ---------- */
