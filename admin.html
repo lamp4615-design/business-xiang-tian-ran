@@ -236,9 +236,12 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       .bl .b{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
       .bl .b i{display:block;height:100%;background:var(--green);border-radius:4px}
       .bl .n{font-variant-numeric:tabular-nums;color:var(--mute);min-width:70px;text-align:right}
-      .cols{display:flex;align-items:flex-end;gap:2px;height:96px}
-      .cols i{flex:1;min-width:3px;background:var(--green);border-radius:3px 3px 0 0;opacity:.85}
+      .cols{display:flex;align-items:flex-end;gap:2px;height:112px}
+      .cols .cw{flex:1;min-width:3px;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+      .cols .cn{font-size:10px;color:var(--mute);line-height:1;margin-bottom:2px;white-space:nowrap}
+      .cols i{width:100%;background:var(--green);border-radius:3px 3px 0 0;opacity:.85;flex:0 0 auto}
       .cols i:hover{opacity:1}
+      #trHour .cn{writing-mode:vertical-rl;transform:rotate(180deg);font-size:8px;margin-bottom:3px}
       .axis{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);margin-top:3px}
       .insight{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13.5px;line-height:1.9;margin:6px 0}
       .chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;color:#fff}
@@ -270,14 +273,15 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
         <div class="trbox"><h4>其他頁面</h4><div id="trOthers"></div></div>
       </div>
       <div class="trgrid two">
-        <div class="trbox"><h4>流量來源</h4><div id="trRefs"></div></div>
+        <div class="trbox"><h4>流量來源 <span class="sub">（含站內跳轉）</span></h4><div class="sub2">「站內跳轉」＝客人已經在逛你的網站，點連結換到別頁（例如首頁點進一篇文章），<b>不是新客人</b>。真正從外面找到你的，看右邊「外部來源」。</div><div id="trRefs"></div></div>
+        <div class="trbox"><h4>外部來源排行 <span class="sub">（不含站內跳轉）</span></h4><div class="sub2">只看 Google、Facebook、Instagram、LINE 等真正帶新客人進站的管道，彼此之間比占比。</div><div id="trExtRefs"></div></div>
         <div class="trbox"><h4>裝置</h4><div id="trDevs"></div></div>
         <div class="trbox"><h4>地區</h4><div id="trCountries"></div></div>
         <div class="trbox"><h4>瀏覽器與系統</h4><div id="trBrowsers"></div><div style="height:8px"></div><div id="trOses"></div></div>
       </div>
       <div class="trbox"><h4>網站速度 <span class="sub">（真實訪客的使用感受，取第 75 百分位）</span></h4><div class="vit" id="trVit"></div><div id="trVitNote" class="sub" style="margin-top:8px;line-height:1.8"></div></div>
     </div>
-    <p class="sub" style="margin-top:12px">資料來自 Cloudflare Web Analytics（不使用 Cookie、不記個人資料），是取樣估計值，適合看趨勢與排行，不是逐筆精確計數；約有數分鐘到 1 小時延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>「轉換率」＝期間內訂單數 ÷ 訪次，是粗略參考（訂單包含客人線下聯絡後才下的單）。「與上期比」是跟前一段等長時間比較。首頁內切換分頁（商品、風味、會員等）不另外計算，只算有獨立網址的頁面；分享文章已改連到獨立網頁（articles/…），每次打開都會計入文章瀏覽數。來源「直接」＝直接輸入網址、掃 QR 或從 LINE 等 App 點開。</p>
+    <p class="sub" style="margin-top:12px">資料來自 Cloudflare Web Analytics（不使用 Cookie、不記個人資料），是取樣估計值，適合看趨勢與排行，不是逐筆精確計數；約有數分鐘到 1 小時延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>「轉換率」＝期間內訂單數 ÷ 訪次，是粗略參考（訂單包含客人線下聯絡後才下的單）。「與上期比」是跟前一段等長時間比較。首頁內切換分頁（商品、風味、會員等）不另外計算，只算有獨立網址的頁面；分享文章已改連到獨立網頁（articles/…），每次打開都會計入文章瀏覽數。來源「直接」＝直接輸入網址、掃 QR 或從 LINE 等 App 點開；來源「站內跳轉」＝客人已經在你的網站上，點連結換到另一頁，不是新流量，真正的新客人管道要看「外部來源排行」。幾點、星期幾的長條圖上，數字是那個時段／那一天的瀏覽次數；空白（接近 0）代表那段時間幾乎沒人看。</p>
   </section>
 
   <section class="panel" id="t-costs" hidden>
@@ -792,7 +796,7 @@ function refGroup(h){
   if(h.includes("line.me")||h.includes("line.naver")||h.includes("lin.ee"))return "LINE";
   if(h.includes("youtube")||h==="youtu.be")return "YouTube";
   if(h.includes("bing")||h.includes("yahoo")||h.includes("duckduckgo"))return "其他搜尋引擎";
-  if(h.includes("github.io"))return "本站內部";
+  if(h.includes("github.io"))return "站內跳轉";
   if(h==="t.co"||h.includes("twitter")||h.includes("x.com"))return "X（Twitter）";
   if(h.includes("threads"))return "Threads";
   return h;
@@ -836,21 +840,25 @@ function renderTraffic(d,names){
   d.hourly.forEach(x=>{const t=new Date(new Date(x.k).getTime()+8*3600e3);const k=t.toISOString().slice(0,10);day[k]=(day[k]||0)+x.n;hour[t.getUTCHours()]+=x.n;week[t.getUTCDay()]+=x.n;});
   const days=[];if(d.days>1){const s=new Date(twDate(d.start)+"T00:00:00Z"),e=new Date(twDate(d.end)+"T00:00:00Z");for(let t=s;t<=e;t=new Date(t.getTime()+864e5))days.push(t.toISOString().slice(0,10));}else Object.keys(day).sort().forEach(k=>days.push(k));
   const dmax=Math.max(1,...days.map(k=>day[k]||0)),hmax=Math.max(1,...hour),wmax=Math.max(1,...week);
-  const col=(v,max,tip)=>'<i title="'+esc(tip)+'" style="height:'+(v?Math.max(4,v/max*100):1)+'%;'+(v?"":"opacity:.25")+'"></i>';
+  const col=(v,max,tip,num)=>'<div class="cw" title="'+esc(tip)+'">'+(num&&v?'<span class="cn">'+nf(v)+'</span>':'')+'<i style="height:'+(v?Math.max(4,v/max*100):1)+'%;'+(v?"":"opacity:.25")+'"></i></div>';
   $("trDaily").innerHTML=days.length?days.map(k=>col(day[k]||0,dmax,k+"：瀏覽 "+(day[k]||0)+" 次")).join(""):'<span class="sub">這段期間還沒有資料</span>';
   $("trDailyAx").innerHTML=days.length?'<span>'+days[0].slice(5)+'</span><span>最高 '+nf(dmax)+' 次／日</span><span>'+days[days.length-1].slice(5)+'</span>':"";
-  $("trHour").innerHTML=hour.map((v,i)=>col(v,hmax,i+":00～"+i+":59：瀏覽 "+v+" 次")).join("");
-  $("trWeek").innerHTML=week.map((v,i)=>col(v,wmax,"星期"+"日一二三四五六"[i]+"：瀏覽 "+v+" 次")).join("");
+  $("trHour").innerHTML=hour.map((v,i)=>col(v,hmax,i+":00～"+i+":59：瀏覽 "+v+" 次",true)).join("");
+  $("trWeek").innerHTML=week.map((v,i)=>col(v,wmax,"星期"+"日一二三四五六"[i]+"：瀏覽 "+v+" 次",true)).join("");
   // ---- 重點摘要 ----
   const ins=[];
+  const rg=agg(d.refs,refGroup);
+  const rgInternal=rg.find(r=>r.t==="站內跳轉"),rgExt=rg.filter(r=>r.t!=="站內跳轉");
   if(d.views){
     const ph=hour.indexOf(Math.max(...hour)),pw=week.indexOf(Math.max(...week));
     ins.push("📈 "+lab+"共 <b>"+nf(d.views)+"</b> 次瀏覽、<b>"+nf(d.visits)+"</b> 次造訪。");
     if(posts[0])ins.push("📝 最多人看的文章：<b>"+esc(posts[0].t)+"</b>（"+posts[0].n+" 次）。");
     else ins.push("📝 這段期間還沒有人看分享文章。");
     if(prods[0])ins.push("☕ 最多人看的商品：<b>"+esc(prods[0].t)+"</b>（"+prods[0].n+" 次）。");
-    if(hour.some(Boolean))ins.push("🕒 最多人上線的時段：<b>"+ph+":00～"+ph+":59</b>；"+(week.some(Boolean)?"星期<b>"+"日一二三四五六"[pw]+"</b>最熱鬧。":""));
-    const rg=agg(d.refs,refGroup);if(rg[0])ins.push("🔗 最大來源：<b>"+esc(rg[0].t)+"</b>（"+Math.round(rg[0].n/d.views*100)+"%）。");
+    if(hour.some(Boolean))ins.push("🕒 最多人上線的時段：<b>"+ph+":00～"+ph+":59</b>（"+hour[ph]+" 次）；"+(week.some(Boolean)?"星期<b>"+"日一二三四五六"[pw]+"</b>最熱鬧（"+week[pw]+" 次）。":""));
+    if(rgInternal)ins.push("🔁 "+Math.round(rgInternal.n/d.views*100)+"% 的瀏覽是客人在站內換頁看別的頁面（不是新客人）。");
+    if(rgExt[0])ins.push("🔗 外部來源最多的是：<b>"+esc(rgExt[0].t)+"</b>（"+rgExt[0].n+" 次）。");
+    else ins.push("🔗 這段期間還沒有外部來源（Google／Facebook／Instagram／LINE 等）帶新客人進站。");
   }else ins.push("這段期間還沒有資料。商品頁與文章頁的追蹤是剛啟用的，等有人瀏覽後就會出現排行。");
   $("trInsight").innerHTML=ins.join("<br>");
   // ---- 排行 ----
@@ -858,7 +866,8 @@ function renderTraffic(d,names){
   $("trPosts").innerHTML=bars(posts.slice(0,10),ptotal,"這段期間還沒有人看文章頁");
   $("trProds").innerHTML=bars(prods.slice(0,10),ptotal,"這段期間還沒有人看商品頁");
   $("trOthers").innerHTML=bars(others.slice(0,8),ptotal,"沒有資料");
-  $("trRefs").innerHTML=bars(agg(d.refs,refGroup).slice(0,10),d.views,"沒有資料");
+  $("trRefs").innerHTML=bars(rg.slice(0,10),d.views,"沒有資料");
+  $("trExtRefs").innerHTML=bars(rgExt.slice(0,10),rgExt.reduce((s,r)=>s+r.n,0),"這段期間還沒有外部流量");
   $("trDevs").innerHTML=bars(agg(d.devs,k=>DEVN[k]||k||"未知"),d.views,"沒有資料");
   $("trCountries").innerHTML=bars(agg(d.countries,k=>CTRY[k]||k||"未知").slice(0,8),d.views,"沒有資料");
   $("trBrowsers").innerHTML='<div class="sub2">瀏覽器</div>'+bars(agg(d.browsers,k=>k||"未知").slice(0,5),d.views,"沒有資料");
