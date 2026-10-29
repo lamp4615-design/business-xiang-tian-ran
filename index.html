@@ -541,13 +541,6 @@
   .wl-skip input{width:17px;height:17px;accent-color:var(--pine)}
   /* ---------- 耳掛（2026-10-27）：後端有品項勾了 drip 才會顯示（data-drip-only） ---------- */
   [data-drip-only][hidden]{display:none!important}
-  .drip-banner{display:flex;align-items:center;justify-content:space-between;gap:14px 20px;flex-wrap:wrap;background:var(--pine);color:var(--paper);border-radius:18px;padding:20px 26px;margin:-14px 0 40px;transition:transform .2s,box-shadow .2s}
-  .drip-banner:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(36,28,21,.18)}
-  .drip-banner b{display:block;font-size:1.12rem;letter-spacing:.06em}
-  .drip-banner small{display:block;font-size:.9rem;opacity:.85;margin-top:2px}
-  .drip-banner .go{background:var(--dawn);color:var(--espresso);font-weight:700;padding:10px 20px;border-radius:100px;white-space:nowrap;font-size:.92rem}
-  .drip-link{display:block;margin:-10px 0 14px;font-size:.86rem;color:#B96E1E;font-weight:500}
-  .drip-link:hover{text-decoration:underline}
   .ci-tag{display:inline-block;margin-left:8px;padding:0 8px;border-radius:99px;background:rgba(228,137,43,.16);color:#B96E1E;font-family:var(--sans);font-size:.7rem;font-weight:700;vertical-align:2px;letter-spacing:.06em}
   .ci-warn{font-size:.78rem;color:#a4432f;margin:-4px 0 8px}
   .cart-drip{margin:16px 0 4px;padding:14px 16px;border-radius:14px;background:#FFF4E0;border:1px solid #F0D49B;color:#6B4510;font-size:.86rem;line-height:1.75}
@@ -695,7 +688,6 @@
         <div class="bs"><span class="n">2</span>挑選並加入購物袋</div>
         <div class="bs"><span class="n">3</span>確認購買，我們與你聯繫</div>
       </div>
-      <a class="drip-banner" href="drip/" data-drip-only hidden><span><b>也有耳掛咖啡</b><small>一組 10 包同口味 NT$<span data-drip-price>350</span>，撕開掛上杯子就能沖；可以和半磅咖啡豆一起結帳</small></span><span class="go">看耳掛口味 →</span></a>
       <div id="prodContainer">
         <div class="skeleton"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
       </div>
@@ -1051,7 +1043,6 @@ function card(p){
     <div class="prod-body"><h3 onclick="openProductDetail('${esc(p.id)}')" style="cursor:pointer">${esc(p.name)}</h3><div class="prod-sub">${esc(p.subtitle||"")}</div>
       <div class="prod-meta">${(p.specs||[]).map(s=>`<div class="meta-row"><span class="k">${esc(s.label)}</span><span class="v">${esc(s.value)}</span></div>`).join("")}</div>
       <div class="prod-tags">${(p.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join("")}</div>
-      ${p.drip&&!p.soldOut?`<a class="drip-link" href="drip/#d-${encodeURIComponent(p.id)}" onclick="event.stopPropagation()">也有耳掛包・一組 ${DRIP_SET_BAGS} 包 NT$${dripPrice(p).toLocaleString()} →</a>`:""}
       <button class="fv-trigger" onclick="event.stopPropagation();openFlavorView('${esc(p.id)}')">看風味輪，跟大家比比看 →</button>
       <div class="prod-foot"><div class="price">NT$ ${Number(p.price).toLocaleString()}${p.unit?`<small>/ ${esc(p.unit)}</small>`:""}</div>
         ${p.soldOut?`<button class="add-btn want-btn" onclick="event.stopPropagation();wantRestock('${esc(p.id)}',this)">想再喝到這支</button>`:`<button class="add-btn" onclick="event.stopPropagation();addToCart('${esc(p.id)}')">加入購物袋</button>`}</div>

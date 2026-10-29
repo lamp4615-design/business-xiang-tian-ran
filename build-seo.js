@@ -380,6 +380,8 @@ const DRIP_CSS = `
 .step output{min-width:46px;text-align:center;font-weight:700;font-size:.95rem}
 .dso{display:none;margin:8px 0 0;font-size:.84rem;color:#a4432f}
 .dcard.off .dso{display:block}
+.dwant{display:none;margin:8px 0 0}
+.dcard.soldout .dwant{display:block}
 .dmore{margin:10px 0 0;font-size:.85rem}
 .brew{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .brew li{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;font-size:.92rem;line-height:1.7;color:var(--ink-70)}
@@ -468,6 +470,7 @@ const dripScript = () => `<script>
       if(!p&&!fresh)return;   // 這台裝置存的舊資料裡沒有這支：等後端的最新資料
       var off=!p||!p.drip||!!p.soldOut;   // 後端清單裡沒有＝已經下架
       el.classList.toggle("off",off);
+      el.classList.toggle("soldout",!!(p&&p.soldOut));   // 只有「真的賣完」才顯示「想再喝到這支」，單純沒做耳掛不算
       el.querySelector(".dbadge").textContent=p&&p.soldOut?"已售完・待補貨":off?"暫停供應":p.lastCall?"即將完售":"";
       el.querySelector(".dso").textContent=p&&p.soldOut?"這支豆子已售完，耳掛也暫停供應，補貨後會再開放。":off?"這支目前沒有供應耳掛。":"";
     });
@@ -488,7 +491,7 @@ const dripScript = () => `<script>
   const cardHtml = (p) => {
     const tags = (p.tags || []).slice(0, 4);
     const pr = dripPriceOf(p);
-    return `<li class="dcard${p.soldOut ? " off" : ""}" id="d-${esc(p.id)}" data-id="${esc(p.id)}" data-price="${pr}">
+    return `<li class="dcard${p.soldOut ? " off soldout" : ""}" id="d-${esc(p.id)}" data-id="${esc(p.id)}" data-price="${pr}">
   <div class="dimg">${p.image ? `<img src="${esc(smallImg(p.image))}" alt="${esc(p.name)} 耳掛咖啡" loading="lazy" width="400" height="300">` : ""}<span class="dbadge">${p.soldOut ? "已售完・待補貨" : p.lastCall ? "即將完售" : ""}</span></div>
   <div class="dbody">
     <h3>${esc(p.name)}</h3>
@@ -499,6 +502,7 @@ const dripScript = () => `<script>
       <div class="step" role="group" aria-label="${esc(p.name)} 要幾組"><button type="button" data-d="-1" aria-label="少一組" disabled>−</button><output aria-live="polite">0 組</output><button type="button" data-d="1" aria-label="多一組"${p.soldOut ? " disabled" : ""}>＋</button></div>
     </div>
     <p class="dso">${p.soldOut ? "這支豆子已售完，耳掛也暫停供應，補貨後會再開放。" : ""}</p>
+    <p class="dwant"><button type="button" class="btn ghost" data-want="${esc(p.id)}">想再喝到這支</button></p>
     <p class="dmore"><a href="${p._url}">看這支豆子的完整介紹 →</a></p>
   </div>
 </li>`;
