@@ -44,7 +44,7 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (m) => ({ "&":
 function loadRenderer() {
   const a = indexHtml.indexOf("const SH_COLORS="), b = indexHtml.indexOf("const SH_DECO=");
   if (a < 0 || b < 0 || b <= a) throw new Error("index.html 找不到文章排版程式（SH_COLORS … SH_DECO）");
-  return new Function("esc", indexHtml.slice(a, b) + "\nreturn { shBody, shImgUrl };")(esc);
+  return new Function("esc", indexHtml.slice(a, b) + "\nreturn { shBody, shImgUrl, shEmbed, shSafeUrl };")(esc);
 }
 const R = loadRenderer();
 // 靜態頁不跑 JS，圖片載入失敗的處理屬性拿掉
@@ -282,6 +282,8 @@ posts.forEach((a) => {
   const date = dateTW(a.time);
   const title = cut(`${a.title}｜${BRAND}`, 64);
   const bodyHtml = cleanHtml(R.shBody(a.body));
+  // 文章附的影音連結（admin.html「影音連結」欄，存在 media 欄位），和官網內頁一樣整篇插在封面圖之後、內文之前
+  const lead = a.media ? (R.shEmbed(R.shSafeUrl(a.media)) || `<p><a href="${esc(R.shSafeUrl(a.media))}" target="_blank" rel="noopener">觀看影片</a></p>`) : "";
   // 摘要通常只有一句話，搜尋結果顯示的描述太短；接上內文開頭，湊成約 110 字的有內容描述
   const plain = bodyHtml.replace(/<(h2|h3|p|li|div|blockquote)[^>]*>/g, " ").replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -293,6 +295,7 @@ posts.forEach((a) => {
   <h1>${esc(a.title)}</h1>
   ${a.summary ? `<p class="sh-lead">${esc(a.summary)}</p>` : ""}
   ${cover ? `<div class="sh-art-hero nat"><img src="${esc(cover)}" alt="${esc(a.title)}" width="1200" height="675"></div>` : ""}
+  ${lead}
   ${bodyHtml}
   <div class="end"><p>喜歡這篇嗎？看看${BRAND}目前有哪些咖啡豆。</p><p><a class="btn" href="${SITE}explore/">看全部咖啡豆</a><a class="btn ghost" href="${SITE}#products">線上選購</a></p></div>
 </article>

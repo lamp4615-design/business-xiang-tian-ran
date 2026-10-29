@@ -1243,9 +1243,9 @@ function shImg(u,alt,cv){
 }
 function shEmbed(u){
   let m=u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/))([\w-]{11})/);
-  if(m)return `<div class="sh-embed"><iframe src="https://www.youtube.com/embed/${m[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  if(m)return `<div class="sh-embed"><iframe src="https://www.youtube.com/embed/${m[1]}?playsinline=1" title="YouTube 影片" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
   m=u.match(/vimeo\.com\/(\d+)/);
-  if(m)return `<div class="sh-embed"><iframe src="https://player.vimeo.com/video/${m[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+  if(m)return `<div class="sh-embed"><iframe src="https://player.vimeo.com/video/${m[1]}" title="Vimeo 影片" allow="autoplay; fullscreen; picture-in-picture; clipboard-write" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
   if(/\.(mp4|webm)(\?.*)?$/i.test(u))return `<video controls preload="metadata" src="${esc(u)}"></video>`;
   return "";
 }
