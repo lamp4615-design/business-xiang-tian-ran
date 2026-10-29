@@ -237,6 +237,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       .bl .b i{display:block;height:100%;background:var(--green);border-radius:4px}
       .bl .n{font-variant-numeric:tabular-nums;color:var(--mute);min-width:70px;text-align:right}
       .ranklist{max-height:230px;overflow-y:auto;padding-right:2px}
+      .rf-div{font-size:11px;color:var(--mute);text-align:center;margin:6px 0;padding-top:7px;border-top:1px dashed var(--line)}
       .ranklist::-webkit-scrollbar{width:6px}
       .ranklist::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
       .ranklist::-webkit-scrollbar-thumb:hover{background:var(--mute)}
@@ -255,7 +256,9 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       .vit .v{font-size:20px;font-weight:700;margin:2px 0 4px}.vit .l{font-size:12px;color:var(--mute)}
       .stack{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:8px 0 4px;background:var(--line)}
       .stack i{display:block;height:100%}
+      .trguide{background:var(--bg);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:10px;padding:10px 14px;font-size:13.5px;line-height:1.9;margin-bottom:12px}
     </style>
+    <div class="trguide">👋 <b>資料很多，平常只要看這三個地方：</b>① 最上面幾個數字（這段期間共幾次瀏覽、幾次造訪）② 「重點摘要」那幾句話，已經幫你整理好重點 ③ 商品頁／文章排行，看客人在看什麼。下面一格一格的細節（流量來源、地區、瀏覽器⋯）平常不用全部記，想深入了解某件事才展開看；每一格標題旁邊都有一行小字說明在看什麼。</div>
     <div class="tools">
       <select id="trDays" onchange="loadTraffic()"><option value="1">今天（近 24 小時）</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option><option value="90">近 90 天</option></select>
       <button class="sm" onclick="loadTraffic(true)">重新整理</button>
@@ -277,15 +280,14 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
         <div class="trbox"><h4>其他頁面</h4><div class="sub2">首頁、/explore 等；% 是占「其他頁面瀏覽總數」的比例。</div><div id="trOthers" class="ranklist"></div></div>
       </div>
       <div class="trgrid two">
-        <div class="trbox"><h4>流量來源 <span class="sub">（含站內跳轉）</span></h4><div class="sub2">「站內跳轉」＝客人已經在逛你的網站，點連結換到別頁（例如首頁點進一篇文章），<b>不是新客人</b>。真正從外面找到你的，看右邊「外部來源」。</div><div id="trRefs" class="ranklist"></div></div>
-        <div class="trbox"><h4>外部來源排行 <span class="sub">（不含站內跳轉）</span></h4><div class="sub2">只看 Google、Facebook、Instagram、LINE 等真正帶新客人進站的管道，彼此之間比占比。</div><div id="trExtRefs" class="ranklist"></div></div>
+        <div class="trbox"><h4>流量來源</h4><div class="sub2">最上面「站內跳轉」＝客人已經在逛你的網站，點連結換到別頁（例如首頁點進一篇文章），<b>不是新客人</b>；分隔線以下才是真正從外面找到你的管道。% 都是占這段期間全部瀏覽數的比例。</div><div id="trRefs" class="ranklist"></div></div>
         <div class="trbox"><h4>裝置</h4><div id="trDevs"></div></div>
         <div class="trbox"><h4>地區</h4><div id="trCountries" class="ranklist"></div></div>
         <div class="trbox"><h4>瀏覽器與系統</h4><div class="sub2">瀏覽器</div><div id="trBrowsers" class="ranklist" style="max-height:110px"></div><div class="sub2" style="margin-top:8px">作業系統</div><div id="trOses" class="ranklist" style="max-height:110px"></div></div>
       </div>
       <div class="trbox"><h4>網站速度 <span class="sub">（真實訪客的使用感受，取第 75 百分位）</span></h4><div class="vit" id="trVit"></div><div id="trVitNote" class="sub" style="margin-top:8px;line-height:1.8"></div></div>
     </div>
-    <p class="sub" style="margin-top:12px">資料來自 Cloudflare Web Analytics（不使用 Cookie、不記個人資料），是取樣估計值，適合看趨勢與排行，不是逐筆精確計數；約有數分鐘到 1 小時延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>「轉換率」＝期間內訂單數 ÷ 訪次，是粗略參考（訂單包含客人線下聯絡後才下的單）。「與上期比」是跟前一段等長時間比較。首頁內切換分頁（商品、風味、會員等）不另外計算，只算有獨立網址的頁面；分享文章已改連到獨立網頁（articles/…），每次打開都會計入文章瀏覽數。來源「直接」＝直接輸入網址、掃 QR 或從 LINE 等 App 點開；來源「站內跳轉」＝客人已經在你的網站上，點連結換到另一頁，不是新流量，真正的新客人管道要看「外部來源排行」。幾點、星期幾的長條圖上，數字是那個時段／那一天的瀏覽次數；空白（接近 0）代表那段時間幾乎沒人看。「分享文章排行」「商品頁排行」「其他頁面」這三個排行後面的 %，各自是占「同一個排行」總瀏覽數的比例（例如某商品的 %，是它占全部商品頁瀏覽的比例），不是占全站瀏覽數，所以同一排行內的 % 加起來會接近 100%；「流量來源」「外部來源排行」「裝置」「地區」「瀏覽器與系統」的 % 算法也是一樣的道理。商品頁排行會列出全部商品（包含這段期間 0 次瀏覽的），方便看出哪些商品完全沒人點進去看；文章和其他頁面只列出有人看過的。</p>
+    <p class="sub" style="margin-top:12px">資料來自 Cloudflare Web Analytics（不使用 Cookie、不記個人資料），是取樣估計值，適合看趨勢與排行，不是逐筆精確計數；約有數分鐘到 1 小時延遲，你自己瀏覽前台也會被算進去（後台不算）。<br>「轉換率」＝期間內訂單數 ÷ 訪次，是粗略參考（訂單包含客人線下聯絡後才下的單）。「與上期比」是跟前一段等長時間比較。首頁內切換分頁（商品、風味、會員等）不另外計算，只算有獨立網址的頁面；分享文章已改連到獨立網頁（articles/…），每次打開都會計入文章瀏覽數。來源「直接」＝直接輸入網址、掃 QR 或從 LINE 等 App 點開；來源「站內跳轉」＝客人已經在你的網站上，點連結換到另一頁，不是新流量（「流量來源」框裡用一條分隔線，把它跟真正的外部管道分開）。幾點、星期幾的長條圖上，數字是那個時段／那一天的瀏覽次數；空白（接近 0）代表那段時間幾乎沒人看。每一個排行框後面的 %，都是「占這個框總數」的比例，所以同一個框裡的 % 加起來會接近 100%（例如某商品的 %，是它占全部商品頁瀏覽的比例，不是占全站）。商品頁排行會列出全部商品（包含這段期間 0 次瀏覽的），方便看出哪些商品完全沒人點進去看；其他排行只列出有資料的。</p>
   </section>
 
   <section class="panel" id="t-costs" hidden>
@@ -791,6 +793,15 @@ function bars(rows,total,empty,fmtName){
   const max=Math.max(...rows.map(r=>r.n));
   return rows.map(r=>'<div class="bl" title="'+esc(r.t)+'"><span class="nm">'+(fmtName?fmtName(r.t):esc(r.t))+'</span><span class="b"><i style="width:'+Math.max(2,r.n/max*100)+'%"></i></span><span class="n">'+nf(r.n)+(total?" · "+Math.round(r.n/total*100)+"%":"")+'</span></div>').join("");
 }
+// 流量來源專用：同一份清單、同一個 % 分母，但用一條分隔線把「站內跳轉」跟真正的外部管道分開，
+// 不用再另外開一個框、重算一套百分比（之前那樣同樣幾個數字配兩種 %，店主看不懂為什麼對不起來）
+function refsBlock(rows,total){
+  if(!rows.length)return '<div class="sub">沒有資料</div>';
+  const max=Math.max(...rows.map(r=>r.n));
+  const row=r=>'<div class="bl" title="'+esc(r.t)+'"><span class="nm">'+esc(r.t)+'</span><span class="b"><i style="width:'+Math.max(2,r.n/max*100)+'%"></i></span><span class="n">'+nf(r.n)+" · "+Math.round(r.n/total*100)+'%</span></div>';
+  const internal=rows.filter(r=>r.t==="站內跳轉"),ext=rows.filter(r=>r.t!=="站內跳轉");
+  return internal.map(row).join("")+(internal.length&&ext.length?'<div class="rf-div">── 以下才是真正從外面找到你的 ──</div>':"")+ext.map(row).join("");
+}
 function refGroup(h){
   h=String(h||"").toLowerCase();
   if(!h)return "直接／QR／App";
@@ -878,8 +889,7 @@ function renderTraffic(d,names){
   $("trPosts").innerHTML=bars(posts,postsTotal,"這段期間還沒有人看文章頁");
   $("trProds").innerHTML=bars(prods,prodsTotal,"這段期間還沒有人看商品頁");
   $("trOthers").innerHTML=bars(others,othersTotal,"沒有資料");
-  $("trRefs").innerHTML=bars(rg,d.views,"沒有資料");
-  $("trExtRefs").innerHTML=bars(rgExt,rgExt.reduce((s,r)=>s+r.n,0),"這段期間還沒有外部流量");
+  $("trRefs").innerHTML=refsBlock(rg,d.views);
   $("trDevs").innerHTML=bars(agg(d.devs,k=>DEVN[k]||k||"未知"),d.views,"沒有資料");
   $("trCountries").innerHTML=bars(agg(d.countries,k=>CTRY[k]||k||"未知"),d.views,"沒有資料");
   $("trBrowsers").innerHTML=bars(agg(d.browsers,k=>k||"未知"),d.views,"沒有資料");
