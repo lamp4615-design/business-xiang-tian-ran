@@ -1311,39 +1311,56 @@ function adminTraffic_(d, ss){
   const token = String(PropertiesService.getScriptProperties().getProperty("CLOUDFLARE_API_TOKEN") || "").trim();
   if (!token) return { ok:false, error:"cloudflare_not_configured" };
   const days = [1, 7, 30, 90].indexOf(Number(d.days)) > -1 ? Number(d.days) : 7;
-  const cache = CacheService.getScriptCache(), ck = "cf_traffic2_" + days;
+  const cache = CacheService.getScriptCache(), ck = "cf_traffic3_" + days;
   let out; const hit = cache.get(ck);
   if (hit) out = JSON.parse(hit);
   else {
     const end = new Date(), start = new Date(end.getTime() - days * 86400000), pStart = new Date(start.getTime() - days * 86400000);
     const f = "filter:{siteTag:$t,datetime_geq:$s,datetime_leq:$e}";
-    const grp = (dim, limit, order) => "rumPageloadEventsAdaptiveGroups(limit:" + limit + "," + f + (order ? ",orderBy:[" + order + "]" : "") + "){count dimensions{" + dim + "}}";
-    const query = "query($a:string!,$s:Time!,$e:Time!,$ps:Time!,$t:string!){viewer{accounts(filter:{accountTag:$a}){" +
-      "total:rumPageloadEventsAdaptiveGroups(limit:1," + f + "){count sum{visits}} " +
-      "prev:rumPageloadEventsAdaptiveGroups(limit:1,filter:{siteTag:$t,datetime_geq:$ps,datetime_lt:$s}){count sum{visits}} " +
-      "hourly:" + grp("datetimeHour", 2300, "datetimeHour_ASC") + " pages:" + grp("requestPath", 120, "count_DESC") +
-      " refs:" + grp("refererHost", 20, "count_DESC") + " devs:" + grp("deviceType", 5, "count_DESC") +
-      " countries:" + grp("countryName", 12, "count_DESC") + " browsers:" + grp("userAgentBrowser", 8, "count_DESC") + " oses:" + grp("userAgentOS", 8, "count_DESC") +
-      " vitals:rumWebVitalsEventsAdaptiveGroups(limit:1," + f + "){count quantiles{largestContentfulPaintP75 cumulativeLayoutShiftP75 interactionToNextPaintP75} sum{lcpGood lcpNeedsImprovement lcpPoor}} " +
-      "perf:rumPerformanceEventsAdaptiveGroups(limit:1," + f + "){count quantiles{pageLoadTimeP50 firstContentfulPaintP75}}" +
-      "}}}";
-    const payload = JSON.stringify({ query:query, variables:{ a:CF_ACCOUNT, t:CF_SITE_TAG, s:start.toISOString(), e:end.toISOString(), ps:pStart.toISOString() } });
-    let j = null;
-    for (let tries = 0; tries < 2 && !j; tries++){   // Cloudflare 偶爾暫時擋下連續查詢：等 2 秒再試一次
-      if (tries) Utilities.sleep(2000);
-      try{
-        const res = UrlFetchApp.fetch("https://api.cloudflare.com/client/v4/graphql", {
-          method:"post", contentType:"application/json", muteHttpExceptions:true, headers:{ Authorization:"Bearer " + token }, payload:payload });
-        j = JSON.parse(res.getContentText());
-      }catch(err){ j = null; }
+    /* level（2026-10-30）：2＝每一組都多拿「人次」(sum.visits)＋抽樣比例、1＝只多拿人次、0＝原本只有瀏覽次數。
+       Cloudflare 不認得新欄位時，自動退一級重查，最差就是跟原本一樣，流量分頁不會因此壞掉。 */
+    const build = (level) => {
+      const grp = (dim, limit, order) => "rumPageloadEventsAdaptiveGroups(limit:" + limit + "," + f + (order ? ",orderBy:[" + order + "]" : "") + "){count" + (level ? " sum{visits}" : "") + " dimensions{" + dim + "}}";
+      return "query($a:string!,$s:Time!,$e:Time!,$ps:Time!,$t:string!){viewer{accounts(filter:{accountTag:$a}){" +
+        "total:rumPageloadEventsAdaptiveGroups(limit:1," + f + "){count sum{visits}" + (level > 1 ? " avg{sampleInterval}" : "") + "} " +
+        "prev:rumPageloadEventsAdaptiveGroups(limit:1,filter:{siteTag:$t,datetime_geq:$ps,datetime_lt:$s}){count sum{visits}} " +
+        "hourly:" + grp("datetimeHour", 2300, "datetimeHour_ASC") + " pages:" + grp("requestPath", 120, "count_DESC") +
+        " refs:" + grp("refererHost", 20, "count_DESC") + " devs:" + grp("deviceType", 5, "count_DESC") +
+        " countries:" + grp("countryName", 12, "count_DESC") + " browsers:" + grp("userAgentBrowser", 8, "count_DESC") + " oses:" + grp("userAgentOS", 8, "count_DESC") +
+        " vitals:rumWebVitalsEventsAdaptiveGroups(limit:1," + f + "){count quantiles{largestContentfulPaintP75 cumulativeLayoutShiftP75 interactionToNextPaintP75} sum{lcpGood lcpNeedsImprovement lcpPoor}} " +
+        "perf:rumPerformanceEventsAdaptiveGroups(limit:1," + f + "){count quantiles{pageLoadTimeP50 firstContentfulPaintP75}}" +
+        "}}}";
+    };
+    const vars = { a:CF_ACCOUNT, t:CF_SITE_TAG, s:start.toISOString(), e:end.toISOString(), ps:pStart.toISOString() };
+    const ask = (query) => {
+      let r = null;
+      for (let tries = 0; tries < 2 && !r; tries++){   // Cloudflare 偶爾暫時擋下連續查詢：等 2 秒再試一次
+        if (tries) Utilities.sleep(2000);
+        try{
+          const res = UrlFetchApp.fetch("https://api.cloudflare.com/client/v4/graphql", {
+            method:"post", contentType:"application/json", muteHttpExceptions:true, headers:{ Authorization:"Bearer " + token }, payload:JSON.stringify({ query:query, variables:vars }) });
+          r = JSON.parse(res.getContentText());
+        }catch(err){ r = null; }
+      }
+      return r;
+    };
+    let j = null, level = 2;
+    for (; level >= 0; level--){
+      j = ask(build(level));
+      if (!j) return { ok:false, error:"Cloudflare 暫時沒有回應，請稍後再按「重新整理」" };
+      if (!(j.errors && j.errors.length)) break;
+      if (level === 0) return { ok:false, error:"Cloudflare：" + String(j.errors[0].message || "查詢失敗").slice(0, 120) };
     }
-    if (!j) return { ok:false, error:"Cloudflare 暫時沒有回應，請稍後再按「重新整理」" };
-    if (j.errors && j.errors.length) return { ok:false, error:"Cloudflare：" + String(j.errors[0].message || "查詢失敗").slice(0, 120) };
     const acc = (((j.data || {}).viewer || {}).accounts || [])[0] || {};
     const one = (acc.total || [])[0] || {}, pv = (acc.prev || [])[0] || {};
-    const list = (arr, key) => (arr || []).map(x => ({ k:x.dimensions[key], n:x.count }));
+    const list = (arr, key) => (arr || []).map(x => {
+      const o = { k:x.dimensions[key], n:x.count };
+      if (level) o.v = (x.sum || {}).visits || 0;   // 人次：從外面進站的那一次瀏覽才算（站內換頁不算）
+      return o;
+    });
     const vt = (acc.vitals || [])[0] || {}, pf = (acc.perf || [])[0] || {};
-    out = { ok:true, days:days, start:start.toISOString(), end:end.toISOString(),
+    out = { ok:true, days:days, start:start.toISOString(), end:end.toISOString(), fetchedAt:new Date().toISOString(), level:level,
+      sample: level > 1 ? Number((one.avg || {}).sampleInterval) || 1 : null,   // 1＝逐筆計算；大於 1＝Cloudflare 抽樣估算（約每 N 筆算 1 筆）
       views:one.count || 0, visits:(one.sum || {}).visits || 0, prevViews:pv.count || 0, prevVisits:(pv.sum || {}).visits || 0,
       hourly:list(acc.hourly, "datetimeHour"), pages:list(acc.pages, "requestPath"), refs:list(acc.refs, "refererHost"),
       devs:list(acc.devs, "deviceType"), countries:list(acc.countries, "countryName"),
@@ -1363,6 +1380,11 @@ function adminTraffic_(d, ss){
     out.orders = cur.length; out.prevOrders = prv.length;
     out.revenue = cur.filter(o => o.status === "已完成").reduce((s2, o) => s2 + o.total, 0);
     out.prevRevenue = prv.filter(o => o.status === "已完成").reduce((s2, o) => s2 + o.total, 0);
+    out.doneOrders = cur.filter(o => o.status === "已完成").length;
+    // 這段期間訂了什麼（跟訂單數同一批：不含取消）；耳掛的品名開頭是「耳掛 」、數量是組數
+    const sold = {};
+    cur.forEach(o => { const it = parseItems_(o.items); Object.keys(it).forEach(n => { sold[n] = (sold[n] || 0) + it[n]; }); });
+    out.sold = Object.keys(sold).map(n => ({ name:n, qty:sold[n], drip:n.indexOf(DRIP_NAME_PREFIX) === 0 })).sort((a, b) => b.qty - a.qty);
   }catch(err){ out.orders = null; }
   return out;
 }
