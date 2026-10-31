@@ -403,6 +403,9 @@
   .rate-form{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;max-width:640px}
   .rate-form .rf-intro{color:var(--ink-70);font-size:.94rem;margin-bottom:24px}
   .rate-form .rf-intro a,.rf-join a{color:var(--dawn);text-decoration:underline}
+  .rf-poster{display:block;position:relative;margin:0 0 14px;border-radius:16px;overflow:hidden;border:1px solid var(--line)}
+  .rf-poster img{display:block;width:100%;height:auto;aspect-ratio:687/360;object-fit:cover;object-position:top}   /* 只露出上半部（標題＋加入會員免費），點開看完整海報 */
+  .rf-poster span{position:absolute;right:10px;bottom:8px;background:rgba(36,28,21,.72);color:#fff;font-size:.78rem;padding:2px 10px;border-radius:99px}
   .rf-join{background:#FFF4E0;border:1.5px solid var(--dawn-soft);border-radius:16px;padding:16px 18px;margin-bottom:20px;color:var(--espresso)}
   .rf-join .rj-title{display:block;font-size:1.05rem;margin-bottom:6px}
   .rf-join ul{margin:0 0 8px;padding-left:20px;font-size:.92rem;line-height:1.75}
@@ -1741,7 +1744,8 @@ function renderRateForm(){
   w.innerHTML=`<div class="rate-form">
     ${member
       ? `<p class="rf-intro">每評一支<strong>沒評過的豆子</strong>就 +1 張抽獎券${member.draw?`（本期你已有 <strong>${member.draw.tickets}</strong> 張，${drawEndTxt(member.draw)} 截止）`:member.tickets!=null?`（目前 ${member.tickets} 張）`:""}。${drawLine}，<a href="draw/">看抽獎辦法與名單</a>。<br>選你喝的豆子，五個面向各給 1–5 分。</p>`
-      : `<div class="rf-join">
+      : `<a class="rf-poster" href="images/raffle-poster.webp" target="_blank" rel="noopener" aria-label="放大看抽獎海報"><img src="images/raffle-poster.webp" alt="翔天然會員專屬：評豆豆，抽大獎！每評一款沒評過的豆子，送 1 張抽獎券" width="687" height="980" loading="lazy"><span>點一下看完整海報</span></a>
+        <div class="rf-join">
           <b class="rj-title">🎁 加入會員再評分，多一個抽獎機會</b>
           <ul>
             <li>每評一支<strong>沒評過的豆子</strong>就 +1 張抽獎券。${drawLine}（<a href="draw/">名單與開獎都公開，可以自己驗算</a>）</li>
@@ -1801,11 +1805,11 @@ let CURRENT_DRAW=null,DRAW_INFO_LOADED=false,MEMBER_TAB_NEXT="";
 const CLAIM_KEY="xtr_claims",CLAIM_MS=48*3600e3;
 async function loadDrawInfo(){
   if(DRAW_INFO_LOADED)return;DRAW_INFO_LOADED=true;
-  let list=null;
-  try{const r=await fetch("draws.json",{cache:"no-store"});if(r.ok)list=await r.json();}catch(e){}
-  if(!Array.isArray(list)&&API_URL){try{list=await (await fetch(API_URL+"?action=draws")).json();}catch(e){}}
   const now=Date.now();
-  CURRENT_DRAW=(Array.isArray(list)?list:[]).find(d=>d.status==="進行中"&&(!d.start||new Date(d.start).getTime()<=now)&&new Date(d.end).getTime()>=now)||null;
+  const pick=list=>(Array.isArray(list)?list:[]).find(d=>d.status==="進行中"&&(!d.start||new Date(d.start).getTime()<=now)&&new Date(d.end).getTime()>=now)||null;
+  try{const r=await fetch("draws.json",{cache:"no-store"});if(r.ok)CURRENT_DRAW=pick(await r.json());}catch(e){}
+  // 靜態檔每 15 分鐘才更新一次：沒找到收券中的那一期，再問後端一次（店主剛建立的期別馬上看得到）
+  if(!CURRENT_DRAW&&API_URL){try{CURRENT_DRAW=pick(await (await fetch(API_URL+"?action=draws")).json());}catch(e){}}
   if(CURRENT_DRAW)renderRateForm();
 }
 const drawStartTxt=d=>{const t=new Date(new Date(d.start).getTime()+8*3600e3);return (t.getUTCMonth()+1)+"/"+t.getUTCDate();};
