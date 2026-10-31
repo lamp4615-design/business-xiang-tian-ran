@@ -1242,7 +1242,7 @@ function renderMember(){
       ${member.city?`<div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>`:""}
       ${member.email?`<div class="mc-row"><span class="k">Email</span><span>${esc(member.email)}</span></div>`:""}
       ${pointsPanelHtml()}
-      <div class="mc-row"><span class="k">${member.draw?"本期抽獎券":"抽獎券"}</span><span>${member.draw?member.draw.tickets+" 張（"+drawEndTxt(member.draw)+" 截止）":member.tickets!=null?member.tickets+" 張":(member.statsLimited?"驗證身分後顯示":"計算中…")}</span></div>
+      <div class="mc-row"><span class="k">${member.draw?"本期抽獎券":"抽獎券"}</span><span>${member.draw?member.draw.tickets+" 張（"+drawEndTxt(member.draw)+" 截止）":member.nextDraw?"0 張（"+drawStartTxt(member.nextDraw)+" 開始，從那天起評的豆子才算）":member.tickets!=null?member.tickets+" 張":(member.statsLimited?"驗證身分後顯示":"計算中…")}</span></div>
       <p class="mc-hint">每評一支沒評過的豆子 +1 張抽獎券。${member.draw?"本期抽 "+member.draw.winners+" 位，每位送 "+esc(member.draw.prize)+"；":""}截止後名單公開、用大樂透號碼開獎，任何人都能驗算。<a href="draw/" style="text-decoration:underline">看抽獎辦法與名單 →</a></p>
       <div class="rec-box"><h4>你可能會喜歡</h4><div id="recBox"><p class="rb-sub">整理推薦中…</p></div></div>
       <div class="mc-secure" id="mcSecure"></div>
@@ -1808,6 +1808,7 @@ async function loadDrawInfo(){
   CURRENT_DRAW=(Array.isArray(list)?list:[]).find(d=>d.status==="進行中"&&(!d.start||new Date(d.start).getTime()<=now)&&new Date(d.end).getTime()>=now)||null;
   if(CURRENT_DRAW)renderRateForm();
 }
+const drawStartTxt=d=>{const t=new Date(new Date(d.start).getTime()+8*3600e3);return (t.getUTCMonth()+1)+"/"+t.getUTCDate();};
 const drawEndTxt=d=>{const t=new Date(new Date(d.end).getTime()+8*3600e3);return (t.getUTCMonth()+1)+"/"+t.getUTCDate();};
 function pendingClaims(){try{const a=JSON.parse(localStorage.getItem(CLAIM_KEY)||"[]");return Array.isArray(a)?a.filter(x=>x&&x.code&&Date.now()-x.t<CLAIM_MS):[];}catch(e){return [];}}
 function savePendingClaims(a){try{if(a.length)localStorage.setItem(CLAIM_KEY,JSON.stringify(a.slice(-10)));else localStorage.removeItem(CLAIM_KEY);}catch(e){}}
@@ -1899,7 +1900,7 @@ async function fetchMyStats(){
       member.statsLimited=true;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
       member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";
     }
-    else if(d&&d.found){member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;}
+    else if(d&&d.found){member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
     else{member.statsLimited=false;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){if(member&&!member.statsLimited){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}}
   if(!member)return;

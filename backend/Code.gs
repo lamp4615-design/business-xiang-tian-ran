@@ -791,7 +791,7 @@ function memberStats(d){
   if (!globalCap_("ms_all", 150, 600)) return { ok:false, error:"busy" };
   if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false };
   const st = getMyStats(key);
-  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry, draw:st.draw };
+  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry, draw:st.draw, nextDraw:st.nextDraw };
 }
 /* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
 function memberStatsLimited_(phone){
@@ -1557,7 +1557,11 @@ function getMyStats(phone){
   const cur = currentDraw_(SpreadsheetApp.openById(SHEET_ID));
   const draw = cur ? { id:cur.id, name:cur.name, end:cur.end, prize:cur.prize, winners:cur.winners,
     tickets:products.filter(p => drawHas_(cur, first[p])).length } : null;
-  return { found:true, tickets:products.length, products:products, points:pts.points, pointsExpiry:pts.expiry, draw:draw };
+  // 下一期還沒開始（或兩期之間的空檔）：給前台顯示「幾月幾號開始」，不要退回顯示累計張數讓人誤會
+  const next = draw ? null : readDraws_(SpreadsheetApp.openById(SHEET_ID)).filter(x => x.status === DRAW_ST.open && x.start && new Date(x.start).getTime() > Date.now())
+    .sort((a, b) => new Date(a.start) - new Date(b.start))[0];
+  return { found:true, tickets:products.length, products:products, points:pts.points, pointsExpiry:pts.expiry, draw:draw,
+    nextDraw: next ? { name:next.name, start:next.start, prize:next.prize, winners:next.winners } : null };
 }
 
 /* 讀取某會員目前有效的點數（過期則回傳 0） */

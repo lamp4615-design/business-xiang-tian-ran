@@ -55,6 +55,13 @@ details>summary{cursor:pointer;color:var(--pine);font-weight:700}
 .vout{margin-top:10px;font-size:.9rem}
 .muted{color:var(--ink-70);font-size:.9rem}
 .rules li{margin-bottom:6px}
+.flow{display:flex;flex-direction:column;align-items:stretch}
+.fs{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 18px}
+.fs ul{margin:6px 0 0;padding-left:22px;line-height:1.8}
+.fs li{margin-bottom:3px}
+.fh{display:flex;align-items:center;gap:10px;font-size:1.08rem}
+.fn{display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--pine);color:#fff;align-items:center;justify-content:center;font-weight:700;flex:none}
+.fa{text-align:center;color:var(--dawn);font-size:1.1rem;line-height:1.6}
 footer{margin:48px 0 0;padding:24px 0;background:#294636;color:#fff;font-size:.9rem}
 footer a{color:#fff}
 </style>
@@ -69,6 +76,31 @@ footer a{color:#fff}
 
   <div id="now"><div class="card muted">讀取中…</div></div>
 
+  <h2>怎麼參加？4 個步驟</h2>
+  <div class="flow">
+    <div class="fs"><div class="fh"><span class="fn">1</span><b>免費加入會員</b></div>
+      <ul><li>姓名可以填<b>暱稱</b></li>
+      <li><b>手機、Email 請務必填正確</b>：通知得獎、出貨、退換貨都靠它聯繫</li></ul></div>
+    <div class="fa" aria-hidden="true">▼</div>
+    <div class="fs"><div class="fh"><span class="fn">2</span><b>品飲評分，拿抽獎券</b></div>
+      <ul><li>評 1 支<b>沒評過的豆子</b> ＝ <b>1 張券</b></li>
+      <li>同一支豆子再評一次，<b>不會重複累計</b></li>
+      <li><b>評得越多款，券越多、中獎機會越高</b></li>
+      <li><b>先評分、後加入也可以</b>：用訪客身分評分後，<b>48 小時內</b>在同一台手機登入或加入會員，那筆評分照樣算</li>
+      <li>只有「活動期間內第一次評的豆子」才算本期的券；期間以上方「本期抽獎」為準，顯示「不限」代表之前評過的也都算</li></ul></div>
+    <div class="fa" aria-hidden="true">▼</div>
+    <div class="fs"><div class="fh"><span class="fn">3</span><b>公開、公正地抽獎</b></div>
+      <ul><li>活動截止 → <b>鎖定名單</b> → <b>公開名單與指紋碼</b></li>
+      <li>用事先公告那一期的<b>台灣彩券大樂透開獎號碼</b>計算得獎者，我們動不了手腳</li>
+      <li><b>每人每期最多中獎 1 次</b>；任何人都能在這頁自己驗算（做法見下方「為什麼說公平」）</li></ul></div>
+    <div class="fa" aria-hidden="true">▼</div>
+    <div class="fs"><div class="fh"><span class="fn">4</span><b>公布名單與領獎</b></div>
+      <ul><li><b>結果公布</b>在這個頁面（姓名與手機只顯示遮罩後的樣子，例如「王○明」、末三碼）</li>
+      <li><b>主動通知</b>得獎者：用會員登記的 Email、電話或 LINE</li>
+      <li><b>領獎期限</b>：通知後 <b>14 天內</b>回覆寄送方式，逾期視同放棄</li></ul></div>
+  </div>
+  <p class="muted" style="margin:10px 0 0">另外：公開名單只顯示遮罩後的名稱與手機末三碼，完整資料只用於這個活動的通知與寄送。活動辦法如有調整，會先公告在這一頁。</p>
+
   <h2>為什麼說公平？</h2>
   <div class="card">
     <ol class="steps">
@@ -80,19 +112,6 @@ footer a{color:#fff}
   </div>
 
   <div id="past"></div>
-
-  <h2>活動辦法</h2>
-  <div class="card">
-    <ul class="rules" id="rules">
-      <li><b>參加資格：</b>翔天然會員（加入免費，姓名可以填暱稱；手機、Email 請填正確，中獎通知和訂單、退換貨聯繫都會用到）。</li>
-      <li><b>怎麼拿券：</b>活動期間內，每評一支「沒評過的豆子」得 1 張；同一支豆子再評一次不會多一張。用訪客身分評分後，48 小時內在同一支手機上加入或登入會員，那一筆也會算進去。</li>
-      <li><b>獎品與名額：</b>依每一期公告（見上方）；同一人每期最多中一次，券越多、中獎機會越高。</li>
-      <li><b>抽獎方式：</b>截止後鎖定名單並公開指紋碼，用事先公告那一期大樂透的開獎號碼計算得獎券號，算法如上。</li>
-      <li><b>公布與通知：</b>結果公布在這一頁；我們會用會員登記的 Email、電話或 LINE 通知得獎者。請在通知後 <b>14 天內</b>回覆寄送方式，逾期視同放棄。</li>
-      <li><b>個人資料：</b>公開名單只顯示遮罩後的名稱與手機末三碼；完整資料只用於這個活動的通知與寄送。</li>
-      <li>活動如有調整，會先公告在這一頁。</li>
-    </ul>
-  </div>
 </main>
 <footer><div class="wrap"><p><strong>翔天然，翔自在。</strong>自家烘焙精品咖啡豆，逐批手挑瑕疵豆。</p><p><a href="../">回到官網首頁</a>・<a href="../#flavor">去評分</a></p></div></footer>
 <script>
