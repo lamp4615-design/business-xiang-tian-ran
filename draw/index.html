@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>評分抽獎・公開透明｜翔天然</title>
+<meta name="description" content="翔天然會員評分抽獎：每評一支沒評過的豆子就多 1 張抽獎券。截止後名單公開、用台灣彩券大樂透開獎號碼決定得獎者，任何人都能自己驗算。">
+<link rel="canonical" href="https://lamp4615-design.github.io/business-xiang-tian-ran/draw/">
+<link rel="icon" href="../%E7%BF%94%E8%87%AA%E5%9C%A8.png">
+<!-- 手寫頁面（不是 build-seo.js 產生的）。資料來自後端 action=draws，讀不到時用 GitHub Actions 每 15 分鐘存下來的 ../draws.json。
+     ⚠️ 下面 listText()、hexMod()、pickWinners() 要跟 backend/Code.gs 的 drawListText_、hexMod_、pickWinners_ 一模一樣，改一邊就要改另一邊。 -->
+<style>
+:root{--pine:#294636;--pine-mid:#4E6B52;--dawn:#E4892B;--dawn-soft:#F3B85F;--paper:#F5F3EB;--paper-2:#EAE7DC;--ink:#241C15;--ink-70:rgba(36,28,21,.72);--ink-45:rgba(36,28,21,.48);--line:rgba(46,61,48,.16);--card:#fff;--sans:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#171d18;--paper-2:#202820;--card:#1f2620;--ink:#ece8de;--ink-70:rgba(236,232,222,.78);--ink-45:rgba(236,232,222,.55);--line:rgba(236,232,222,.16);--pine:#9fc7a7;--pine-mid:#8fb596}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.75 var(--sans)}
+a{color:var(--pine)}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px}
+header.top{background:#294636;color:#fff}
+header.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px}
+header.top a{color:#fff;text-decoration:none}
+header.top .brand{font-weight:700;font-size:1.15rem;letter-spacing:.08em}
+header.top nav{display:flex;gap:16px;flex-wrap:wrap;font-size:.95rem}
+h1{font-size:1.8rem;margin:28px 0 6px;color:var(--pine);letter-spacing:.04em}
+h2{font-size:1.25rem;margin:34px 0 10px;color:var(--pine)}
+.lead{color:var(--ink-70);margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px 20px;margin:14px 0}
+.now{border:2px solid var(--dawn-soft)}
+.badge{display:inline-block;border-radius:99px;padding:1px 12px;font-size:.8rem;font-weight:700;color:#fff;background:var(--pine-mid);vertical-align:middle;margin-left:6px}
+.badge.open{background:var(--dawn)}.badge.drawn{background:#7a5a2f}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}
+.facts div{background:var(--paper);border-radius:12px;padding:10px 12px}
+.facts b{display:block;font-size:1.25rem;color:var(--ink)}
+.facts span{font-size:.85rem;color:var(--ink-70)}
+.btn{display:inline-block;background:var(--dawn);color:#fff;border-radius:99px;padding:10px 20px;font-weight:700;text-decoration:none;border:0;cursor:pointer;font:inherit;font-weight:700}
+.btn.ghost{background:transparent;color:var(--pine);border:1.5px solid var(--pine)}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+ol.steps{padding-left:0;list-style:none;counter-reset:s;margin:0}
+ol.steps li{counter-increment:s;position:relative;padding:0 0 14px 44px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--pine);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+ol.steps b{display:block}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:.82rem;word-break:break-all;background:var(--paper);border:1px dashed var(--line);border-radius:8px;padding:6px 10px;display:block}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--ink-70);font-weight:600;white-space:nowrap}
+tr.win td{background:rgba(228,137,43,.14);font-weight:700}
+.tbl{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:10px;margin-top:8px}
+.search{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.search input{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;width:150px;background:var(--card);color:var(--ink)}
+details>summary{cursor:pointer;color:var(--pine);font-weight:700}
+.winners{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:10px 0}
+.winners div{background:#FFF4E0;border:1px solid #F0D49B;border-radius:12px;padding:10px 12px;color:#6B4510}
+.winners b{font-size:1.15rem}
+.ok{color:#2f7d4f;font-weight:700}.bad{color:#b4452f;font-weight:700}
+.vout{margin-top:10px;font-size:.9rem}
+.muted{color:var(--ink-70);font-size:.9rem}
+.rules li{margin-bottom:6px}
+footer{margin:48px 0 0;padding:24px 0;background:#294636;color:#fff;font-size:.9rem}
+footer a{color:#fff}
+</style>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0983c24b22934644914ceb51ef122b23"}'></script><!-- End Cloudflare Web Analytics -->
+</head>
+<body>
+<header class="top"><div class="wrap"><a class="brand" href="../">翔天然</a>
+<nav aria-label="主選單"><a href="../#products">線上選購</a><a href="../#flavor">風味評分</a><a href="../#member">會員</a></nav></div></header>
+<main class="wrap">
+  <h1>評分抽獎・公開透明</h1>
+  <p class="lead">會員每評一支<b>沒評過的豆子</b>，就多 1 張抽獎券。每一期截止後，名單公開、用<b>台灣彩券大樂透</b>的開獎號碼決定得獎者——連我們自己也動不了，任何人都能在這頁自己驗算。</p>
+
+  <div id="now"><div class="card muted">讀取中…</div></div>
+
+  <h2>為什麼說公平？</h2>
+  <div class="card">
+    <ol class="steps">
+      <li><b>截止後，名單鎖定並公開</b>每一張券都列在這頁（名稱遮罩成「王○明」、手機只留末 3 碼），你可以用手機末三碼找到自己的券。</li>
+      <li><b>公開名單的「指紋碼」</b>整份名單會算出一串 64 個字的指紋碼（SHA-256）。名單只要被改一個字，指紋碼就完全不同，所以公布之後沒辦法偷改。</li>
+      <li><b>用大樂透的開獎號碼抽</b>事先公告用哪一期大樂透。那組號碼全台公開、誰都控制不了，包括我們。</li>
+      <li><b>算法公開，自己就能驗算</b>中獎券號＝把「指紋碼｜開獎號碼｜第幾次」再算一次 SHA-256，除以總券數取餘數。同一個人每期最多中一次。按下面的「自己驗算」，你的手機會從頭算一遍。</li>
+    </ol>
+  </div>
+
+  <div id="past"></div>
+
+  <h2>活動辦法</h2>
+  <div class="card">
+    <ul class="rules" id="rules">
+      <li><b>參加資格：</b>翔天然會員（加入免費，姓名可以填暱稱；手機、Email 請填正確，中獎通知和訂單、退換貨聯繫都會用到）。</li>
+      <li><b>怎麼拿券：</b>活動期間內，每評一支「沒評過的豆子」得 1 張；同一支豆子再評一次不會多一張。用訪客身分評分後，48 小時內在同一支手機上加入或登入會員，那一筆也會算進去。</li>
+      <li><b>獎品與名額：</b>依每一期公告（見上方）；同一人每期最多中一次，券越多、中獎機會越高。</li>
+      <li><b>抽獎方式：</b>截止後鎖定名單並公開指紋碼，用事先公告那一期大樂透的開獎號碼計算得獎券號，算法如上。</li>
+      <li><b>公布與通知：</b>結果公布在這一頁；我們會用會員登記的 Email、電話或 LINE 通知得獎者。請在通知後 <b>14 天內</b>回覆寄送方式，逾期視同放棄。</li>
+      <li><b>個人資料：</b>公開名單只顯示遮罩後的名稱與手機末三碼；完整資料只用於這個活動的通知與寄送。</li>
+      <li>活動如有調整，會先公告在這一頁。</li>
+    </ul>
+  </div>
+</main>
+<footer><div class="wrap"><p><strong>翔天然，翔自在。</strong>自家烘焙精品咖啡豆，逐批手挑瑕疵豆。</p><p><a href="../">回到官網首頁</a>・<a href="../#flavor">去評分</a></p></div></footer>
+<script>
+const API="https://script.google.com/macros/s/AKfycbyZqvkluw1OoigP2Bw_KmkqyKPzlklCWHu57MGLOULH5EVI0ctTmnw5d4WZgZU7wy-iuQ/exec";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const twDay=iso=>new Date(new Date(iso).getTime()+8*3600e3).toISOString().slice(0,10);
+const twTime=iso=>{const t=new Date(new Date(iso).getTime()+8*3600e3);return t.toISOString().slice(0,10)+" "+t.toISOString().slice(11,16);};
+const period=d=>(d.start?twDay(d.start):"（不限，之前累積的券都算）")+" ～ "+twDay(d.end)+" 23:59";
+
+/* ===== 驗算（跟 Code.gs 同一套算法）===== */
+function listText(d,tickets){
+  const lines=["翔天然評分抽獎","期別："+d.id,"名稱："+d.name,"期間："+(d.start?twDay(d.start):"（不限）")+" ～ "+twDay(d.end),"名額："+d.winners,"券號|持有人|名稱|手機末三碼|豆子|評分日期"];
+  tickets.forEach(t=>lines.push([t.no,t.holder,t.name,t.tail,t.product,t.date].join("|")));
+  return lines.join("\n");
+}
+async function sha256Hex(text){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function hexMod(hex,n){let r=0;for(let i=0;i<hex.length;i++)r=(r*16+parseInt(hex.charAt(i),16))%n;return r;}
+async function pickWinners(hash,lotto,tickets,count,log){
+  const won={},out=[],holders=new Set(tickets.map(t=>t.holder)).size,need=Math.min(count,holders);
+  for(let k=1;out.length<need&&k<=5000;k++){
+    const h=await sha256Hex(hash+"|"+lotto+"|"+k),idx=hexMod(h,tickets.length),t=tickets[idx];
+    const dup=!!won[t.holder];
+    if(log)log.push({k,h,idx,t,dup});
+    if(dup)continue;
+    won[t.holder]=1;out.push(t);
+  }
+  return out;
+}
+
+/* ===== 畫面 ===== */
+let DRAWS=[];
+function nowCard(d){
+  if(!d)return '<div class="card"><b>下一期抽獎即將公布。</b><p class="muted" style="margin:6px 0 0">先加入會員、幫喝過的豆子評分，公布後就能參加。</p><div class="btns"><a class="btn" href="../#flavor">去評分</a><a class="btn ghost" href="../#member">加入會員</a></div></div>';
+  return '<div class="card now"><b style="font-size:1.15rem">'+esc(d.name)+'</b><span class="badge open">收券中</span>'
+    +'<div class="facts"><div><span>活動期間</span><b style="font-size:1rem">'+esc(period(d))+'</b></div>'
+    +'<div><span>每位得獎者</span><b>'+esc(d.prize)+'</b></div><div><span>得獎名額</span><b>'+d.winners+' 位</b></div>'
+    +'<div><span>目前</span><b>'+(d.count||0)+' 張券</b><span>'+(d.holders||0)+' 位會員參加</span></div></div>'
+    +'<p class="muted" style="margin:0">開獎依據：'+esc(d.basis)+'。截止後名單會公開在這頁。</p>'
+    +'<div class="btns"><a class="btn" href="../#flavor">去評分拿券</a><a class="btn ghost" href="../#member">加入會員（可填暱稱）</a></div></div>';
+}
+function pastCard(d,i){
+  const won=new Set(d.winnerNos||[]);
+  const rows=(d.tickets||[]).map(t=>'<tr data-tail="'+esc(t.tail)+'"'+(won.has(t.no)?' class="win"':'')+'><td>#'+t.no+'</td><td>'+t.holder+'</td><td>'+esc(t.name)+'</td><td>'+esc(t.tail)+'</td><td>'+esc(t.product)+'</td><td>'+esc(t.date)+'</td></tr>').join("");
+  const winners=(d.winnerNos||[]).map(no=>(d.tickets||[])[no-1]).filter(Boolean);
+  return '<div class="card"><b style="font-size:1.1rem">'+esc(d.name)+'</b><span class="badge'+(d.status==="已開獎"?" drawn":"")+'">'+esc(d.status)+'</span>'
+    +'<p class="muted" style="margin:6px 0">期間 '+esc(period(d))+'｜每位得獎者 '+esc(d.prize)+'｜名額 '+d.winners+' 位｜共 '+d.count+' 張券、'+d.holders+' 位會員｜名單鎖定於 '+(d.lockedAt?twTime(d.lockedAt):"—")+'</p>'
+    +'<p style="margin:8px 0 2px"><b>名單指紋碼（SHA-256）</b></p><span class="mono">'+esc(d.hash)+'</span>'
+    +(d.status==="已開獎"
+      ?'<p style="margin:12px 0 2px"><b>開獎依據</b>：大樂透 '+esc(d.lottoIssue)+'，號碼（由小到大＋特別號）<span class="mono" style="display:inline-block">'+esc(d.lotto)+'</span></p>'
+        +'<p style="margin:12px 0 0"><b>得獎者</b>（每位 '+esc(d.prize)+'）</p><div class="winners">'+winners.map(t=>'<div><b>'+esc(t.name)+'</b>（手機末三碼 '+esc(t.tail)+'）<br>券號 #'+t.no+'・'+esc(t.product)+'</div>').join("")+'</div>'
+      :'<p class="muted" style="margin:10px 0 0">等待開獎：'+esc(d.basis)+'。</p>')
+    +'<details style="margin-top:10px"><summary>看完整名單（'+d.count+' 張）</summary>'
+    +'<div class="search"><label>找自己的券：手機末三碼 <input inputmode="numeric" maxlength="3" placeholder="例：678" oninput="findTail('+i+',this.value)"></label><span class="muted" id="find'+i+'"></span></div>'
+    +'<div class="tbl"><table id="tbl'+i+'"><thead><tr><th>券號</th><th>持有人</th><th>名稱</th><th>末三碼</th><th>豆子</th><th>評分日期</th></tr></thead><tbody>'+rows+'</tbody></table></div></details>'
+    +'<div class="btns" style="margin-top:12px"><button class="btn ghost" type="button" onclick="verify('+i+')">自己驗算</button></div><div class="vout" id="v'+i+'"></div></div>';
+}
+function findTail(i,v){
+  v=String(v||"").replace(/\D/g,"");
+  const rows=Array.from($("tbl"+i).tBodies[0].rows);let n=0;
+  rows.forEach(r=>{const hit=!v||r.dataset.tail===v;r.style.display=hit?"":"none";if(v&&hit)n++;});
+  $("find"+i).textContent=v.length===3?(n?"找到 "+n+" 張":"沒有這個末三碼的券"):"";
+}
+async function verify(i){
+  const d=DRAWS[i],out=$("v"+i);
+  if(!window.crypto||!crypto.subtle){out.innerHTML='<span class="bad">這個瀏覽器不支援驗算，請換成最新版的 Chrome、Safari 或 Edge。</span>';return;}
+  out.textContent="驗算中…";
+  const h=await sha256Hex(listText(d,d.tickets||[]));
+  let html='<p><b>① 名單指紋碼</b>：用這頁的名單重新算一次 → <span class="mono">'+h+'</span>'+(h===d.hash?'<span class="ok">✓ 跟公布的一樣，名單沒有被改過</span>':'<span class="bad">✗ 跟公布的不一樣</span>')+'</p>';
+  if(d.status!=="已開獎"){out.innerHTML=html+'<p class="muted">還沒開獎，開獎後這裡會一步一步算出得獎者。</p>';return;}
+  const log=[],w=await pickWinners(d.hash,d.lotto,d.tickets,d.winners,log);
+  html+='<p><b>② 算得獎券號</b>：第 k 次＝SHA-256（指紋碼｜'+esc(d.lotto)+'｜k）除以總券數 '+d.tickets.length+' 的餘數，再 +1 就是券號；這個人已經中過就跳過。</p>'
+    +'<div class="tbl"><table><thead><tr><th>k</th><th>算出來的數字（前 16 碼）</th><th>餘數</th><th>券號</th><th>結果</th></tr></thead><tbody>'
+    +log.map(x=>'<tr'+(x.dup?'':' class="win"')+'><td>'+x.k+'</td><td class="mono" style="display:table-cell;border:0">'+x.h.slice(0,16)+'…</td><td>'+x.idx+'</td><td>#'+x.t.no+'</td><td>'+(x.dup?'這個人已中過，跳過':'得獎：'+esc(x.t.name)+'（'+esc(x.t.tail)+'）')+'</td></tr>').join("")+'</tbody></table></div>';
+  const same=w.map(t=>t.no).join(",")===(d.winnerNos||[]).join(",");
+  html+='<p><b>③ 結果</b>：'+(same?'<span class="ok">✓ 跟公布的得獎者完全一樣</span>':'<span class="bad">✗ 跟公布的不一樣</span>')+'</p>';
+  out.innerHTML=html;
+}
+function render(list){
+  DRAWS=Array.isArray(list)?list:[];
+  const open=DRAWS.find(d=>d.status==="進行中"&&(!d.start||new Date(d.start)<=new Date())&&new Date(d.end)>=new Date());
+  $("now").innerHTML='<h2 style="margin-top:20px">本期抽獎</h2>'+nowCard(open);
+  const past=DRAWS.map((d,i)=>d.status!=="進行中"?pastCard(d,i):"").join("");
+  $("past").innerHTML=past?'<h2>名單與開獎結果</h2>'+past:"";
+}
+(async()=>{
+  let list=null;
+  try{const r=await fetch(API+"?action=draws");const j=await r.json();if(Array.isArray(j))list=j;}catch(e){}
+  if(!list){try{const r=await fetch("../draws.json",{cache:"no-store"});if(r.ok)list=await r.json();}catch(e){}}
+  render(list||[]);
+})();
+</script>
+</body>
+</html>

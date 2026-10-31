@@ -39,6 +39,8 @@ jobs:
           fetch_json "action=products" products.json 1 || fail=1
           fetch_json "action=reviews" reviews.json 0 || fail=1
           fetch_json "action=posts&site=xiang" posts.json 0 || fail=1
+          # 公開抽獎：規則、鎖定的名單（遮罩）與指紋碼、開獎結果。存進 repo，git 歷史就是「名單在開獎前就公開」的時間證明
+          fetch_json "action=draws" draws.json 0 || fail=1
           [ "$fail" = 0 ] || echo "::warning::有項目抓取失敗，已保留原檔"
       - name: 產生 SEO 靜態頁與 sitemap
         run: node build-seo.js

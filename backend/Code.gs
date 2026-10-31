@@ -63,6 +63,7 @@ function doGet(e){
   if (action === "mystats")  return json(memberStats({ phone:p.phone }));
   if (action === "myreviews"){ const r = memberReviews({ phone:p.phone }); return json(r.ok ? r.reviews : []); }
   if (action === "posts")    return json(getPosts(p.site));
+  if (action === "draws")    return json(publicDraws());   // 公開抽獎：規則、名單（遮罩）、指紋碼、結果
   if (action === "unsub")    return unsubscribe_(p);
   return json({ ok:false, error:"unknown action" });
 }
@@ -438,6 +439,7 @@ function doPost(e){
     if (d.action === "join")  return json(addMember(d));
     if (d.action === "order") return json(addOrder(d));
     if (d.action === "review") return json(addReview(d));
+    if (d.action === "review_claim") return json(claimReviews(d));
     if (d.action === "restock_interest") return json(addRestockInterest(d));
     if (d.action === "member_code_request") return json(requestCode(d));
     if (d.action === "member_code_verify")  return json(verifyCode(d));
@@ -789,7 +791,7 @@ function memberStats(d){
   if (!globalCap_("ms_all", 150, 600)) return { ok:false, error:"busy" };
   if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false };
   const st = getMyStats(key);
-  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry };
+  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry, draw:st.draw };
 }
 /* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
 function memberStatsLimited_(phone){
@@ -1422,7 +1424,15 @@ function getReviews(){
    ② 同一支手機、同一支豆子只保留一筆：再評一次就覆蓋那一列（時間也更新），不新增，避免灌票；
    ③ 覆蓋別人的評分要先證明是本人：已經評過的豆子要「更新」時必須帶有效憑證（驗證碼驗證過），
       否則回 auth_required。第一次評分維持不用驗證（跟以前一樣）。訪客（沒有手機）的評分照舊新增一列。
-   公開的 action=reviews／reviews.json 仍然只有時間、品項、五軸分數，不含手機與喜歡程度。 */
+   公開的 action=reviews／reviews.json 仍然只有時間、品項、五軸分數，不含手機與喜歡程度。
+   2026-10-31：多兩欄 ——「首次評分」（再評一次會更新時間，但抽獎看第一次評的時間，舊資料沒有這欄就用評分時間）、
+   「認領碼」（訪客評分才有，回傳給那台裝置；之後加入／登入會員可用 review_claim 把這筆改記到會員名下）。 */
+const REVIEW_FIRST_COL = 10, REVIEW_CLAIM_COL = 11;
+function ensureReviewCols_(sh){
+  const h = sh.getRange(1, REVIEW_FIRST_COL, 1, 2).getValues()[0];
+  if (!String(h[0]).trim()) sh.getRange(1, REVIEW_FIRST_COL).setValue("首次評分");
+  if (!String(h[1]).trim()) sh.getRange(1, REVIEW_CLAIM_COL).setValue("認領碼");
+}
 function addReview(d){
   const tokenKey = d.token ? verifyToken_(d.token) : null;
   const key = tokenKey || normPhone_(d.phone);
@@ -1437,11 +1447,12 @@ function addReview(d){
   try{
     const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
     if (!sh) return { ok:false, error:"no_sheet" };
-    let row = 0, phoneCell = "";
+    ensureReviewCols_(sh);
+    let row = 0, phoneCell = "", first = null;
     if (key){
       const rows = sh.getDataRange().getValues();
       for (let i = rows.length - 1; i >= 1; i--){   // 從最新的往回找
-        if (normPhone_(rows[i][1]) === key && String(rows[i][2]).trim() === product){ row = i + 1; phoneCell = String(rows[i][1]); break; }
+        if (normPhone_(rows[i][1]) === key && String(rows[i][2]).trim() === product){ row = i + 1; phoneCell = String(rows[i][1]); first = rows[i][REVIEW_FIRST_COL - 1] || rows[i][0] || null; break; }
       }
       if (row && !tokenKey) return { ok:false, error:"auth_required", needAuth:true, existed:true };
       if (!phoneCell){
@@ -1449,11 +1460,52 @@ function addReview(d){
         phoneCell = normPhone_(raw) === key ? raw : "0" + key;   // 手機存完整（文字），只在後台看得到
       }
     }
-    const vals = [ new Date(), phoneCell, product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked ];
+    const now = new Date();
+    const claimKey = key ? "" : Utilities.getUuid().replace(/-/g, "");
+    const vals = [ now, phoneCell, product, v(d.aroma), v(d.acidity), v(d.sweetness), v(d.body), v(d.bitterness), liked, first ? new Date(first) : now, claimKey ];
     const target = row || sh.getLastRow() + 1;
     sh.getRange(target, 2).setNumberFormat("@");
     sh.getRange(target, 1, 1, vals.length).setValues([vals]);
-    return { ok:true, updated:!!row };
+    const out = { ok:true, updated:!!row };
+    if (claimKey) out.claimKey = claimKey;
+    return out;
+  } finally { lock.releaseLock(); }
+}
+
+/* 訪客評分後才加入／登入會員：把剛剛那幾筆訪客評分改記到會員名下（拿到抽獎券、也算進個人推薦）。
+   認領碼只存在評分的那台裝置；評分後 48 小時內有效；會員已經評過同一支豆子就不認領（維持一人一支一筆）。 */
+const CLAIM_HOURS = 48;
+function claimReviews(d){
+  const key = viewerKey_(d);
+  if (!key) return { ok:false, error:"bad phone" };
+  if (!rateLimit_("rc_" + key, 3)) return { ok:false, error:"rate_limited" };
+  const codes = (Array.isArray(d.codes) ? d.codes : []).map(c => String(c || "").replace(/[^0-9a-f]/gi, "")).filter(c => c.length >= 16).slice(0, 10);
+  if (!codes.length) return { ok:true, claimed:[], already:[] };
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  if (!lookupMember_(ss, key)) return { ok:false, error:"not_member" };
+  const lock = LockService.getScriptLock();
+  try{ lock.waitLock(10000); }catch(err){ return { ok:false, error:"busy" }; }
+  try{
+    const sh = ss.getSheetByName(REVIEWS_TAB);
+    if (!sh) return { ok:true, claimed:[], already:[] };
+    const rows = sh.getDataRange().getValues();
+    const mine = {};
+    for (let i = 1; i < rows.length; i++) if (normPhone_(rows[i][1]) === key) mine[String(rows[i][2]).trim()] = 1;
+    const claimed = [], already = [];
+    codes.forEach(code => {
+      for (let i = rows.length - 1; i >= 1; i--){
+        if (String(rows[i][REVIEW_CLAIM_COL - 1] || "") !== code) continue;
+        const product = String(rows[i][2]).trim();
+        const fresh = rows[i][0] && Date.now() - new Date(rows[i][0]).getTime() <= CLAIM_HOURS * 3600e3;
+        if (String(rows[i][1] || "").trim() || !fresh || !product) break;
+        if (mine[product]){ already.push(product); break; }
+        setTextCell(sh, i + 1, 2, "0" + key);
+        sh.getRange(i + 1, REVIEW_CLAIM_COL).setValue("");
+        mine[product] = 1; claimed.push(product);
+        break;
+      }
+    });
+    return { ok:true, claimed:claimed, already:already };
   } finally { lock.releaseLock(); }
 }
 
@@ -1490,16 +1542,22 @@ function getMyStats(phone){
   const key = norm(phone);
   if (!sh || !key) return { found:false, tickets:0, products:[] };
   const rows = sh.getDataRange().getValues(); // 建立時間/手機/品項/...
-  const set = {};
+  const first = {};   // 品項 → 第一次評這支的時間
   for (let i = 1; i < rows.length; i++){
     if (norm(rows[i][1]) === key){
       const product = String(rows[i][2] || "").trim();
-      if (product) set[product] = true;
+      if (!product) continue;
+      const t = reviewFirstTime_(rows[i]);
+      if (first[product] === undefined || t < first[product]) first[product] = t;
     }
   }
-  const products = Object.keys(set);
+  const products = Object.keys(first);
   const pts = readPoints(phone);
-  return { found:true, tickets:products.length, products:products, points:pts.points, pointsExpiry:pts.expiry };
+  // 這一期公開抽獎：期間內第一次評的豆子才算這一期的券
+  const cur = currentDraw_(SpreadsheetApp.openById(SHEET_ID));
+  const draw = cur ? { id:cur.id, name:cur.name, end:cur.end, prize:cur.prize, winners:cur.winners,
+    tickets:products.filter(p => drawHas_(cur, first[p])).length } : null;
+  return { found:true, tickets:products.length, products:products, points:pts.points, pointsExpiry:pts.expiry, draw:draw };
 }
 
 /* 讀取某會員目前有效的點數（過期則回傳 0） */
@@ -1587,34 +1645,287 @@ function qtyText_(bags, dripSets){
   return parts.join("、") || "0 包";
 }
 
-/* 抽獎：在 Apps Script 手動執行這個函式，會依「抽獎券數（評過的不同豆子數）」
-   加權隨機抽出一位中獎會員，並把結果與名單寄到你的信箱。
-   券越多的人中獎機率越高。 */
-function drawWinner(){
-  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(REVIEWS_TAB);
-  if (!sh){ MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】抽獎", "找不到 reviews 分頁，無法抽獎。"); return; }
+/* ========================= 公開透明抽獎（2026-10-31，取代原本只寄給店主的 drawWinner）=========================
+   每一期：期間內會員「第一次評某一支豆子」＝ 1 張券。後台「抽獎」分頁的流程：
+   ① 建立一期（期間、名額、獎品、用哪一期大樂透開獎）→ 網站 draw/ 頁公開規則與目前張數
+   ② 截止後「鎖定名單」：把券凍結進 draw_tickets，整份名單算出 SHA-256「指紋碼」，名單（遮罩）與指紋碼公開
+   ③ 「開獎」：輸入事先公告那一期大樂透號碼，用「指紋碼＋開獎號碼」算中獎券號，同一人最多中一次
+   任何人都能在 draw/ 頁用同樣算法自己驗算。名單鎖定後不能改，開獎後不能重抽（防呆：名單被動過就拒絕開獎）。
+   公開的只有遮罩名稱（王○明）、手機末三碼、持有人編號、豆子、評分日期；完整手機、Email 只在後台。
+   ⚠️ 下面 drawListText_、hexMod_、pickWinners_ 的算法要跟 draw/index.html 的驗算程式一模一樣，改一邊就要改另一邊。 */
+const DRAWS_TAB = "draws", DRAW_TICKETS_TAB = "draw_tickets";
+const DRAW_HEAD = ["期別編號", "名稱", "開始", "截止", "名額", "獎品", "開獎依據", "狀態", "鎖定時間", "名單指紋", "開獎期別", "開獎號碼", "中獎券號", "開獎時間", "通知時間", "建立時間"];
+const DRAW_TICKET_HEAD = ["期別編號", "券號", "持有人編號", "手機", "公開名稱", "手機末三碼", "豆子", "評分時間"];
+const DRAW_ST = { open:"進行中", locked:"已鎖定", drawn:"已開獎" };
+const DRAW_CLAIM_DAYS = 14;   // 中獎通知信寫的回覆期限
+
+function drawSheet_(ss, name, head){
+  let sh = ss.getSheetByName(name);
+  if (!sh){ sh = ss.insertSheet(name); sh.appendRow(head); }
+  return sh;
+}
+const isoOr_ = v => v ? new Date(v).toISOString() : "";
+function readDraws_(ss){
+  const sh = ss.getSheetByName(DRAWS_TAB);
+  if (!sh || sh.getLastRow() < 2) return [];
   const rows = sh.getDataRange().getValues();
-  const map = {}; // phone -> { product:true }
+  const head = rows.shift().map(h => String(h).trim());
+  const at = n => head.indexOf(n);
+  return rows.map((r, i) => ({
+    row:i + 2, id:String(r[at("期別編號")] || "").trim(), name:String(r[at("名稱")] || ""),
+    start:isoOr_(r[at("開始")]), end:isoOr_(r[at("截止")]), winners:Number(r[at("名額")]) || 0,
+    prize:String(r[at("獎品")] || ""), basis:String(r[at("開獎依據")] || ""), status:String(r[at("狀態")] || DRAW_ST.open).trim(),
+    lockedAt:isoOr_(r[at("鎖定時間")]), hash:String(r[at("名單指紋")] || ""), lottoIssue:String(r[at("開獎期別")] || ""),
+    lotto:String(r[at("開獎號碼")] || ""), winnerNos:String(r[at("中獎券號")] || "").split(",").map(Number).filter(n => n > 0),
+    drawnAt:isoOr_(r[at("開獎時間")]), notifiedAt:isoOr_(r[at("通知時間")]), created:isoOr_(r[at("建立時間")])
+  })).filter(x => x.id);
+}
+function findDraw_(ss, id){ return readDraws_(ss).filter(x => x.id === String(id || "").trim())[0] || null; }
+const DRAW_TEXT_COLS = { "名單指紋":1, "開獎期別":1, "開獎號碼":1, "中獎券號":1 };   // 存成文字：不然「3,7,12」、指紋碼可能被試算表當成數字
+function setDrawCells_(ss, dr, obj){
+  const sh = ss.getSheetByName(DRAWS_TAB);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  Object.keys(obj).forEach(k => {
+    const c = head.indexOf(k); if (c < 0) return;
+    const cell = sh.getRange(dr.row, c + 1);
+    if (DRAW_TEXT_COLS[k]) cell.setNumberFormat("@");
+    cell.setValue(obj[k]);
+  });
+}
+function readDrawTickets_(ss){   // 期別編號 → 券（依券號排）
+  const sh = ss.getSheetByName(DRAW_TICKETS_TAB), out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getDataRange().getValues().slice(1).forEach(r => {
+    const id = String(r[0] || "").trim(); if (!id) return;
+    (out[id] = out[id] || []).push({ no:Number(r[1]) || 0, holder:Number(r[2]) || 0, phone:String(r[3] || ""), name:String(r[4] || ""),
+      tail:String(r[5] || ""), product:String(r[6] || ""), date:r[7] ? twDay_(r[7]) : "" });
+  });
+  Object.keys(out).forEach(id => out[id].sort((a, b) => a.no - b.no));
+  return out;
+}
+function twDay_(v){ return Utilities.formatDate(new Date(v), "Asia/Taipei", "yyyy-MM-dd"); }
+function reviewFirstTime_(r){ const v = r[REVIEW_FIRST_COL - 1] || r[0]; return v ? new Date(v).getTime() : 0; }
+function drawHas_(dr, t){ return !!t && (!dr.start || t >= new Date(dr.start).getTime()) && t <= new Date(dr.end).getTime(); }
+/* 現在正在收券的那一期（期間包含現在、狀態「進行中」） */
+function currentDraw_(ss){
+  const now = Date.now();
+  return readDraws_(ss).filter(x => x.status === DRAW_ST.open && drawHas_(x, now))[0] || null;
+}
+/* 會員對照表：手機 key → 姓名、手機、Email（已刪除的會員不算） */
+function memberMap_(ss){
+  const sh = ss.getSheetByName(MEMBERS_TAB), out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  const rows = sh.getDataRange().getValues();
+  const sI = rows[0].map(h => String(h).trim()).indexOf("狀態");
   for (let i = 1; i < rows.length; i++){
-    const phone = String(rows[i][1] || "").trim();
-    const product = String(rows[i][2] || "").trim();
-    if (!phone || !product) continue;
-    (map[phone] = map[phone] || {})[product] = true;
+    if (sI > -1 && String(rows[i][sI]).trim() === "已刪除") continue;
+    const key = normPhone_(rows[i][2]);
+    if (key && !out[key]) out[key] = { name:String(rows[i][1] || ""), phone:String(rows[i][2] || ""), email:String(rows[i][4] || "") };
   }
-  const entries = Object.keys(map).map(ph => ({ phone: ph, tickets: Object.keys(map[ph]).length }));
-  if (!entries.length){ MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】抽獎", "目前沒有會員評分紀錄，無法抽獎。"); return; }
+  return out;
+}
+/* 這一期的券：會員、期間內第一次評的豆子；依評分時間排（同時間再依手機、豆子），排序就是券號 */
+function drawCandidates_(ss, dr){
+  const sh = ss.getSheetByName(REVIEWS_TAB);
+  if (!sh) return [];
+  const rows = sh.getDataRange().getValues(), first = {};
+  for (let i = 1; i < rows.length; i++){
+    const key = normPhone_(rows[i][1]), product = String(rows[i][2] || "").trim();
+    if (!key || !product) continue;
+    const t = reviewFirstTime_(rows[i]), k = key + "|" + product;
+    if (!first[k] || t < first[k].t) first[k] = { key:key, product:product, t:t };
+  }
+  const members = memberMap_(ss);
+  return Object.keys(first).map(k => first[k]).filter(x => members[x.key] && drawHas_(dr, x.t))
+    .sort((a, b) => a.t - b.t || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) || (a.product < b.product ? -1 : a.product > b.product ? 1 : 0))
+    .map(x => { x.member = members[x.key]; return x; });
+}
+const pipeless_ = s => String(s || "").replace(/[|\r\n]+/g, " ").trim();
+/* 公開名單的固定文字格式（算指紋碼用）——要跟 draw/index.html 的 listText() 完全一樣 */
+function drawListText_(dr, tickets){
+  const lines = ["翔天然評分抽獎", "期別：" + dr.id, "名稱：" + dr.name,
+    "期間：" + (dr.start ? twDay_(dr.start) : "（不限）") + " ～ " + twDay_(dr.end), "名額：" + dr.winners,
+    "券號|持有人|名稱|手機末三碼|豆子|評分日期"];
+  tickets.forEach(t => lines.push([t.no, t.holder, t.name, t.tail, t.product, t.date].join("|")));
+  return lines.join("\n");
+}
+function sha256Hex_(text){
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8)
+    .map(b => ("0" + ((b + 256) % 256).toString(16)).slice(-2)).join("");
+}
+/* 16 進位大數字除以 n 的餘數（一位一位算，不用大數運算） */
+function hexMod_(hex, n){ let r = 0; for (let i = 0; i < hex.length; i++) r = (r * 16 + parseInt(hex.charAt(i), 16)) % n; return r; }
+/* 第 k 次：SHA-256(指紋碼|開獎號碼|k) 除以總券數的餘數 → 第幾張券；這個人已經中過就跳過，再算 k+1 */
+function pickWinners_(hash, lotto, tickets, count){
+  const won = {}, out = [];
+  const holders = {}; tickets.forEach(t => { holders[t.holder] = 1; });
+  const need = Math.min(count, Object.keys(holders).length);
+  for (let k = 1; out.length < need && k <= 5000; k++){
+    const t = tickets[hexMod_(sha256Hex_(hash + "|" + lotto + "|" + k), tickets.length)];
+    if (won[t.holder]) continue;
+    won[t.holder] = 1;
+    out.push({ k:k, no:t.no, holder:t.holder });
+  }
+  return out;
+}
+/* 大樂透號碼整理成固定格式：6 個號碼由小到大＋特別號，例「05,12,18,23,33,41+07」 */
+function normLotto_(numbers, special){
+  const a = (String(numbers || "").match(/\d+/g) || []).map(Number);
+  const s = Number((String(special || "").match(/\d+/) || [])[0]);
+  if (a.length !== 6 || new Set(a).size !== 6 || a.some(n => n < 1 || n > 49) || !(s >= 1 && s <= 49) || a.indexOf(s) > -1) return "";
+  const p = n => ("0" + n).slice(-2);
+  return a.sort((x, y) => x - y).map(p).join(",") + "+" + p(s);
+}
+const drawPub_ = dr => ({ id:dr.id, name:dr.name, start:dr.start, end:dr.end, winners:dr.winners, prize:dr.prize, basis:dr.basis,
+  status:dr.status, lockedAt:dr.lockedAt, hash:dr.hash, lottoIssue:dr.lottoIssue, lotto:dr.lotto, drawnAt:dr.drawnAt });
+const pubTicket_ = t => ({ no:t.no, holder:t.holder, name:t.name, tail:t.tail, product:t.product, date:t.date });
 
-  // 依券數加權隨機
-  const pool = [];
-  entries.forEach(e => { for (let k = 0; k < e.tickets; k++) pool.push(e.phone); });
-  const winner = pool[Math.floor(Math.random() * pool.length)];
+/* 公開：網站 draw/ 頁與 GitHub Actions 的 draws.json 用（新的在前）。快取 2 分鐘，後台改動時清掉 */
+function publicDraws(){
+  const cache = CacheService.getScriptCache(), hit = cache.get("draws_pub");
+  if (hit) return JSON.parse(hit);
+  const ss = SpreadsheetApp.openById(SHEET_ID), tk = readDrawTickets_(ss);
+  const out = readDraws_(ss).reverse().map(dr => {
+    const o = drawPub_(dr);
+    if (dr.status === DRAW_ST.open){
+      const c = drawCandidates_(ss, dr);
+      o.count = c.length; o.holders = Object.keys(c.reduce((m, x) => { m[x.key] = 1; return m; }, {})).length;
+    }else{
+      const list = (tk[dr.id] || []).map(pubTicket_);
+      o.tickets = list; o.count = list.length; o.holders = Object.keys(list.reduce((m, t) => { m[t.holder] = 1; return m; }, {})).length;
+      if (dr.status === DRAW_ST.drawn) o.winnerNos = dr.winnerNos;
+    }
+    return o;
+  });
+  try{ cache.put("draws_pub", JSON.stringify(out), 120); }catch(err){ /* 名單太大放不進快取，就每次重算 */ }
+  return out;
+}
+function clearDrawCache_(){ try{ CacheService.getScriptCache().remove("draws_pub"); }catch(err){} }
 
-  entries.sort((a, b) => b.tickets - a.tickets);
-  const lines = ["翔天然 抽獎結果", "", "中獎手機：" + winner, "",
-                 "—— 目前抽獎券統計（依評過的不同豆子數）——"];
-  entries.forEach(e => lines.push(e.phone + "：" + e.tickets + " 張"));
-  lines.push("", "（可到 members 分頁用這支手機，找到中獎會員的姓名與聯絡方式）");
-  MailApp.sendEmail(NOTIFY_EMAIL, "【翔天然】抽獎結果 — 中獎：" + winner, lines.join("\n"));
+/* ---- 後台 ---- */
+function adminDraws(ss){
+  const tk = readDrawTickets_(ss);
+  return { ok:true, now:new Date().toISOString(), draws:readDraws_(ss).reverse().map(dr => {
+    const o = drawPub_(dr); o.notifiedAt = dr.notifiedAt;
+    if (dr.status === DRAW_ST.open){
+      const c = drawCandidates_(ss, dr), per = {};
+      c.forEach(x => { (per[x.key] = per[x.key] || { name:maskName_(x.member.name), tail:x.member.phone.replace(/\D/g, "").slice(-3), n:0 }).n++; });
+      o.count = c.length; o.holders = Object.keys(per).length;
+      o.top = Object.keys(per).map(k => per[k]).sort((a, b) => b.n - a.n).slice(0, 20);
+    }else{
+      const list = tk[dr.id] || [];
+      o.count = list.length; o.holders = Object.keys(list.reduce((m, t) => { m[t.holder] = 1; return m; }, {})).length;
+      if (dr.status === DRAW_ST.drawn) o.winnerList = dr.winnerNos.map(no => drawWinnerView_(ss, list[no - 1]));
+    }
+    return o;
+  }) };
+}
+function drawWinnerView_(ss, t){
+  if (!t) return null;
+  const m = lookupMember_(ss, t.phone) || {};
+  return { no:t.no, holder:t.holder, name:t.name, tail:t.tail, product:t.product, realName:m.name || "（會員已刪除）", phone:t.phone, email:m.email || "" };
+}
+function drawDay_(s, endOfDay){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ""))) return null;
+  const t = new Date(s + (endOfDay ? "T23:59:59+08:00" : "T00:00:00+08:00"));
+  return isNaN(t) ? null : t;
+}
+function adminDrawSave(ss, d){
+  const name = safeText_(d.name, 40), prize = safeText_(d.prize, 60), basis = safeText_(d.basis, 80);
+  const winners = Math.floor(Number(d.winners) || 0);
+  const start = d.start ? drawDay_(d.start, false) : null, end = drawDay_(d.end, true);
+  if (!name || !prize || !basis) return { ok:false, error:"名稱、獎品、開獎依據都要填" };
+  if (!end || (d.start && !start)) return { ok:false, error:"日期格式不對" };
+  if (start && start >= end) return { ok:false, error:"截止日要在開始日之後" };
+  if (winners < 1 || winners > 50) return { ok:false, error:"名額要在 1～50 之間" };
+  const sh = drawSheet_(ss, DRAWS_TAB, DRAW_HEAD);
+  const all = readDraws_(ss), id = String(d.drawId || "").trim();
+  // 期間不能重疊：同一張券只能算在一期（沒填開始＝從最早開始）
+  const sMs = start ? start.getTime() : -Infinity, eMs = end.getTime();
+  const clash = all.filter(x => x.id !== id && (x.start ? new Date(x.start).getTime() : -Infinity) <= eMs && sMs <= new Date(x.end).getTime())[0];
+  if (clash) return { ok:false, error:"期間和「" + clash.name + "」重疊，同一張券不能算兩期" };
+  if (id){
+    const dr = all.filter(x => x.id === id)[0];
+    if (!dr) return { ok:false, error:"找不到這一期" };
+    if (dr.status !== DRAW_ST.open) return { ok:false, error:"名單鎖定後就不能再改這一期" };
+    setDrawCells_(ss, dr, { "名稱":name, "開始":start || "", "截止":end, "名額":winners, "獎品":prize, "開獎依據":basis });
+    clearDrawCache_();
+    return { ok:true, drawId:id };
+  }
+  let max = 0; all.forEach(x => { const m = /^D(\d+)$/.exec(x.id); if (m) max = Math.max(max, Number(m[1])); });
+  const newId = "D" + ("00" + (max + 1)).slice(-3);
+  sh.appendRow([newId, name, start || "", end, winners, prize, basis, DRAW_ST.open, "", "", "", "", "", "", "", new Date()]);
+  clearDrawCache_();
+  return { ok:true, drawId:newId };
+}
+function adminDrawDelete(ss, d){
+  const dr = findDraw_(ss, d.drawId);
+  if (!dr) return { ok:false, error:"找不到這一期" };
+  if (dr.status !== DRAW_ST.open) return { ok:false, error:"名單鎖定後就不能刪除（要保留公開紀錄）" };
+  ss.getSheetByName(DRAWS_TAB).deleteRow(dr.row);
+  clearDrawCache_();
+  return { ok:true };
+}
+function adminDrawLock(ss, d){
+  const dr = findDraw_(ss, d.drawId);
+  if (!dr) return { ok:false, error:"找不到這一期" };
+  if (dr.status !== DRAW_ST.open) return { ok:false, error:"這一期已經鎖定過了" };
+  if (Date.now() <= new Date(dr.end).getTime()) return { ok:false, error:"還沒到截止時間（" + twDay_(dr.end) + " 23:59），截止後才能鎖定名單" };
+  const c = drawCandidates_(ss, dr);
+  if (!c.length) return { ok:false, error:"這一期沒有任何抽獎券，不用鎖定（可以直接刪掉這一期）" };
+  const hno = {}; let h = 0;
+  const tickets = c.map((x, i) => {
+    if (!hno[x.key]) hno[x.key] = ++h;
+    return { no:i + 1, holder:hno[x.key], phone:x.member.phone, name:pipeless_(maskName_(x.member.name)) || "○",
+      tail:x.member.phone.replace(/\D/g, "").slice(-3), product:pipeless_(x.product), time:new Date(x.t), date:twDay_(x.t) };
+  });
+  const hash = sha256Hex_(drawListText_(dr, tickets));
+  const sh = drawSheet_(ss, DRAW_TICKETS_TAB, DRAW_TICKET_HEAD);
+  const r0 = sh.getLastRow() + 1;
+  sh.getRange(r0, 4, tickets.length, 4).setNumberFormat("@");   // 手機、名稱、末三碼、豆子都存文字（「078」不能變成 78，不然指紋碼對不上）
+  sh.getRange(r0, 1, tickets.length, DRAW_TICKET_HEAD.length).setValues(tickets.map(t => [dr.id, t.no, t.holder, t.phone, t.name, t.tail, t.product, t.time]));
+  setDrawCells_(ss, dr, { "狀態":DRAW_ST.locked, "鎖定時間":new Date(), "名單指紋":hash });
+  clearDrawCache_();
+  return { ok:true, hash:hash, count:tickets.length, holders:h };
+}
+function adminDrawResult(ss, d){
+  const dr = findDraw_(ss, d.drawId);
+  if (!dr) return { ok:false, error:"找不到這一期" };
+  if (dr.status === DRAW_ST.drawn) return { ok:false, error:"這一期已經開過獎了，不能重抽" };
+  if (dr.status !== DRAW_ST.locked) return { ok:false, error:"要先鎖定名單才能開獎" };
+  const lotto = normLotto_(d.numbers, d.special);
+  if (!lotto) return { ok:false, error:"開獎號碼格式不對：要 6 個 1～49、不重複的號碼，再加 1 個特別號" };
+  const issue = safeText_(d.issue, 40);
+  if (!issue) return { ok:false, error:"請填大樂透的期別或開獎日期" };
+  const list = readDrawTickets_(ss)[dr.id] || [];
+  if (!list.length || sha256Hex_(drawListText_(dr, list)) !== dr.hash)
+    return { ok:false, error:"名單和鎖定時的指紋碼對不上（draw_tickets 分頁可能被改過），請先還原再開獎" };
+  const picks = pickWinners_(dr.hash, lotto, list, dr.winners);
+  const winners = picks.map(p => Object.assign(drawWinnerView_(ss, list[p.no - 1]), { k:p.k }));
+  if (!d.confirm) return { ok:true, preview:true, lotto:lotto, issue:issue, winners:winners };
+  setDrawCells_(ss, dr, { "開獎期別":issue, "開獎號碼":lotto, "中獎券號":picks.map(p => p.no).join(","), "開獎時間":new Date(), "狀態":DRAW_ST.drawn });
+  clearDrawCache_();
+  return { ok:true, lotto:lotto, issue:issue, winners:winners };
+}
+function adminDrawNotify(ss, d){
+  const dr = findDraw_(ss, d.drawId);
+  if (!dr || dr.status !== DRAW_ST.drawn) return { ok:false, error:"開獎之後才能寄通知" };
+  if (dr.notifiedAt && !d.again) return { ok:false, error:"already_sent", notifiedAt:dr.notifiedAt };
+  const list = readDrawTickets_(ss)[dr.id] || [];
+  let sent = 0; const noEmail = [];
+  dr.winnerNos.forEach(no => {
+    const w = drawWinnerView_(ss, list[no - 1]);
+    if (!w) return;
+    if (!EMAIL_RE.test(w.email)){ noEmail.push({ name:w.realName, phone:w.phone, no:w.no }); return; }
+    const body = (w.realName || "你") + " 你好：\n\n恭喜你在翔天然「" + dr.name + "」評分抽獎中獎！\n" +
+      "獎品：" + dr.prize + "\n中獎券號：#" + w.no + "（評分的豆子：" + w.product + "）\n\n" +
+      "抽獎過程與完整名單都公開在網站上，可以自己驗算：\n" + SITE_URL + "/draw/\n\n" +
+      "請在 " + DRAW_CLAIM_DAYS + " 天內回覆這封信，或在 LINE 告訴我們怎麼寄給你（宅配地址，或跟下一張訂單一起寄）：\n" + LINE_CONTACT_URL + "\n\n— 翔天然，翔自在";
+    try{ MailApp.sendEmail(w.email, "【翔天然】恭喜中獎！" + dr.name, body); sent++; }
+    catch(err){ noEmail.push({ name:w.realName, phone:w.phone, no:w.no }); }
+  });
+  setDrawCells_(ss, dr, { "通知時間":new Date() });
+  return { ok:true, sent:sent, noEmail:noEmail };
 }
 
 /* ========================= 訂單處理 → 自動加點 =========================
@@ -1784,7 +2095,8 @@ const COST_GROUPS = {
 const COST_LEGACY = { "濾紙":"銷貨成本", "其他":"管理費用" };   // 舊分類名稱 → 群組（生豆／包裝袋／運費本來就在新清單裡）
 const COST_CATEGORIES = [].concat(COST_GROUPS["銷貨成本"], COST_GROUPS["銷售費用"], COST_GROUPS["管理費用"], ["濾紙","其他"]);
 const ORDER_STATUSES  = ["待處理","已完成","已取消"];
-const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1, admin_product_status:1 };
+const WRITE_ACTIONS   = { admin_update_order:1, admin_add_cost:1, admin_delete_cost:1, admin_save_post:1, admin_delete_post:1, admin_upload_image:1, admin_member_update:1, admin_member_code:1, admin_points_adjust:1, admin_note_add:1, admin_note_status:1, admin_member_delete:1, admin_product_status:1,
+  admin_draw_save:1, admin_draw_delete:1, admin_draw_lock:1, admin_draw_result:1, admin_draw_notify:1 };
 
 /* ----- 後台認證（2026-10-17 強化）-----
  * ① 登入：admin.html 用密碼呼叫一次 admin_login，換一張「短效憑證」（ADMIN_SESSION_HOURS 小時），之後每個請求只帶憑證，
@@ -1845,7 +2157,8 @@ const ADMIN_LOG_LABEL = {
   admin_update_order:"改訂單", admin_add_cost:"新增成本", admin_delete_cost:"刪除成本", admin_save_post:"儲存文章", admin_delete_post:"刪除文章",
   admin_upload_image:"上傳圖片（雲端硬碟）", admin_member_update:"修改會員資料", admin_member_code:"產生會員驗證碼", admin_points_adjust:"調整點數",
   admin_note_add:"新增客服紀錄", admin_note_status:"客服紀錄標記已處理", admin_member_delete:"刪除會員（匿名化）", admin_member_detail:"查看會員詳情",
-  admin_cloudinary_sign:"取得圖片上傳簽章", admin_product_status:"改商品狀態"
+  admin_cloudinary_sign:"取得圖片上傳簽章", admin_product_status:"改商品狀態",
+  admin_draw_save:"儲存抽獎期別", admin_draw_delete:"刪除抽獎期別", admin_draw_lock:"鎖定抽獎名單", admin_draw_result:"抽獎開獎", admin_draw_notify:"寄中獎通知"
 };
 /* 對象摘要：訂單 → 訂單編號（沒有編號才記列號）；會員 → 會員編號。絕不記手機、姓名 */
 function adminTarget_(ss, d){
@@ -1853,6 +2166,7 @@ function adminTarget_(ss, d){
   if (d.action === "admin_update_order" && d.row) return "orders 第 " + Number(d.row) + " 列";
   if (d.phone){ const m = lookupMember_(ss, d.phone); return m && m.id ? m.id : "（查無會員）"; }
   if (d.action === "admin_delete_cost" && d.row) return "costs 第 " + Number(d.row) + " 列";
+  if (d.drawId) return "抽獎 " + String(d.drawId).slice(0, 8) + (d.action === "admin_draw_result" && !d.confirm ? "（試算）" : "");
   if (d.id) return "文章 " + String(d.id).slice(0, 12);
   return "";
 }
@@ -1908,6 +2222,12 @@ function adminDispatch_(ss, d){
     if (d.action === "admin_delete_post") return adminDeletePost(ss, d);
     if (d.action === "admin_upload_image") return adminUploadImage(d);
     if (d.action === "admin_cloudinary_sign") return adminCloudinarySign_();
+    if (d.action === "admin_draws") return adminDraws(ss);
+    if (d.action === "admin_draw_save") return adminDrawSave(ss, d);
+    if (d.action === "admin_draw_delete") return adminDrawDelete(ss, d);
+    if (d.action === "admin_draw_lock") return adminDrawLock(ss, d);
+    if (d.action === "admin_draw_result") return adminDrawResult(ss, d);
+    if (d.action === "admin_draw_notify") return adminDrawNotify(ss, d);
     return { ok:false, error:"unknown admin action" };
   } finally { if (lock) lock.releaseLock(); }
 }

@@ -402,6 +402,12 @@
   .rf-login{background:var(--card);border:1px dashed var(--pine-mid);border-radius:16px;padding:26px;color:var(--pine-mid);font-size:.98rem;max-width:640px}
   .rate-form{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px;max-width:640px}
   .rate-form .rf-intro{color:var(--ink-70);font-size:.94rem;margin-bottom:24px}
+  .rate-form .rf-intro a,.rf-join a{color:var(--dawn);text-decoration:underline}
+  .rf-join{background:#FFF4E0;border:1.5px solid var(--dawn-soft);border-radius:16px;padding:16px 18px;margin-bottom:20px;color:var(--espresso)}
+  .rf-join .rj-title{display:block;font-size:1.05rem;margin-bottom:6px}
+  .rf-join ul{margin:0 0 8px;padding-left:20px;font-size:.92rem;line-height:1.75}
+  .rf-join .rj-note{margin:6px 0 0;font-size:.84rem;color:var(--ink-70);line-height:1.6}
+  .rf-join .rj-btns{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px}
   .slider-row{margin-bottom:22px}
   .slider-row:last-of-type{margin-bottom:26px}
   .slider-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
@@ -792,6 +798,7 @@
         <a class="navlink" href="#products">產品</a>
         <a class="navlink" href="drip/" data-drip-only hidden>耳掛咖啡</a>
         <a class="navlink" href="#flavor">風味</a>
+        <a class="navlink" href="draw/">評分抽獎</a>
         <a class="navlink" href="#member">會員</a>
         <a class="navlink" href="#guide">購物須知</a>
         <p style="margin:14px 0 0;font-size:.85rem;opacity:.75">想一次看完所有咖啡豆介紹和文章？<br><a href="explore/" style="text-decoration:underline">前往完整列表 →</a></p>
@@ -870,7 +877,7 @@
     <p class="wl-sub">加入會員完全免費，只要手機號碼就能登入。</p>
     <div class="wl-list">
       <div class="wl-item hot"><div class="wl-ico">🎁</div><div><b>買 10 包，送 100 元折價券</b><span>加入會員後，<em>一包 1 點</em>，集滿 10 點就折 100 元，點數自動累積，在會員中心隨時看得到。</span></div></div>
-      <div class="wl-item"><div class="wl-ico">⭐</div><div><b>喝過就評分，抽好禮</b><span>會員幫喝過的豆子評分，<em>每評一支不同的豆子 +1 張抽獎券</em>，券越多越有機會換好禮。</span></div></div>
+      <div class="wl-item"><div class="wl-ico">⭐</div><div><b>喝過就評分，公開抽獎</b><span>會員幫喝過的豆子評分，<em>每評一支不同的豆子 +1 張抽獎券</em>。每期公開抽獎送耳掛咖啡，名單和開獎都公開、可以自己驗算。</span></div></div>
       <div class="wl-item"><div class="wl-ico">📧</div><div><b>留 Email，新品先知道</b><span>加入時填 Email，新豆子上架會<em>第一時間寄信通知你</em>。</span></div></div>
     </div>
     <div class="wl-act">
@@ -1235,8 +1242,8 @@ function renderMember(){
       ${member.city?`<div class="mc-row"><span class="k">所在地區</span><span>${esc(member.city)}</span></div>`:""}
       ${member.email?`<div class="mc-row"><span class="k">Email</span><span>${esc(member.email)}</span></div>`:""}
       ${pointsPanelHtml()}
-      <div class="mc-row"><span class="k">抽獎券</span><span>${member.tickets!=null?member.tickets+" 張":(member.statsLimited?"驗證身分後顯示":"計算中…")}</span></div>
-      <p class="mc-hint">每評一支沒評過的豆子 +1 張抽獎券，未來將舉辦抽獎送好禮。</p>
+      <div class="mc-row"><span class="k">${member.draw?"本期抽獎券":"抽獎券"}</span><span>${member.draw?member.draw.tickets+" 張（"+drawEndTxt(member.draw)+" 截止）":member.tickets!=null?member.tickets+" 張":(member.statsLimited?"驗證身分後顯示":"計算中…")}</span></div>
+      <p class="mc-hint">每評一支沒評過的豆子 +1 張抽獎券。${member.draw?"本期抽 "+member.draw.winners+" 位，每位送 "+esc(member.draw.prize)+"；":""}截止後名單公開、用大樂透號碼開獎，任何人都能驗算。<a href="draw/" style="text-decoration:underline">看抽獎辦法與名單 →</a></p>
       <div class="rec-box"><h4>你可能會喜歡</h4><div id="recBox"><p class="rb-sub">整理推薦中…</p></div></div>
       <div class="mc-secure" id="mcSecure"></div>
       <button class="btn btn-primary form-btn" style="margin-top:22px" onclick="go('products')">開始選購</button>
@@ -1250,14 +1257,16 @@ function renderMember(){
         <button class="btn btn-primary form-btn" id="loginBtn" onclick="login()">登入</button>
         <p class="form-note" id="loginNote"></p></div>
       <div id="viewJoin" style="display:none"><p class="sub">只需要三個欄位，馬上完成。</p>
-        <div class="field"><label for="mName">姓名</label><input id="mName" type="text" placeholder="怎麼稱呼你" autocomplete="name"></div>
+        <div class="field"><label for="mName">姓名或暱稱</label><input id="mName" type="text" placeholder="怎麼稱呼你（可以填暱稱）" autocomplete="nickname"></div>
+        <p class="mc-hint" style="margin:-4px 0 14px">名字可以填暱稱；<b>手機、Email 請填正確的</b>，中獎通知、訂單與退換貨聯繫都會用到。</p>
         <div class="field"><label for="mPhone">手機</label><input id="mPhone" type="tel" inputmode="numeric" placeholder="09xx-xxx-xxx" autocomplete="tel"></div>
         <div class="field"><label for="mAddr">所在地區</label><select id="mAddr"><option value="">請選擇縣市</option><option value="台北市">台北市</option><option value="新北市">新北市</option><option value="基隆市">基隆市</option><option value="桃園市">桃園市</option><option value="新竹市">新竹市</option><option value="新竹縣">新竹縣</option><option value="苗栗縣">苗栗縣</option><option value="台中市">台中市</option><option value="彰化縣">彰化縣</option><option value="南投縣">南投縣</option><option value="雲林縣">雲林縣</option><option value="嘉義市">嘉義市</option><option value="嘉義縣">嘉義縣</option><option value="台南市">台南市</option><option value="高雄市">高雄市</option><option value="屏東縣">屏東縣</option><option value="宜蘭縣">宜蘭縣</option><option value="花蓮縣">花蓮縣</option><option value="台東縣">台東縣</option><option value="澎湖縣">澎湖縣</option><option value="金門縣">金門縣</option><option value="連江縣">連江縣</option></select></div>
         <div class="field"><label for="mEmail">Email（選填）</label><input id="mEmail" type="email" placeholder="用來收驗證碼，也可收新品通知" autocomplete="email"></div>
         <label class="chk"><input type="checkbox" id="mConsent"><span>我同意收到新品上架、最後預購通知（需填 Email，隨時可以取消）</span></label>
         <button class="btn btn-primary form-btn" id="joinBtn" onclick="submitJoin()">加入會員</button>
-        <p class="priv">我們蒐集你的姓名、手機、所在地區與 Email，用於處理訂單、會員集點與聯繫；經你勾選同意，才會寄新品與預購通知。你可隨時在「會員中心」更正資料、取消通知，或聯絡我們要求刪除。</p>
+        <p class="priv">我們蒐集你的姓名（或暱稱）、手機、所在地區與 Email，用於處理訂單、會員集點、評分抽獎與聯繫；抽獎名單只公開遮罩後的名稱與手機末三碼。經你勾選同意，才會寄新品與預購通知。你可隨時在「會員中心」更正資料、取消通知，或聯絡我們要求刪除。</p>
         <p class="form-note" id="joinNote"></p></div>`;
+    if(MEMBER_TAB_NEXT){memberTab(MEMBER_TAB_NEXT);MEMBER_TAB_NEXT="";}   // 從評分區按「加入會員再評分」過來：直接打開加入分頁
   }
 }
 function memberTab(t){
@@ -1287,7 +1296,7 @@ async function submitJoin(){
   const name=val("mName"),phone=val("mPhone"),addr=val("mAddr"),email=val("mEmail");const note=$("joinNote");
   const consent=!!($("mConsent")&&$("mConsent").checked);
   if(consent&&!email){note.textContent="要收新品通知，請先填寫 Email。";return;}
-  if(!name||!phone||!addr){note.textContent="請填寫姓名、手機，並選擇所在地區。";return;}
+  if(!name||!phone||!addr){note.textContent="請填寫姓名或暱稱、手機，並選擇所在地區。";return;}
   const btn=$("joinBtn");btn.disabled=true;btn.textContent="送出中…";
   try{
     let existed=false;
@@ -1508,7 +1517,7 @@ async function secureSave(){
   btn.disabled=false;
 }
 function secureLock(){tokenExpired();member.statsLimited=true;member.tickets=null;saveSession();renderMember();showToast("已鎖定個人資料");}
-function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();fetchMyReviews();}
+function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();fetchMyReviews();claimPending();}
 function logout(){member=null;saveToken("");resetOrders();clearOrdersCache();try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
   const lbl=$("accountLabel");if(lbl)lbl.textContent=member?(member.name||"會員中心"):"會員";   // 未驗證時不知道姓名，顯示「會員中心」
@@ -1666,7 +1675,7 @@ async function renderRecommend(){
     }).join("")}</div>`;
 }
 
-function renderFlavorPage(){renderFlavorFilter();renderRadar();renderRateForm();}
+function renderFlavorPage(){renderFlavorFilter();renderRadar();renderRateForm();loadDrawInfo();}
 
 function renderFlavorFilter(){
   const box=$("flavorFilter");if(!box)return;
@@ -1727,10 +1736,23 @@ function renderRateForm(){
   rateVals=prevMine?{aroma:prevMine.aroma,acidity:prevMine.acidity,sweetness:prevMine.sweetness,body:prevMine.body,bitterness:prevMine.bitterness}:{aroma:3,acidity:3,sweetness:3,body:3,bitterness:3};
   rateLiked=member&&prevMine?(prevMine.liked||0):0;
   const opts=PRODUCTS_CACHE.map(p=>`<option value="${esc(p.name)}" ${p.name===flavorFilterProduct?"selected":""}>${esc(p.name)}</option>`).join("");
+  const D=member&&member.draw?member.draw:CURRENT_DRAW;   // 正在收券的那一期
+  const drawLine=D?`每期公開抽獎：本期 ${drawEndTxt(D)} 截止，抽 ${D.winners} 位，每位送 <strong>${esc(D.prize)}</strong>`:"每期公開抽獎，送耳掛咖啡";
   w.innerHTML=`<div class="rate-form">
     ${member
-      ? `<p class="rf-intro">登入會員評分，每評一支<strong>沒評過的豆子</strong>就 +1 張抽獎券${member.tickets!=null?`（目前 ${member.tickets} 張）`:""}。選你喝的豆子，五個面向各給 1–5 分。</p>`
-      : `<p class="rf-intro">訪客也能評分。<button class="linklike" onclick="go('member')">登入會員</button>後評分，還能累積抽獎券、未來抽好禮，也才能解鎖「你可能會喜歡」的專屬推薦。五個面向各給 1–5 分。</p>`}
+      ? `<p class="rf-intro">每評一支<strong>沒評過的豆子</strong>就 +1 張抽獎券${member.draw?`（本期你已有 <strong>${member.draw.tickets}</strong> 張，${drawEndTxt(member.draw)} 截止）`:member.tickets!=null?`（目前 ${member.tickets} 張）`:""}。${drawLine}，<a href="draw/">看抽獎辦法與名單</a>。<br>選你喝的豆子，五個面向各給 1–5 分。</p>`
+      : `<div class="rf-join">
+          <b class="rj-title">🎁 加入會員再評分，多一個抽獎機會</b>
+          <ul>
+            <li>每評一支<strong>沒評過的豆子</strong>就 +1 張抽獎券。${drawLine}（<a href="draw/">名單與開獎都公開，可以自己驗算</a>）</li>
+            <li>解鎖「你可能會喜歡」：照你的口味，推薦還沒喝過的豆子</li>
+            <li>買豆子一包 1 點，集滿 10 點折 100 元</li>
+          </ul>
+          <p class="rj-note">加入只要 30 秒，<strong>名字可以填暱稱</strong>；手機、Email 請填正確的，中獎通知和訂單、退換貨聯繫都會用到。</p>
+          <div class="rj-btns"><button class="btn btn-primary" type="button" onclick="goJoin()">加入會員再評分</button><button class="linklike" type="button" onclick="go('member')">已經是會員？登入</button></div>
+          <p class="rj-note">也可以先用訪客身分評分：48 小時內在這支手機上加入或登入，這筆一樣算進去。</p>
+        </div>
+        <p class="rf-intro">選你喝的豆子，五個面向各給 1–5 分。</p>`}
     <div class="field"><label>品項</label><select id="rateProduct" onchange="onRateProductChange(this.value)">${opts}</select></div>
     <div id="sliderRows"></div>
     ${member?`<div class="like-box"><p class="lb-title">這支豆子你喜歡嗎？</p>
@@ -1772,6 +1794,39 @@ function renderLiveRadar(){
   box.innerHTML=drawPentagon(series);
 }
 
+/* ---------- 評分抽獎（2026-10-31）----------
+   CURRENT_DRAW：正在收券的那一期（先讀網站上的 draws.json，讀不到再問後端），給訪客的誘因卡顯示獎品與截止日。
+   訪客評分會拿到「認領碼」（存在這台裝置 48 小時）；之後在這台裝置加入／登入會員，就把那幾筆改記到會員名下、拿抽獎券。 */
+let CURRENT_DRAW=null,DRAW_INFO_LOADED=false,MEMBER_TAB_NEXT="";
+const CLAIM_KEY="xtr_claims",CLAIM_MS=48*3600e3;
+async function loadDrawInfo(){
+  if(DRAW_INFO_LOADED)return;DRAW_INFO_LOADED=true;
+  let list=null;
+  try{const r=await fetch("draws.json",{cache:"no-store"});if(r.ok)list=await r.json();}catch(e){}
+  if(!Array.isArray(list)&&API_URL){try{list=await (await fetch(API_URL+"?action=draws")).json();}catch(e){}}
+  const now=Date.now();
+  CURRENT_DRAW=(Array.isArray(list)?list:[]).find(d=>d.status==="進行中"&&(!d.start||new Date(d.start).getTime()<=now)&&new Date(d.end).getTime()>=now)||null;
+  if(CURRENT_DRAW)renderRateForm();
+}
+const drawEndTxt=d=>{const t=new Date(new Date(d.end).getTime()+8*3600e3);return (t.getUTCMonth()+1)+"/"+t.getUTCDate();};
+function pendingClaims(){try{const a=JSON.parse(localStorage.getItem(CLAIM_KEY)||"[]");return Array.isArray(a)?a.filter(x=>x&&x.code&&Date.now()-x.t<CLAIM_MS):[];}catch(e){return [];}}
+function savePendingClaims(a){try{if(a.length)localStorage.setItem(CLAIM_KEY,JSON.stringify(a.slice(-10)));else localStorage.removeItem(CLAIM_KEY);}catch(e){}}
+async function claimPending(){
+  const list=pendingClaims();
+  if(!member||!API_URL||!list.length){savePendingClaims(list);return;}
+  try{
+    const r=await secureApi({action:"review_claim",phone:member.phone,token:myToken(),codes:list.map(x=>x.code)});
+    if(r&&r.ok){
+      savePendingClaims([]);
+      const n=(r.claimed||[]).length;
+      if(n)showToast("剛剛的 "+n+" 筆評分已算進會員，抽獎券 +"+n);
+      else if((r.already||[]).length)showToast("剛剛評的豆子你之前就評過了，抽獎券不重複累積");
+      if(n)setTimeout(()=>{fetchMyStats();fetchMyReviews();},2500);   // 後端同一支手機 2 秒內只回一次統計
+    }
+  }catch(e){}
+}
+function goJoin(){MEMBER_TAB_NEXT="join";if(location.hash==="#member")renderMember();else go("member");}
+
 async function submitRating(){
   let note=$("rateNote");
   const product=val("rateProduct")||flavorFilterProduct;
@@ -1794,6 +1849,7 @@ async function submitRating(){
         return;
       }
       updated=!!(r&&r.updated);
+      if(!member&&r&&r.claimKey){const a=pendingClaims();a.push({code:r.claimKey,product,t:Date.now()});savePendingClaims(a);}   // 訪客：留著，等加入／登入時認領
     }
     else{await new Promise(r=>setTimeout(r,500));}
     if(!updated)REVIEWS_CACHE.push(normalizeReview(payload));   // 更新舊評分時不重複加進公開統計（重新整理後會讀到更新後的分數）
@@ -1819,7 +1875,7 @@ async function submitRating(){
     renderFlavorPage();
     updateAccountUI();
     if(member)renderMember();   // 評分可能影響「你可能會喜歡」推薦，會員中心同步刷新
-    showToast(member?reward:"謝謝你的評分！");
+    showToast(member?reward:"謝謝你的評分！加入會員，這筆也能拿抽獎券");
     showShareCard(product, vals, reward, !member);   // 送出後自動產生分享卡片
   }catch(e){note=$("rateNote");if(note)note.textContent="送出失敗，請稍後再試。";}
   finally{const b=$("rateBtn");if(b){b.disabled=false;b.textContent="送出評分";}}
@@ -1843,7 +1899,7 @@ async function fetchMyStats(){
       member.statsLimited=true;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
       member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";
     }
-    else if(d&&d.found){member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";}
+    else if(d&&d.found){member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;}
     else{member.statsLimited=false;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){if(member&&!member.statsLimited){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}}
   if(!member)return;
@@ -1970,7 +2026,7 @@ async function showShareCard(productName, vals, reward, isGuest){
   const rw=$("shareReward");
   if(rw){
     if(reward){rw.style.display="block";rw.className="share-reward win";rw.textContent=reward;}
-    else if(isGuest){rw.style.display="block";rw.className="share-reward guest";rw.innerHTML='登入會員後評分可累積抽獎券，未來抽好禮 · <button class="linklike" onclick="closeShareModal();go(\'member\')">登入</button>';}
+    else if(isGuest){rw.style.display="block";rw.className="share-reward guest";rw.innerHTML='這筆評分先幫你留著：48 小時內在這支手機上 <button class="linklike" onclick="closeShareModal();goJoin()">加入會員</button> 或 <button class="linklike" onclick="closeShareModal();go(\'member\')">登入</button>，就會算進去、拿到 1 張抽獎券'+(CURRENT_DRAW?'（本期抽 '+CURRENT_DRAW.winners+' 位，每位送 '+esc(CURRENT_DRAW.prize)+'）':'')+'。';}
     else{rw.style.display="none";rw.innerHTML="";}
   }
   const p=findProductByName(productName);const pid=p?p.id:productName;

@@ -134,6 +134,7 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
   <button data-t="traffic">流量</button>
   <button data-t="members">會員</button>
   <button data-t="flavor">風味評分</button>
+  <button data-t="draw">抽獎</button>
   <button data-t="costs">成本</button>
   <button data-t="report">盈餘報表</button>
   <button data-t="posts">內容</button>
@@ -201,6 +202,35 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
       <tbody id="flavorBody"></tbody>
     </table></div>
     <p class="sub">五軸是全部評分（含訪客）取眾數；「喜歡程度」只有登入會員評分才會填，用來看這支豆子討不討喜，訪客評分不計入。</p>
+  </section>
+
+  <section class="panel" id="t-draw" hidden>
+    <style>
+      .dw{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
+      .dw h4{margin:0 0 4px;font-size:16px}
+      .dw .st{display:inline-block;border-radius:99px;padding:0 10px;font-size:12px;color:#fff;background:var(--mute);margin-left:6px;vertical-align:middle}
+      .dw .st.open{background:var(--orange)}.dw .st.locked{background:var(--green)}.dw .st.drawn{background:#7a5a2f}
+      .dw .hash{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;background:var(--bg);border:1px dashed var(--line);border-radius:6px;padding:4px 8px;display:block;margin:4px 0}
+      .dw .ann{width:100%;min-height:110px;font:13px/1.6 ui-monospace,Consolas,monospace}
+      .dw table{margin-top:6px}
+      .dw .step{background:var(--bg);border-radius:10px;padding:10px 12px;margin:10px 0}
+      .dw .step b.n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--green);color:#fff;align-items:center;justify-content:center;font-size:12px;margin-right:6px}
+      .lotto{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.lotto input{width:52px;text-align:center}
+    </style>
+    <h3 style="margin-top:0">公開透明的評分抽獎</h3>
+    <p class="sub" style="line-height:1.9">流程：① 在下面建立一期（期間、名額、獎品、用哪一期大樂透開獎）→ 網站「評分抽獎」頁（<a href="https://lamp4615-design.github.io/business-xiang-tian-ran/draw/" target="_blank" rel="noopener">draw/</a>）馬上公開規則和目前張數 ② 截止後按「鎖定名單」：名單凍結、算出指紋碼並公開，<b>把公告文字貼到 LINE 社群或 FB</b>（開獎前留下公開的時間證明）③ 大樂透開獎後，輸入號碼 →「試算」看結果 →「確認公布」④ 寄中獎通知信。<br>券怎麼算：期間內會員「第一次評某一支豆子」＝ 1 張；同一人每期最多中一次。鎖定後名單不能改、開獎後不能重抽。</p>
+    <div class="form" id="dwForm">
+      <label>名稱<input id="dwName" placeholder="例：第一期評分抽獎"></label>
+      <label>開始日（第一期可留空＝之前累積的券都算）<input id="dwStart" type="date"></label>
+      <label>截止日（當天 23:59 截止）<input id="dwEnd" type="date"></label>
+      <label>得獎名額<input id="dwWinners" type="number" min="1" max="50" value="3"></label>
+      <label>每位得獎者的獎品<input id="dwPrize" value="耳掛咖啡 5 包"></label>
+      <label>開獎依據（事先公告，公布後不要改）<input id="dwBasis" value="截止後的第一期台灣彩券大樂透（每週二、五開獎）"></label>
+      <button class="pri" onclick="saveDraw()" id="dwSave">建立這一期</button>
+      <button class="sm" onclick="resetDrawForm()" id="dwCancel" hidden>取消編輯</button>
+    </div>
+    <div class="tools"><button class="sm" onclick="loadDraws()">重新整理</button><span class="sub" id="dwSum"></span></div>
+    <div id="dwList"></div>
   </section>
 
   <section class="panel" id="t-products" hidden>
@@ -527,8 +557,9 @@ try{sessionStorage.removeItem("xn_admin");}catch(e){}   // 舊版曾把密碼存
 /* ---------- 分頁 ---------- */
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
-  ["orders","products","traffic","members","flavor","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
+  ["orders","products","traffic","members","flavor","draw","costs","report","posts","img"].forEach(t=>$("t-"+t).hidden=(t!==b.dataset.t));
   if(b.dataset.t==="traffic"&&!TR_LOADED)loadTraffic();
+  if(b.dataset.t==="draw"&&!DRAW_LOADED)loadDraws();
   if(b.dataset.t==="products"&&!PROD_LOADED)loadProducts();
   if(b.dataset.t==="members"&&!MEM_LOADED)loadMembers();
   if(b.dataset.t==="flavor"&&!FLAVOR_LOADED)loadFlavorSummary();
@@ -874,6 +905,7 @@ function trPage(path,names){
   if(dp===SITE_PATH+"/drip")return {kind:"prod",t:"耳掛咖啡（全部口味）",path:dp};
   if(dp===SITE_PATH||dp===""||dp===SITE_PATH+"/index.html")return {kind:"other",t:"首頁",path:dp};
   if(dp===SITE_PATH+"/explore")return {kind:"other",t:"咖啡豆與文章總覽",path:dp};
+  if(dp===SITE_PATH+"/draw")return {kind:"other",t:"評分抽獎頁",path:dp};
   return {kind:"other",t:dp.replace(SITE_PATH,"")||"/",path:dp};
 }
 function renderTraffic(d,names){
@@ -1074,6 +1106,135 @@ function exportTraffic(){
       E.sold.length?["","【這段期間訂了什麼（不含取消）】",row(["品項","數量","單位"])]:[],E.sold.map(row));
   const blob=new Blob(["﻿"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="流量_近"+d.days+"天_"+new Date().toISOString().slice(0,10)+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+/* ---------- 抽獎（公開透明）：建立一期 → 截止後鎖定名單 → 輸入大樂透號碼試算、確認 → 寄中獎通知 ----------
+   算法在後端（Code.gs 的 pickWinners_）；網站 draw/ 頁用同一套算法讓任何人驗算。這裡只負責操作與顯示。 */
+let DRAW_LOADED=false,DRAWS=[],DRAW_EDIT="",DRAW_PREVIEW={};
+const DRAW_PAGE="https://lamp4615-design.github.io/business-xiang-tian-ran/draw/";
+const dwDay=iso=>iso?new Date(new Date(iso).getTime()+8*3600e3).toISOString().slice(0,10):"";
+const dwTime=iso=>{if(!iso)return "—";const t=new Date(new Date(iso).getTime()+8*3600e3).toISOString();return t.slice(0,10)+" "+t.slice(11,16);};
+const dwPeriod=d=>(d.start?dwDay(d.start):"（不限開始）")+" ～ "+dwDay(d.end)+" 23:59";
+function copyText(text){
+  const done=()=>toast("已複製");
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done,()=>prompt("請手動複製：",text));
+  else prompt("請手動複製：",text);
+}
+async function loadDraws(){
+  $("dwSum").textContent="讀取中…";
+  try{const d=await api({action:"admin_draws"});DRAWS=d.draws||[];DRAW_LOADED=true;$("dwSum").textContent="";renderDraws();if(!DRAW_EDIT)resetDrawForm();}
+  catch(e){$("dwSum").textContent="";$("dwList").innerHTML='<p class="sub">讀取失敗：'+esc(e.message)+(e.message==="unknown admin action"?'（後台程式還沒更新：請把新的 Code.gs 貼進 Apps Script 並重新部署）':'')+'</p>';}
+}
+// 新增時的預設：接在上一期截止日的隔天；第一期從下個月 1 號算。截止日＝3 個月後的月底（一季一期）
+function resetDrawForm(){
+  DRAW_EDIT="";$("dwSave").textContent="建立這一期";$("dwCancel").hidden=true;
+  const last=DRAWS[0],n=DRAWS.length+1;
+  const s=last?new Date(new Date(last.end).getTime()+8*3600e3+864e5):null;
+  const tw=new Date(Date.now()+8*3600e3),base=s||new Date(Date.UTC(tw.getUTCFullYear(),tw.getUTCMonth()+1,1));
+  const e=new Date(base.getTime());e.setUTCMonth(e.getUTCMonth()+3);e.setUTCDate(0);
+  $("dwName").value="第 "+n+" 期評分抽獎";$("dwStart").value=s?s.toISOString().slice(0,10):"";$("dwEnd").value=e.toISOString().slice(0,10);
+  $("dwWinners").value=last?last.winners:3;$("dwPrize").value=last?last.prize:"耳掛咖啡 5 包";
+  $("dwBasis").value=last?last.basis:"截止後的第一期台灣彩券大樂透（每週二、五開獎）";
+}
+function editDraw(id){
+  const d=DRAWS.find(x=>x.id===id);if(!d)return;
+  DRAW_EDIT=id;$("dwSave").textContent="儲存修改（"+id+"）";$("dwCancel").hidden=false;
+  $("dwName").value=d.name;$("dwStart").value=dwDay(d.start);$("dwEnd").value=dwDay(d.end);$("dwWinners").value=d.winners;$("dwPrize").value=d.prize;$("dwBasis").value=d.basis;
+  $("dwForm").scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function saveDraw(){
+  const p={action:"admin_draw_save",drawId:DRAW_EDIT,name:$("dwName").value.trim(),start:$("dwStart").value,end:$("dwEnd").value,winners:Number($("dwWinners").value),prize:$("dwPrize").value.trim(),basis:$("dwBasis").value.trim()};
+  if(!p.end){toast("請選截止日");return;}
+  try{await api(p);toast(DRAW_EDIT?"已儲存":"已建立，網站抽獎頁約 2 分鐘內更新");DRAW_EDIT="";await loadDraws();}
+  catch(e){toast("儲存失敗："+e.message);}
+}
+async function deleteDraw(id){
+  const d=DRAWS.find(x=>x.id===id);
+  if(!confirm("刪除「"+(d?d.name:id)+"」？\n（只有還沒鎖定名單的期別可以刪除）"))return;
+  try{await api({action:"admin_draw_delete",drawId:id});toast("已刪除");await loadDraws();}catch(e){toast("刪除失敗："+e.message);}
+}
+async function lockDraw(id){
+  const d=DRAWS.find(x=>x.id===id);
+  if(!confirm("鎖定「"+d.name+"」的名單？\n\n鎖定後名單、期間、名額都不能再改，名單（遮罩）和指紋碼會公開在網站上。\n目前 "+d.count+" 張券、"+d.holders+" 位會員。"))return;
+  try{const r=await api({action:"admin_draw_lock",drawId:id});toast("已鎖定："+r.count+" 張券");await loadDraws();}catch(e){toast("鎖定失敗："+e.message);}
+}
+function lottoInput(id){
+  const v=k=>($("dl_"+k+"_"+id)||{}).value||"";
+  return {issue:v("issue").trim(),numbers:[1,2,3,4,5,6].map(i=>v("n"+i)).join(" "),special:v("sp")};
+}
+async function previewDraw(id){
+  const L=lottoInput(id);
+  try{const r=await api({action:"admin_draw_result",drawId:id,...L});DRAW_PREVIEW[id]={...L,r};renderDraws();}
+  catch(e){toast("試算失敗："+e.message);}
+}
+async function confirmDraw(id){
+  const P=DRAW_PREVIEW[id];if(!P)return;
+  if(!confirm("確認公布開獎結果？\n\n大樂透 "+P.r.issue+"：「"+P.r.lotto+"」\n請再對一次號碼——公布後不能重抽，網站會立刻公開得獎者。"))return;
+  try{await api({action:"admin_draw_result",drawId:id,issue:P.issue,numbers:P.numbers,special:P.special,confirm:true});delete DRAW_PREVIEW[id];toast("已公布");await loadDraws();}
+  catch(e){toast("公布失敗："+e.message);}
+}
+async function notifyDraw(id,again){
+  try{
+    const r=await api({action:"admin_draw_notify",drawId:id,again:!!again});
+    toast("已寄出 "+r.sent+" 封");
+    if(r.noEmail&&r.noEmail.length)alert("這幾位沒有登記 Email（或寄送失敗），請用電話或 LINE 通知：\n\n"+r.noEmail.map(x=>"#"+x.no+"　"+x.name+"　"+x.phone).join("\n"));
+    await loadDraws();
+  }catch(e){
+    if(e.message==="already_sent"){if(confirm("這一期已經寄過通知信了，要再寄一次嗎？"))notifyDraw(id,true);}
+    else toast("寄送失敗："+e.message);
+  }
+}
+function lockAnnounce(d){
+  return "【翔天然評分抽獎｜"+d.name+"】名單已鎖定\n共 "+d.count+" 張券、"+d.holders+" 位會員參加。\n名單指紋碼（SHA-256）：\n"+d.hash+"\n開獎依據："+d.basis+"\n完整名單與驗算方式："+DRAW_PAGE;
+}
+function resultAnnounce(d){
+  return "【翔天然評分抽獎｜"+d.name+"】開獎結果\n大樂透 "+d.lottoIssue+"："+d.lotto+"\n得獎者（每位 "+d.prize+"）：\n"
+    +(d.winnerList||[]).filter(Boolean).map(w=>w.name+"（手機末三碼 "+w.tail+"）券號 #"+w.no).join("\n")
+    +"\n任何人都能在這裡自己驗算："+DRAW_PAGE+"\n得獎者請留意 Email／電話，14 天內回覆寄送方式。";
+}
+function winnerTable(list,real){
+  return '<table><thead><tr><th>券號</th><th>公開名稱</th><th>末三碼</th><th>評分的豆子</th>'+(real?'<th>本名／暱稱</th><th>手機</th><th>Email</th>':'')+'</tr></thead><tbody>'
+    +list.filter(Boolean).map(w=>'<tr><td>#'+w.no+'</td><td>'+esc(w.name)+'</td><td>'+esc(w.tail)+'</td><td>'+esc(w.product)+'</td>'+(real?'<td>'+esc(w.realName)+'</td><td>'+esc(w.phone)+'</td><td>'+(w.email?esc(w.email):'<span class="sub">沒有 Email</span>')+'</td>':'')+'</tr>').join("")+'</tbody></table>';
+}
+function renderDraws(){
+  if(!DRAWS.length){$("dwList").innerHTML='<p class="sub">還沒有任何一期。用上面的表單建立第一期。</p>';return;}
+  const now=Date.now();
+  $("dwList").innerHTML=DRAWS.map(d=>{
+    const cls=d.status==="進行中"?"open":d.status==="已鎖定"?"locked":"drawn";
+    let h='<div class="dw"><h4>'+esc(d.name)+' <span class="sub">'+esc(d.id)+'</span><span class="st '+cls+'">'+esc(d.status)+'</span></h4>'
+      +'<div class="sub">期間 '+esc(dwPeriod(d))+'｜每位得獎者 '+esc(d.prize)+'｜名額 '+d.winners+' 位｜開獎依據：'+esc(d.basis)+'</div>'
+      +'<div style="margin:6px 0"><b>'+nf(d.count||0)+'</b> 張券、<b>'+nf(d.holders||0)+'</b> 位會員</div>';
+    if(d.status==="進行中"){
+      const ended=now>new Date(d.end).getTime();
+      if(d.top&&d.top.length)h+='<details><summary class="sub">券最多的會員（前 20 位，遮罩後）</summary><div class="sub">'+d.top.map(x=>esc(x.name)+'（'+esc(x.tail)+'）'+x.n+' 張').join("、")+'</div></details>';
+      h+='<div class="tools" style="margin-top:8px"><button class="sm" onclick="editDraw(\''+d.id+'\')">編輯</button><button class="sm" onclick="deleteDraw(\''+d.id+'\')">刪除</button>'
+        +(ended?'<button class="pri" onclick="lockDraw(\''+d.id+'\')">鎖定名單</button>':'<span class="sub">截止後（'+dwDay(d.end)+' 23:59 以後）才能鎖定名單</span>')+'</div>';
+    }
+    if(d.status!=="進行中"){
+      h+='<div class="sub">名單鎖定於 '+dwTime(d.lockedAt)+'，指紋碼：</div><span class="hash">'+esc(d.hash)+'</span>';
+    }
+    if(d.status==="已鎖定"){
+      const P=DRAW_PREVIEW[d.id];
+      h+='<div class="step"><b class="n">1</b><b>開獎前：把這段公告貼到 LINE 社群或 FB</b>（留下「名單在開獎前就公開」的時間證明）'
+        +'<textarea class="ann" readonly>'+esc(lockAnnounce(d))+'</textarea><button class="sm" onclick="copyText(lockAnnounce(DRAWS.find(x=>x.id===\''+d.id+'\')))">複製公告</button></div>'
+        +'<div class="step"><b class="n">2</b><b>大樂透開獎後：輸入號碼</b>（照台灣彩券公布的號碼，順序不拘）'
+        +'<div class="lotto" style="margin-top:6px"><label>期別／日期 <input id="dl_issue_'+d.id+'" style="width:190px" placeholder="例：115000105 期（11/4）" value="'+esc(P?P.issue:"")+'"></label></div>'
+        +'<div class="lotto" style="margin-top:6px">號碼 '+[1,2,3,4,5,6].map(i=>'<input id="dl_n'+i+'_'+d.id+'" inputmode="numeric" maxlength="2" value="'+esc(P?P.numbers.split(" ")[i-1]:"")+'">').join("")+' 特別號 <input id="dl_sp_'+d.id+'" inputmode="numeric" maxlength="2" value="'+esc(P?P.special:"")+'"></div>'
+        +'<div class="tools" style="margin-top:8px"><button class="sm" onclick="previewDraw(\''+d.id+'\')">試算（還不會公布）</button></div>'
+        +(P?'<div style="margin-top:6px">號碼整理成：<b>'+esc(P.r.lotto)+'</b>　試算得獎者：'+winnerTable(P.r.winners,true)
+          +'<div class="tools" style="margin-top:8px"><button class="pri" onclick="confirmDraw(\''+d.id+'\')">確認公布（不能重抽）</button></div></div>':'')
+        +'</div>';
+    }
+    if(d.status==="已開獎"){
+      h+='<div class="step">大樂透 '+esc(d.lottoIssue)+'：<b>'+esc(d.lotto)+'</b>（開獎於 '+dwTime(d.drawnAt)+'）'
+        +'<div style="margin-top:6px"><b>得獎者</b>（完整聯絡資料只在後台看得到）</div>'+winnerTable(d.winnerList||[],true)
+        +'<div class="tools" style="margin-top:8px"><button class="pri" onclick="notifyDraw(\''+d.id+'\')">寄中獎通知信</button>'
+        +'<span class="sub">'+(d.notifiedAt?'已於 '+dwTime(d.notifiedAt)+' 寄過':'還沒寄')+'</span></div>'
+        +'<div style="margin-top:8px"><b>公告文字</b>（貼到 LINE 社群／FB）<textarea class="ann" readonly>'+esc(resultAnnounce(d))+'</textarea>'
+        +'<button class="sm" onclick="copyText(resultAnnounce(DRAWS.find(x=>x.id===\''+d.id+'\')))">複製公告</button></div></div>';
+    }
+    return h+'<div class="sub" style="margin-top:6px"><a href="'+DRAW_PAGE+'" target="_blank" rel="noopener">看網站上的抽獎頁 →</a></div></div>';
+  }).join("");
 }
 
 /* ---------- 商品：狀態切換＋需求一覽 ---------- */
