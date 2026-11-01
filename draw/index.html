@@ -83,7 +83,7 @@ footer a{color:#fff}
 
   <h2>怎麼參加？4 個步驟</h2>
   <div class="flow">
-    <div class="fs"><div class="fh"><span class="fn">1</span><b>免費加入會員</b></div>
+    <div class="fs"><div class="fh"><span class="fn">1</span><b>免費加入會員</b><span class="ok" id="s1done" style="display:none;font-size:.9rem">✓ 你已完成</span></div>
       <ul><li>姓名可以填<b>暱稱</b></li>
       <li><b>手機、Email 請務必填正確</b>：通知得獎、出貨、退換貨都靠它聯繫</li></ul></div>
     <div class="fa" aria-hidden="true">▼</div>
@@ -152,14 +152,16 @@ async function pickWinners(hash,lotto,tickets,count,log){
 
 /* ===== 畫面 ===== */
 let DRAWS=[];
+/* 官網把登入的會員存在 localStorage 的 xn_member（同一個網域）；已登入就不要再叫人「加入會員」 */
+const isMember=(()=>{try{const m=JSON.parse(localStorage.getItem("xn_member")||"null");return !!(m&&m.phone);}catch(e){return false;}})();
 function nowCard(d){
-  if(!d)return '<div class="card"><b>下一期抽獎即將公布。</b><p class="muted" style="margin:6px 0 0">先加入會員、幫喝過的豆子評分，公布後就能參加。</p><div class="btns"><a class="btn" href="../#flavor">去評分</a><a class="btn ghost" href="../#member">加入會員</a></div></div>';
+  if(!d)return '<div class="card"><b>下一期抽獎即將公布。</b><p class="muted" style="margin:6px 0 0">'+(isMember?'先幫喝過的豆子評分，公布後就能參加。':'先加入會員、幫喝過的豆子評分，公布後就能參加。')+'</p><div class="btns"><a class="btn" href="../#flavor">去評分</a>'+(isMember?'':'<a class="btn ghost" href="../#member">加入會員</a>')+'</div></div>';
   return '<div class="card now"><b style="font-size:1.15rem">'+esc(d.name)+'</b><span class="badge open">收券中</span>'
     +'<div class="facts"><div><span>活動期間</span><b style="font-size:1rem">'+esc(period(d))+'</b></div>'
     +'<div><span>每位得獎者</span><b>'+esc(d.prize)+'</b></div><div><span>得獎名額</span><b>'+d.winners+' 位</b></div>'
     +'<div><span>目前</span><b>'+(d.count||0)+' 張券</b><span>'+(d.holders||0)+' 位會員參加</span></div></div>'
     +'<p class="muted" style="margin:0">開獎依據：'+esc(d.basis)+'。截止後名單會公開在這頁。</p>'
-    +'<div class="btns"><a class="btn" href="../#flavor">去評分拿券</a><a class="btn ghost" href="../#member">加入會員（可填暱稱）</a></div></div>';
+    +'<div class="btns"><a class="btn" href="../#flavor">去評分拿券</a>'+(isMember?'':'<a class="btn ghost" href="../#member">加入會員（可填暱稱）</a>')+'</div></div>';
 }
 function pastCard(d,i){
   const won=new Set(d.winnerNos||[]);
@@ -200,6 +202,7 @@ async function verify(i){
 }
 function render(list){
   DRAWS=Array.isArray(list)?list:[];
+  if(isMember)$("s1done").style.display="inline";
   const open=DRAWS.find(d=>d.status==="進行中"&&(!d.start||new Date(d.start)<=new Date())&&new Date(d.end)>=new Date());
   $("now").innerHTML='<h2 style="margin-top:20px">本期抽獎</h2>'+nowCard(open);
   const past=DRAWS.map((d,i)=>d.status!=="進行中"?pastCard(d,i):"").join("");
