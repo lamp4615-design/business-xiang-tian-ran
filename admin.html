@@ -949,6 +949,7 @@ function renderTraffic(d,names){
   const perVisit=V?PV/V:0,inSite=Math.max(0,PV-V);
   const conv=V&&d.orders!=null?d.orders/V*100:null,prevConv=d.prevVisits&&d.prevOrders!=null?d.prevOrders/d.prevVisits*100:null;
   const half=(d.sold||[]).filter(x=>!x.drip).map(x=>({t:x.name,n:x.qty})),drip=(d.sold||[]).filter(x=>x.drip).map(x=>({t:x.name.replace(/^耳掛\s*/,""),n:x.qty}));
+  const vsrc=(d.visitSrc||[]).map(r=>({t:r.t,n:r.n})),vsrcTot=sum(vsrc);
   const srcTot=sum(src),landTot=sum(land),devTot=sum(devs),ctryTot=sum(ctry),prodsTot=sum(prods),postsTot=sum(posts),othersTot=sum(others);
   TR_EXPORT={HV,
     pages:[].concat(posts.map(r=>["文章",r.t,r.path,r.n,HV?r.v:""]),prods.map(r=>["商品",r.t,r.path,r.n,HV?r.v:""]),others.map(r=>["其他",r.t,r.path,r.n,HV?r.v:""])),
@@ -1030,6 +1031,8 @@ function renderTraffic(d,names){
        HV?'每一人次只會算到<b>一個來源</b>，所以這一格全部加起來＝本期 '+nf(V)+' 人次。'+fm('% ＝ 該來源人次 ÷ '+nf(srcTot)+eg(src,srcTot,U))+'「直接／QR／App」＝沒有留下來源紀錄：自己打網址、用書籤、掃 QR Code，或從 LINE、IG 等 App 裡點開。客人在網站裡換頁不算新的來源，所以這裡不會出現「站內跳轉」。'
          :'這一格暫時用<b>瀏覽次數</b>算：每一次瀏覽都記一個來源。最上面的「站內跳轉」＝客人已經在你的網站裡，點連結換到別頁，不是新客人；分隔線以下才是從外面來的。'+fm('% ＝ 該來源瀏覽次數 ÷ 本期全部瀏覽 '+nf(PV)),
        HV?"":' style="grid-column:1/-1"')   // 舊版後端沒有入口頁，來源這格自己佔一整排
+    +box("連結來源（IG／YT／自訂連結）",'<div class="ranklist">'+bars(vsrc,vsrcTot,"還沒有資料：請把 IG、YT 放的官網連結後面加上 ?src=ig 或 ?src=yt"," 次")+'</div>',
+       '網址帶 <code>?src=名稱</code> 進站的次數（例如 IG 個人檔案放 <code>?src=ig</code>、YouTube 說明欄放 <code>?src=yt</code>），或從 YouTube、Facebook 等網站連進來的次數。<b>同一個瀏覽器 30 分鐘只算一次</b>。直接輸入網址進站不會記在這裡。'+fm('% ＝ 該來源次數 ÷ '+nf(vsrcTot))+'這是網站自己記的，不是 Cloudflare 的數字，所以總數跟左邊「來源」不會剛好一樣；<b>從部署新版 Code.gs 之後</b>才開始累計。',HV?"":' style="grid-column:1/-1"')
     +(HV?box("進來先看到哪一頁（入口頁）",'<div class="ranklist">'+bars(land,landTot,"這段期間沒有資料"," 人次")+'</div>',
        '客人從外面點進來時，<b>看到的第一頁</b>。每一人次只有一個第一頁，所以加起來＝本期 '+nf(V)+' 人次。'+fm('% ＝ 該頁人次 ÷ '+nf(landTot)+eg(land,landTot," 人次"))+'例：有人在 Google 搜到你的某篇文章、點進來，那篇文章就 +1。常被當成第一頁的頁面，最值得放清楚的「去選購」按鈕。'):"")
     +box("每天"+(HV?"幾人次進來":"被看幾次")+' <span class="sub">（台灣時間）</span>',dailyHtml,

@@ -441,6 +441,7 @@ function doPost(e){
     if (d.action === "review") return json(addReview(d));
     if (d.action === "review_claim") return json(claimReviews(d));
     if (d.action === "restock_interest") return json(addRestockInterest(d));
+    if (d.action === "visit_src") return json(addVisitSrc_(d));
     if (d.action === "member_code_request") return json(requestCode(d));
     if (d.action === "member_code_verify")  return json(verifyCode(d));
     if (d.action === "member_orders")       return json(memberOrders(d));
@@ -1303,6 +1304,36 @@ function adminProductStatus(ss, d){
   return { ok:true };
 }
 
+/* 來源造訪紀錄：網站有人帶著來源（?src=ig、?src=yt、從某網站連進來）進站就記一筆，後台「流量」分頁統計。
+   Cloudflare 看不到網址後面的 ?src=，所以自己記。直接進站不記。 */
+const VISIT_TAB = "visits_src";
+function addVisitSrc_(d){
+  const src = safeText_(d.source, 30);
+  const cid = safeText_(d.client_id, 40) || "anon";
+  if (!src) return { ok:false, error:"bad input" };
+  if (!rateLimit_("vs_" + cid, 1800)) return { ok:true, dup:true };   // 同一個瀏覽器 30 分鐘只算一次
+  if (!globalCap_("vs_all", 200, 600)) return { ok:false, error:"busy" };
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try{
+    let sh = ss.getSheetByName(VISIT_TAB);
+    if (!sh){ sh = ss.insertSheet(VISIT_TAB); sh.appendRow(["時間","來源"]); }
+    sh.appendRow([new Date(), src]);
+  } finally { lock.releaseLock(); }
+  return { ok:true };
+}
+function visitSrcStats_(ss, t0, t1){
+  const sh = ss.getSheetByName(VISIT_TAB);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const m = {};
+  sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(r => {
+    const t = new Date(r[0]).getTime();
+    if (t >= t0 && t <= t1 + 1) { const k = String(r[1] || "").replace(/^'/, ""); m[k] = (m[k] || 0) + 1; }
+  });
+  return Object.keys(m).map(k => ({ t:k, n:m[k] })).sort((a, b) => b.n - a.n);
+}
+
 /* ========================= 後台「流量」分頁：讀 Cloudflare Web Analytics =========================
    金鑰只放在 Apps Script →「專案設定」→「指令碼屬性」：CLOUDFLARE_API_TOKEN（權限只有 Account Analytics: Read）。
    帳號 ID 與站台識別碼（site tag）不是密碼，直接寫在下面。結果快取 5 分鐘，避免一直打 Cloudflare。
@@ -1379,6 +1410,7 @@ function adminTraffic_(d, ss){
     const orders = adminListOrders(ss).filter(o => o.status !== "已取消" && o.time);
     const inR = (o, a, b) => { const t = new Date(o.time).getTime(); return t >= a && t < b; };
     const cur = orders.filter(o => inR(o, t0, t1 + 1)), prv = orders.filter(o => inR(o, t0 - span, t0));
+    out.visitSrc = visitSrcStats_(ss, t0, t1);
     out.orders = cur.length; out.prevOrders = prv.length;
     out.revenue = cur.filter(o => o.status === "已完成").reduce((s2, o) => s2 + o.total, 0);
     out.prevRevenue = prv.filter(o => o.status === "已完成").reduce((s2, o) => s2 + o.total, 0);

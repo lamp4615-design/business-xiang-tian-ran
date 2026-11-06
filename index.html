@@ -950,17 +950,25 @@ function val(id){const e=$(id);return e?e.value.trim():"";}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
 /* 首次來源（first-touch）：網址的 src／utm_source，或 QR 貼紙（?p=），或從哪個網站連進來；只記第一次，加入會員時一併送出。
    用來比較各管道帶來的客人品質。 */
+function calcSource(){
+  const q=new URLSearchParams(location.search);
+  let s=(q.get("src")||q.get("utm_source")||"").trim();
+  if(!s&&q.get("p"))s="QR貼紙";
+  if(!s&&document.referrer){
+    let h="";try{h=new URL(document.referrer).hostname.replace(/^www\./,"");}catch(e){}
+    if(h&&h!==location.hostname)s=/line\./.test(h)?"LINE":/facebook|fb\./.test(h)?"Facebook":/instagram/.test(h)?"Instagram":/threads/.test(h)?"Threads":/youtube|youtu\.be/.test(h)?"YouTube":/google\./.test(h)?"Google搜尋":h;
+  }
+  return s;
+}
 function captureSource(){
   try{
-    if(localStorage.getItem("xn_src"))return;
-    const q=new URLSearchParams(location.search);
-    let s=(q.get("src")||q.get("utm_source")||"").trim();
-    if(!s&&q.get("p"))s="QR貼紙";
-    if(!s&&document.referrer){
-      let h="";try{h=new URL(document.referrer).hostname.replace(/^www\./,"");}catch(e){}
-      if(h&&h!==location.hostname)s=/line\./.test(h)?"LINE":/facebook|fb\./.test(h)?"Facebook":/instagram/.test(h)?"Instagram":/threads/.test(h)?"Threads":/google\./.test(h)?"Google搜尋":h;
+    const s=calcSource();
+    if(!localStorage.getItem("xn_src"))localStorage.setItem("xn_src",(s||"直接進站").slice(0,30));
+    /* 後台「流量」分頁的「來源（含 IG／YT 連結）」：每次造訪（同一分頁只算一次）有來源才回報，直接進站不回報 */
+    if(s&&API_URL&&!sessionStorage.getItem("xn_visit")){
+      sessionStorage.setItem("xn_visit","1");
+      fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"visit_src",source:s.slice(0,30),client_id:localStorage.getItem("xn_cid")||Math.random().toString(36).slice(2,12)})}).catch(()=>{});
     }
-    localStorage.setItem("xn_src",(s||"直接進站").slice(0,30));
   }catch(e){}
 }
 function getSource(){try{return localStorage.getItem("xn_src")||"";}catch(e){return "";}}
