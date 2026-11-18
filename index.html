@@ -279,6 +279,13 @@
   .subtotal{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px}
   .subtotal .lbl{font-size:.9rem;color:var(--ink-70);letter-spacing:.08em}
   .subtotal .amt{font-family:var(--serif);font-size:1.5rem}
+  .redeem{margin-bottom:14px;padding:12px 14px;border-radius:14px;background:rgba(41,70,54,.06);border:1px solid var(--line);font-size:.86rem;line-height:1.6}
+  .redeem .rd-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .redeem label{font-weight:600;color:var(--espresso)}
+  .redeem label span{display:block;font-weight:400;font-size:.78rem;color:var(--ink-70)}
+  .redeem select{font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--espresso);max-width:62%}
+  .redeem .rd-off{display:flex;justify-content:space-between;margin-top:8px;color:var(--pine);font-weight:600}
+  .redeem.hint{background:transparent;border-style:dashed;color:var(--ink-70);text-align:center}
   .drawer-note{font-size:.76rem;color:var(--ink-45);text-align:center;margin-top:12px;line-height:1.7}
   .drawer-note .guide-link{display:inline-block;margin-top:6px;color:var(--pine);text-decoration:underline;text-underline-offset:3px;font-size:.84rem}
   /* 購物須知 */
@@ -826,7 +833,8 @@
   <div class="drawer-body" id="cartBody"></div>
   <div class="drawer-foot">
     <div class="auth-hint" id="authHint" style="display:none">請先登入會員，才能送出訂單</div>
-    <div class="subtotal"><span class="lbl">小計</span><span class="amt" id="cartTotal">NT$ 0</span></div>
+    <div class="redeem" id="redeemBox" hidden></div>
+    <div class="subtotal"><span class="lbl" id="cartTotalLbl">小計</span><span class="amt" id="cartTotal">NT$ 0</span></div>
     <button class="btn btn-primary form-btn" id="confirmBtn" onclick="confirmPurchase()">確認購買</button>
     <p class="drawer-note">目前無需線上付款。按下確認購買後，訂單會直接送到後台，我們會主動與你聯繫，確認付款方式與運費。<br><a class="guide-link" href="#guide" onclick="closeCart()">購物須知：付款、運費、出貨通知、退換貨 →</a></p>
   </div>
@@ -879,7 +887,7 @@
     <h2 id="wlTitle">第一次來？30 秒看懂怎麼賺好康</h2>
     <p class="wl-sub">加入會員完全免費，只要手機號碼就能登入。</p>
     <div class="wl-list">
-      <div class="wl-item hot"><div class="wl-ico">🎁</div><div><b>買 10 包，送 100 元折價券</b><span>加入會員後，<em>一包 1 點</em>，集滿 10 點就折 100 元，點數自動累積，在會員中心隨時看得到。</span></div></div>
+      <div class="wl-item hot"><div class="wl-ico">🎁</div><div><b>買 10 包，送 100 元折價券</b><span>加入會員後，<em>一包 1 點</em>，集滿 10 點就折 100 元，結帳時在購物袋直接折抵，點數在會員中心隨時看得到。</span></div></div>
       <div class="wl-item"><div class="wl-ico">⭐</div><div><b>喝過就評分，公開抽獎</b><span>會員幫喝過的豆子評分，<em>每評一支不同的豆子 +1 張抽獎券</em>。每期公開抽獎送耳掛咖啡，名單和開獎都公開、可以自己驗算。</span></div></div>
       <div class="wl-item"><div class="wl-ico">📧</div><div><b>留 Email，新品先知道</b><span>加入時填 Email，新豆子上架會<em>第一時間寄信通知你</em>。</span></div></div>
     </div>
@@ -1143,13 +1151,41 @@ function cartSums(){
              +dripCart.reduce((s,c)=>{const p=findProduct(c.id);return s+(p?dripPrice(p):0)*c.qty;},0);
   return {bags,sets,count:bags+sets,total,points:bags+dripPoints(sets)};
 }
+/* ---------- 點數折抵（D-047）：每 10 點折 100 元，結帳時客人自己選；後端會再核對點數與金額 ----------
+   只有後端回傳 redeem 設定（member.canRedeem）才顯示，舊版後端不會出現這個選項（避免畫面折了、訂單卻沒折） */
+let redeemChoice=null;   // null＝客人還沒動過（預設幫他折到最多）；數字＝客人自己選的份數
+function redeemInfo(total){
+  const r=member&&member.canRedeem;
+  if(!r||!(r.points>0)||!(r.value>0)||member.points==null)return null;
+  const max=Math.max(0,Math.min(Math.floor((member.points||0)/r.points),Math.floor(total/r.value)));
+  const units=redeemChoice==null?max:Math.min(redeemChoice,max);
+  return {per:r.points,value:r.value,max,units,discount:units*r.value,used:units*r.points};
+}
+function setRedeem(v){redeemChoice=Math.max(0,parseInt(v,10)||0);renderCart();}
+function renderRedeem(total,any){
+  const box=$("redeemBox");
+  const rd=any?redeemInfo(total):null;
+  const pts=member?(member.points||0):0;
+  if(!rd||(rd.max<1&&!(pts>0&&pts<rd.per))){box.hidden=true;box.innerHTML="";return rd;}
+  box.hidden=false;
+  if(rd.max<1){box.className="redeem hint";box.textContent=`你有 ${pts} 點，再集 ${rd.per-pts} 點，結帳時就能折 ${rd.value} 元`;return rd;}
+  box.className="redeem";
+  let opts=`<option value="0"${rd.units===0?" selected":""}>不使用</option>`;
+  for(let k=1;k<=rd.max;k++)opts+=`<option value="${k}"${k===rd.units?" selected":""}>用 ${k*rd.per} 點折 ${(k*rd.value).toLocaleString()} 元</option>`;
+  box.innerHTML=`<div class="rd-row"><label for="redeemSel">用點數折抵<span>你有 ${pts} 點・每 ${rd.per} 點折 ${rd.value} 元</span></label><select id="redeemSel" onchange="setRedeem(this.value)">${opts}</select></div>`
+    +(rd.discount?`<div class="rd-off"><span>點數折抵</span><span>−NT$ ${rd.discount.toLocaleString()}</span></div>`:"");
+  return rd;
+}
 function renderCart(){
   const body=$("cartBody");
   const s=cartSums();
-  $("cartTotal").textContent="NT$ "+s.total.toLocaleString();
   const badge=$("cartCount");badge.textContent=s.count;badge.classList.toggle("show",s.count>0);
   const bar=$("cartbar");if(bar){$("cbCount").textContent=s.count+" 件商品";$("cbTotal").textContent="NT$ "+s.total.toLocaleString();bar.classList.toggle("show",s.count>0);}
   const any=cart.length||dripCart.length;
+  const rd=member?renderRedeem(s.total,any):renderRedeem(0,false);
+  const disc=rd?rd.discount:0;
+  $("cartTotal").textContent="NT$ "+(s.total-disc).toLocaleString();
+  $("cartTotalLbl").textContent=disc?"折抵後應付":"小計";
   $("authHint").style.display=(any&&!member)?"block":"none";
   $("confirmBtn").textContent=member?"確認購買":"登入後購買";
   if(!any){body.innerHTML='<div class="cart-empty">購物袋還是空的。<br>挑一樣喜歡的吧。</div>';return;}
@@ -1167,7 +1203,7 @@ function renderCart(){
     +(s.sets?`<div class="cart-drip"><b>耳掛 ${s.sets} 組（${s.sets*DRIP_SET_BAGS} 包）</b>：${s.sets>=DRIP_BONUS_SETS?`已滿 ${DRIP_BONUS_SETS} 組，多送 ${DRIP_BONUS_POINTS} 點 🎉`:`再 ${DRIP_BONUS_SETS-s.sets} 組就多送 ${DRIP_BONUS_POINTS} 點`}<br>這張訂單完成後可得 <b>${s.points}</b> 點<span class="ship">耳掛是接單後才現磨、填裝，含耳掛的訂單約 5～7 天出貨。</span></div>`:"");
 }
 const overlay=$("overlay");const drawer=$("drawer");
-function openCart(){renderCart();overlay.classList.add("open");drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");}
+function openCart(){renderCart();if(member&&API_URL&&(member.points==null||member.canRedeem===undefined))fetchMyStats();overlay.classList.add("open");drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");}
 /* 別的分頁（耳掛頁、商品介紹頁）改了購物袋，或從那邊按「上一頁」回來：重讀購物袋 */
 window.addEventListener("storage",e=>{if(e.key===CART_KEY||e.key===DRIP_CART_KEY){loadCart();renderCart();}});
 window.addEventListener("pageshow",e=>{if(e.persisted){loadCart();renderCart();}});
@@ -1193,25 +1229,31 @@ async function confirmPurchase(){
     .concat(dripCart.filter(c=>{const p=findProduct(c.id);return p.soldOut||!p.drip;}).map(c=>"耳掛 "+findProduct(c.id).name));
   if(bad.length){showToast("「"+bad[0]+"」目前無法訂購，請先從購物袋移除");return;}
   const items=cart.map(c=>`${findProduct(c.id).name} x${c.qty}`).concat(dripCart.map(c=>`耳掛 ${findProduct(c.id).name} x${c.qty}組`)).join("、");
-  const sums=cartSums(),total=sums.total;
+  const sums=cartSums(),subtotal=sums.total;
+  const rd=redeemInfo(subtotal),redeemPoints=rd?rd.used:0,total=subtotal-(rd?rd.discount:0);   // 點數折抵（D-047）：total＝折抵後應付，後端會再核對
   const bags=sums.bags,dripSets=sums.sets;   // 半磅包數、耳掛組數，供集點用（後端會自己重算）
   // 2026-10-17：金額由後端依商品價格表重算，這裡送商品代號與數量；耳掛加 kind:"drip"，qty＝組數
   const lines=cart.map(c=>({id:c.id,qty:c.qty})).concat(dripCart.map(c=>({id:c.id,qty:c.qty,kind:"drip"})));
   const btn=$("confirmBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="送出中…";
-  let orderId="",finalTotal=total;
+  let orderId="",finalTotal=total,usedPts=0,discount=0;
   try{
     if(API_URL){
-      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags,dripSets,lines})});
+      const res=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"order",name:member.name,phone:member.phone,city:member.city,items,total,bags,dripSets,lines,redeemPoints})});
       let r=null;try{r=await res.json();}catch(e){}
       if(r&&r.ok===false){
-        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":r.error==="product_unavailable"?"有商品已下架、售完或更新，請重新整理頁面後再下單":"訂單送出失敗，請稍後再試或聯絡我們");
-        btn.disabled=false;btn.textContent=old;return;
+        const pe=r.error==="points_insufficient"||r.error==="redeem_too_much";
+        showToast(r.error==="rate_limited"?"你剛剛才送出一張訂單，請一分鐘後再試":r.error==="busy"?"目前下單人數較多，請稍後再試":r.error==="product_unavailable"?"有商品已下架、售完或更新，請重新整理頁面後再下單":r.error==="points_insufficient"?"點數不足或已過期，已重新讀取你的點數，請再確認一次":r.error==="redeem_too_much"?"折抵金額不能超過訂單金額，請重新選擇":"訂單送出失敗，請稍後再試或聯絡我們");
+        btn.disabled=false;btn.textContent=old;
+        if(pe){if(r.points!=null)member.points=Number(r.points)||0;redeemChoice=null;renderCart();fetchMyStats();}
+        return;
       }
       if(r&&r.orderId)orderId=String(r.orderId);   // 舊版後端沒有訂單編號，就不顯示
-      if(r&&Number(r.total)>0)finalTotal=Number(r.total);
+      if(r&&Number(r.total)>=0&&r.total!=null&&r.total!=="")finalTotal=Number(r.total);
+      usedPts=r?Number(r.usedPoints)||0:0;discount=r?Number(r.discount)||0:0;
+      if(usedPts)member.points=Math.max(0,(member.points||0)-usedPts);   // 先在畫面上扣掉，下面 fetchMyStats 會再讀一次正確值
     }else{await new Promise(r=>setTimeout(r,600));}
-    cart=[];dripCart=[];saveCart();renderCart();
-    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！'+(orderId?'<br>訂單編號：<strong>'+esc(orderId)+'</strong>（詢問訂單時請提供）':'')+(finalTotal!==total?'<br>訂單金額以 NT$ '+finalTotal.toLocaleString()+' 為準（價格已更新）':'')+'<br>我們會盡快透過 LINE 或電話與你聯繫。'+(dripSets?'<br>耳掛接單後現磨填裝，約 5～7 天出貨。':'')+'<br>訂單處理完成後，點數會自動加到會員中心。</div>';
+    cart=[];dripCart=[];redeemChoice=null;saveCart();renderCart();
+    $("cartBody").innerHTML='<div class="cart-empty ok">訂單已送出！'+(orderId?'<br>訂單編號：<strong>'+esc(orderId)+'</strong>（詢問訂單時請提供）':'')+(discount?'<br>已用 '+usedPts+' 點折抵 NT$ '+discount.toLocaleString()+'，應付 NT$ '+finalTotal.toLocaleString():'')+(finalTotal!==total?'<br>訂單金額以 NT$ '+finalTotal.toLocaleString()+' 為準（價格已更新）':'')+'<br>我們會盡快透過 LINE 或電話與你聯繫。'+(dripSets?'<br>耳掛接單後現磨填裝，約 5～7 天出貨。':'')+'<br>訂單處理完成後，點數會自動加到會員中心。</div>';
     showToast(orderId?"訂單已送出，編號 "+orderId:"訂單已送出，謝謝你");
     fetchMyStats();
   }catch(e){showToast("送出失敗，請稍後再試");}
@@ -1229,6 +1271,7 @@ function pointsPanelHtml(){
   if(pts===0){ fill=0; mainLine="目前 0 點"; subLine="還差 10"+u+"可折 100 元"; }
   else if(redeemable>=1 && inCycle===0){ fill=100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元！"; }
   else if(redeemable>=1){ fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元；"+(HAS_DRIP?"再集 ":"再買 ")+(10-inCycle)+u+"可再折 100"; }
+  if(redeemable>=1&&member.canRedeem) subLine+="<br>下次結帳時，在購物袋選「用點數折抵」就能直接扣";
   else { fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="還差 "+(10-inCycle)+u+"可折 100 元"; }
   let expLine="";
   if(pts>0 && member.pointsExpiry){
@@ -1390,7 +1433,7 @@ function renderOrdersBox(){
   }
   const note=ordersStale?(ordersLoading?'<p class="mc-sec-p">更新中…</p>':'<p class="mc-sec-p">目前顯示上次載入的紀錄，<button class="linklike" onclick="loadOrders()">重新整理</button></p>'):"";
   box.innerHTML='<h4>購買紀錄</h4>'+note+(ordersData.length?ordersData.map(o=>`<div class="ord"><div class="ord-top"><span class="ord-d">${esc(fmtDate(o.time))}</span><span class="ord-s ${ORD_CLS[o.status]||"wait"}">${esc(o.status)}</span></div>
-      <div class="ord-i">${esc(o.items)}</div><div class="ord-t">NT$ ${Number(o.total).toLocaleString()}</div></div>`).join(""):'<p class="mc-sec-p">還沒有購買紀錄。</p>');
+      <div class="ord-i">${esc(o.items)}</div><div class="ord-t">NT$ ${Number(o.total).toLocaleString()}${Number(o.discount)>0?`（已用 ${Number(o.usedPoints)||0} 點折抵 ${Number(o.discount).toLocaleString()} 元${o.status==="已取消"?"，點數已退回":""}）`:""}</div></div>`).join(""):'<p class="mc-sec-p">還沒有購買紀錄。</p>');
   if(ordersStale&&!ordersLoading&&!ordersAuto)loadOrders();
 }
 async function loadOrders(attempt){
@@ -1910,13 +1953,14 @@ async function fetchMyStats(){
     else if(d&&d.found&&d.needAuth){   // 未驗證：只有點數
       if(d.tokenInvalid)tokenExpired();
       member.statsLimited=true;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
-      member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";
+      member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.canRedeem=d.redeem||null;
     }
-    else if(d&&d.found){member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
+    else if(d&&d.found){member.canRedeem=d.redeem||null;member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
     else{member.statsLimited=false;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){if(member&&!member.statsLimited){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}}
   if(!member)return;
   saveSession();renderMember();flavorRefresh();
+  if(cart.length||dripCart.length)renderCart();   // 點數變了，購物袋的「用點數折抵」也要跟著更新（空的不重畫，才不會蓋掉「訂單已送出」訊息）
 }
 
 /* 讀回這位會員自己評過的五軸分數＋喜歡程度（換裝置、換瀏覽器登入也看得到），

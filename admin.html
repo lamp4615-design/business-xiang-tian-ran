@@ -66,6 +66,10 @@ h3{margin:18px 0 8px;font-size:16px}
 .qcell{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute);white-space:nowrap}
 .qcell label{display:flex;gap:4px;align-items:center}
 .qcell input{width:64px}
+.adj{display:flex;flex-direction:column;gap:4px;margin-top:6px;align-items:flex-end}
+.adj input[type=number]{width:96px;text-align:right}
+.adj input[type=text]{width:140px}
+.money-sub{font-size:12px;color:var(--mute);white-space:nowrap}
 .drip-tag{display:inline-block;padding:0 7px;border-radius:99px;font-size:12px;color:var(--orange);border:1px solid var(--orange);margin-right:4px}
 #ordersBody button.sm{white-space:nowrap}
 .prep{border:1px solid var(--orange);background:rgba(224,138,44,.08);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:14px;line-height:1.8}
@@ -152,10 +156,12 @@ pre.syn{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);b
     </div>
     <div class="prep" id="dripPrep" hidden></div>
     <div class="wrap"><table>
-      <thead><tr><th>時間</th><th>顧客</th><th>訂購內容</th><th class="num">金額</th><th>數量</th><th>狀態</th><th class="num">已加點</th><th></th></tr></thead>
+      <thead><tr><th>時間</th><th>顧客</th><th>訂購內容</th><th class="num">金額／調整</th><th>數量</th><th>狀態</th><th class="num">已加點</th><th></th></tr></thead>
       <tbody id="ordersBody"></tbody>
     </table></div>
-    <p class="sub">把狀態改成「已完成」→ 自動幫會員加點：半磅依包數（一包 1 點）；耳掛依組數（一組 1 點，同一張訂單滿 5 組再送 5 點）。之後改包數／組數會自動補差額；改回待處理／已取消會扣回。</p>
+    <p class="sub">把狀態改成「已完成」→ 自動幫會員加點：半磅依包數（一包 1 點）；耳掛依組數（一組 1 點，同一張訂單滿 5 組再送 5 點）。之後改包數／組數會自動補差額；改回待處理／已取消會扣回。<br>
+    <b>點數折抵</b>：客人結帳時自己選「每 10 點折 100 元」，下單當下就扣點，金額欄已是折抵後的應收；訂單改成「已取消」會自動把點數退回。<br>
+    <b>調整金額</b>：同事價、特別折扣填負數（例：-50），補運費填正數（例：60），一定要填原因，按「儲存」後金額會重算，營收報表跟著更新，改動會記在 admin_log。要取消調整就把金額清空或填 0。</p>
   </section>
 
   <section class="panel" id="t-members" hidden>
@@ -616,22 +622,41 @@ function renderOrders(){
       <td>${t}${o.orderId?`<div class="sub">${esc(o.orderId)}</div>`:""}</td>
       <td>${esc(o.name)}<div class="sub">${esc(o.phone)}・${esc(o.city)}</div></td>
       <td>${isDripOrder(o)?'<span class="drip-tag">耳掛</span>':""}${esc(o.items)}</td>
-      <td class="num">${money(o.total)}</td>
+      <td class="num">${money(o.total)}${moneyDetail(o)}
+        <div class="adj"><input type="number" step="1" id="a${o.row}" value="${o.adjust?o.adjust:""}" placeholder="±調整" title="同事價填負數（例 -50），補運費填正數（例 60）"><input type="text" id="an${o.row}" value="${esc(o.adjustNote||"")}" placeholder="調整原因" title="例如：同事價、補運費" maxlength="60"></div></td>
       <td><div class="qcell"><label><input type="number" min="0" step="1" value="${o.bags}" id="b${o.row}"> 包</label>${isDripOrder(o)?`<label><input type="number" min="0" step="1" value="${o.dripSets||0}" id="d${o.row}"> 組耳掛</label>`:""}</div></td>
       <td><select id="s${o.row}" class="s-${esc(o.status)}">${STATUSES.map(s=>`<option${s===o.status?" selected":""}>${s}</option>`).join("")}</select></td>
       <td class="num">${o.awarded}</td>
       <td><button class="sm" onclick="saveOrder(${o.row},this)">儲存</button></td>
     </tr>`;}).join("");
 }
+/* 金額明細（D-047）：有點數折抵或調整時，顯示 原價・點數折抵・調整 */
+function moneyDetail(o){
+  if(!o.discount&&!o.adjust)return "";
+  const parts=[`原價 ${money(o.gross||o.total)}`];
+  if(o.discount)parts.push(`點數 −${money(o.discount)}（${o.usedPoints||0} 點${o.status==="已取消"?"，已退回":""}）`);
+  if(o.adjust)parts.push(`調整 ${o.adjust>0?"+":"−"}${money(Math.abs(o.adjust))}${o.adjustNote?`（${esc(o.adjustNote)}）`:""}`);
+  return `<div class="money-sub">${parts.join("<br>")}</div>`;
+}
 async function saveOrder(row,btn){
+  const o=ORDERS.find(x=>x.row===row)||{};
+  // 調整金額：有改才送；不是 0 就一定要有原因
+  const aRaw=$("a"+row)?$("a"+row).value.trim():"",aNote=$("an"+row)?$("an"+row).value.trim():"";
+  const adj=aRaw===""?0:Math.trunc(Number(aRaw));
+  if(aRaw!==""&&!isFinite(Number(aRaw))){toast("調整金額請填數字，例如 -50 或 60");return;}
+  if(adj&&!aNote){toast("請填調整原因（例如：同事價、補運費）");$("an"+row).focus();return;}
+  if(adj&&(o.gross||o.total)-(o.discount||0)+adj<0){toast("調整後金額會小於 0，請確認");return;}
+  const adjChanged=adj!==(o.adjust||0)||(adj&&aNote!==(o.adjustNote||""));
+  if(adjChanged&&o.gross===undefined){toast("後端（Code.gs）還是舊版，還不能調整金額：請先把新的 Code.gs 部署成新版本");return;}
   btn.disabled=true;
   try{
     // 以訂單編號定位（後端寫入前會再核對）；還沒補編號的舊訂單才用列號＋訂購內容核對。舊版後端會忽略 orderId／items，照舊用列號
-    const o=ORDERS.find(x=>x.row===row)||{};
     const de=$("d"+row);   // 耳掛組數（只有含耳掛的訂單才有這格）
-    const r=await api({action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value,dripSets:de?de.value:undefined});
+    const req={action:"admin_update_order",orderId:o.orderId||"",row,items:o.items,status:$("s"+row).value,bags:$("b"+row).value,dripSets:de?de.value:undefined};
+    if(adjChanged){req.adjust=adj;req.adjustNote=aNote;}
+    const r=await api(req);
     const SHIP_MSG={sent:"，已寄出貨通知信",no_email:"（會員沒有 Email，未寄出貨通知）",quota:"，但今天寄信額度已用完，出貨通知未寄（見 admin_log）",failed:"，但出貨通知信寄送失敗（見 admin_log）"};
-    toast("已儲存，點數已同步"+(SHIP_MSG[r&&r.shipNotice]||""));await loadAll();
+    toast("已儲存"+(adjChanged?"，金額已重算":"")+"，點數已同步"+(SHIP_MSG[r&&r.shipNotice]||""));await loadAll();
   }catch(e){toast("儲存失敗："+e.message);btn.disabled=false;if(/重新整理/.test(e.message))loadAll();}
 }
 /* 耳掛備貨：「待處理」訂單裡的耳掛依口味加總，算出要填幾包、要磨多少克豆 */
@@ -695,7 +720,7 @@ function exportCosts(){
 }
 function exportOrders(){
   const st=$("fStatus").value;
-  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額","包數","耳掛組數","狀態","訂單編號"]].concat(filteredOrders().map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.bags,o.dripSets||0,o.status,o.orderId||""])));
+  downloadCsv(`訂單_${st||"全部"}.csv`,[["時間","姓名","手機","地區","訂購內容","金額（實收）","商品金額","點數折抵","使用點數","調整金額","調整原因","包數","耳掛組數","狀態","訂單編號"]].concat(filteredOrders().map(o=>[o.time?new Date(o.time).toLocaleString("zh-TW"):"",o.name,o.phone,o.city,o.items,o.total,o.gross||o.total,o.discount||0,o.usedPoints||0,o.adjust||0,o.adjustNote||"",o.bags,o.dripSets||0,o.status,o.orderId||""])));
 }
 async function addCost(){
   const item=$("cItem").value.trim(),amount=Number($("cAmt").value);

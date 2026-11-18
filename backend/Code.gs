@@ -27,6 +27,22 @@ const ORDERS_TAB    = "orders";
 const REVIEWS_TAB   = "reviews";
 const POINTS_TAB    = "points";
 const POINT_EXPIRE_MONTHS = 3;   // 點數效期：最後一次消費起算幾個月
+
+/* ========================= 點數折抵＋後台調整金額（2026-11-18，修正歷程 D-047） =========================
+ * 點數折抵：會員結帳時自己選「用 10 點折 100 元」（可選多份，但折抵不能超過訂單金額）。
+ *   ・下單當下就扣點（同一批點數不能連下兩張單重複用）；訂單改成「已取消」自動退回，從已取消改回來會再扣一次。
+ *   ・折抵的訂單照常集點（半磅一包 1 點、耳掛一組 1 點，跟原本一樣）。
+ * 調整金額：後台每張訂單可填 ±金額（同事價填負數、補運費填正數），一定要填原因，會記進 admin_log。
+ * orders 的「金額」＝實收＝商品金額 − 點數折抵 ＋ 調整金額；營收報表都用「金額」，所以會自動反映折抵與調整。
+ * 「商品金額／使用點數／已扣點」是系統記帳用，請勿手動輸入；要調整金額請在後台改（直接改試算表不會重算「金額」）。 */
+const REDEEM_POINTS = 10;    // 幾點折一次
+const REDEEM_VALUE  = 100;   // 一次折幾元
+const ORDER_GROSS_COL      = "商品金額";   // 依價格表算的原價
+const ORDER_REDEEM_COL     = "點數折抵";   // 折了幾元
+const ORDER_REDEEM_PTS_COL = "使用點數";   // 用了幾點
+const ORDER_REDEEM_DONE_COL= "已扣點";     // 目前實際扣著的點數（取消時歸零＝已退回）
+const ORDER_ADJ_COL        = "調整金額";   // 後台手動 ±
+const ORDER_ADJ_NOTE_COL   = "調整原因";
 const COSTS_TAB     = "costs";
 const DASHBOARD_TAB = "總覽";
 
@@ -565,6 +581,14 @@ function addOrder(d){
   if (!globalCap_("ord_all", 20, 600)) return { ok:false, error:"busy" };          // 全站 10 分鐘最多 20 張
   const priced = priceOrder_(d);   // 金額一律由後端依 products 單價重算，前端送的 total 只拿來比對
   if (!priced.ok) return priced;
+  // 點數折抵（D-047）：前端送 redeemPoints（10 的倍數），後端自己核對點數夠不夠、折抵有沒有超過訂單金額
+  const redeemUnits = Math.max(0, Math.min(1000, Math.floor((Number(d.redeemPoints) || 0) / REDEEM_POINTS)));
+  const usedPts = redeemUnits * REDEEM_POINTS;
+  const discount = redeemUnits * REDEEM_VALUE;
+  // 點數相關被擋下來的不算「下過一張單」，客人重新選好折抵可以馬上再送（不用等一分鐘）
+  const redeemReject_ = r => { try{ CacheService.getScriptCache().remove("ord_" + key); }catch(e){} return r; };
+  if (discount > priced.total) return redeemReject_({ ok:false, error:"redeem_too_much" });
+  const finalTotal = priced.total - discount;
 
   const ss = SpreadsheetApp.openById(SHEET_ID);
   ensureMemberSchema_(ss, false);   // 自己會視需要上鎖，所以放在下面的鎖之外
@@ -583,24 +607,38 @@ function addOrder(d){
     const idCol = ensureCol_(sh, ORDER_ID_COL).col;
     const memCol = ensureCol_(sh, "會員編號").col;
     const dripCol = ensureCol_(sh, DRIP_ORDER_COL).col;
+    const grossCol = ensureCol_(sh, ORDER_GROSS_COL).col;
+    const redeemCol = ensureCol_(sh, ORDER_REDEEM_COL).col;
+    const redeemPtsCol = ensureCol_(sh, ORDER_REDEEM_PTS_COL).col;
+    const redeemDoneCol = ensureCol_(sh, ORDER_REDEEM_DONE_COL).col;
+    // 點數要在鎖裡面核對＋扣除，兩張單同時進來才不會用掉同一批點數
+    if (usedPts){
+      const have = readPoints(phoneText).points;
+      if (have < usedPts) return redeemReject_({ ok:false, error:"points_insufficient", points:have });
+    }
     orderId = nextOrderId_(sh, idCol, now);
     const width = sh.getLastColumn();
     const row = new Array(width).fill("");
-    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點（＋最右邊的會員編號、訂單編號、耳掛組數…）
-    // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）
-    [now, name, phoneText, city, priced.items, priced.total, "待處理", priced.bags, 0].forEach((v, i) => { row[i] = v; });
+    // 欄位：建立時間/姓名/手機/所在地區/訂購內容/金額/狀態/包數/已加點（＋最右邊的會員編號、訂單編號、耳掛組數、商品金額、點數折抵…）
+    // 點數不在下單時加；你把「狀態」改成「已完成」時才會自動加（見 onEdit）。折抵用的點數則是下單當下就扣（D-047）
+    [now, name, phoneText, city, priced.items, finalTotal, "待處理", priced.bags, 0].forEach((v, i) => { row[i] = v; });
     row[memCol - 1] = m && m.id ? m.id : "";   // 訂單記會員編號，換手機也對得上
     row[idCol - 1] = orderId;
     row[dripCol - 1] = priced.dripSets;
+    row[grossCol - 1] = priced.total;
+    row[redeemCol - 1] = discount;
+    row[redeemPtsCol - 1] = usedPts;
+    row[redeemDoneCol - 1] = usedPts;
     const r = sh.getLastRow() + 1;
     sh.getRange(r, 3).setNumberFormat("@");   // 手機存成文字，開頭的 0 才不會被吃掉
     sh.getRange(r, 1, 1, width).setValues([row]);
+    if (usedPts) pointsAdjust(ss, phoneText, -usedPts);
   } finally { lock.releaseLock(); }
-  const diff = clientTotal && clientTotal !== priced.total;
-  if (diff) adminLog_(ss, "訂單金額差異", "前端 " + clientTotal + "／後端依價格表 " + priced.total + "（以後端為準）", orderId);
-  notifyOrder({ orderId:orderId, name:name, phone:phoneText, city:city, items:priced.items, total:priced.total, dripSets:priced.dripSets,
-                note: diff ? "網頁送來的金額是 NT$ " + clientTotal + "，已依商品價格表改為 NT$ " + priced.total + "（可能是客人的網頁價格還沒更新）" : "" });   // 寄 Email 通知
-  return { ok:true, orderId:orderId, total:priced.total, items:priced.items };
+  const diff = clientTotal && clientTotal !== finalTotal;
+  if (diff) adminLog_(ss, "訂單金額差異", "前端 " + clientTotal + "／後端依價格表 " + finalTotal + "（以後端為準）", orderId);
+  notifyOrder({ orderId:orderId, name:name, phone:phoneText, city:city, items:priced.items, total:finalTotal, gross:priced.total, discount:discount, usedPts:usedPts, dripSets:priced.dripSets,
+                note: diff ? "網頁送來的金額是 NT$ " + clientTotal + "，已依商品價格表改為 NT$ " + finalTotal + "（可能是客人的網頁價格還沒更新）" : "" });   // 寄 Email 通知
+  return { ok:true, orderId:orderId, total:finalTotal, gross:priced.total, discount:discount, usedPoints:usedPts, items:priced.items };
 }
 
 /* 手動執行一次（Apps Script 選 backfillOrderIds → 執行）：幫還沒有訂單編號的既有訂單補上編號。
@@ -751,12 +789,15 @@ function readOrders_(ss){
       total: Number(r[at("金額")]) || 0,
       status: String(r[at("狀態")] || "待處理"),
       bags: Number(r[at("包數")]) || 0,
-      dripSets: orderDripSets_(r[at(DRIP_ORDER_COL)], r[at("訂購內容")])
+      dripSets: orderDripSets_(r[at(DRIP_ORDER_COL)], r[at("訂購內容")]),
+      discount: at(ORDER_REDEEM_COL) > -1 ? Number(r[at(ORDER_REDEEM_COL)]) || 0 : 0,
+      usedPoints: at(ORDER_REDEEM_PTS_COL) > -1 ? Number(r[at(ORDER_REDEEM_PTS_COL)]) || 0 : 0
     });
   }
   return out;
 }
-const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags, dripSets: o.dripSets });
+// 會員看得到點數折抵（自己用的），看不到後台的調整原因
+const orderView_ = o => ({ time: o.time ? o.time.toISOString() : "", items: o.items, total: o.total, status: o.status, bags: o.bags, dripSets: o.dripSets, discount: o.discount || 0, usedPoints: o.usedPoints || 0 });
 
 /* 查看用的手機 key（CR-20261018-02，董事會決定恢復原本設計）：看自己的購買紀錄、點數、評分「不用驗證」，只憑手機登入；
    有帶有效憑證就以憑證裡的手機為準。只有「修改會員資料」（member_update）和「更新已評過的評分」才需要憑證。
@@ -792,7 +833,8 @@ function memberStats(d){
   if (!globalCap_("ms_all", 150, 600)) return { ok:false, error:"busy" };
   if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false };
   const st = getMyStats(key);
-  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry, draw:st.draw, nextDraw:st.nextDraw };
+  return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry, draw:st.draw, nextDraw:st.nextDraw,
+           redeem:{ points:REDEEM_POINTS, value:REDEEM_VALUE } };   // 有這個欄位，前台才會顯示「用點數折抵」（舊後端沒有＝不顯示，避免折了卻沒算到）
 }
 /* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
 function memberStatsLimited_(phone){
@@ -802,7 +844,8 @@ function memberStatsLimited_(phone){
   if (!globalCap_("msl_all", 120, 600)) return { ok:false, error:"busy" };
   if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false, needAuth:true };
   const pts = readPoints(key);
-  return { ok:true, found:true, needAuth:true, error:"auth_required", points:pts.points, pointsExpiry:pts.expiry };
+  return { ok:true, found:true, needAuth:true, error:"auth_required", points:pts.points, pointsExpiry:pts.expiry,
+           redeem:{ points:REDEEM_POINTS, value:REDEEM_VALUE } };
 }
 
 /* 自己評過的豆子（五軸＋喜歡程度）：需要憑證 */
@@ -946,7 +989,9 @@ function notifyOrder(d){
       "地區：" + (d.city || ""),
       "內容：" + (d.items || ""),
       d.dripSets ? "耳掛備貨：" + d.dripSets + " 組＝" + d.dripSets * DRIP_SET_BAGS + " 包，約需 " + d.dripSets * DRIP_SET_BAGS * DRIP_BAG_GRAMS + " 克咖啡粉（每包 " + DRIP_BAG_GRAMS + " 克）" : null,
-      "金額：NT$ " + (Number(d.total) || 0),
+      d.discount ? "商品金額：NT$ " + (Number(d.gross) || 0) : null,
+      d.discount ? "點數折抵：−NT$ " + d.discount + "（用了 " + d.usedPts + " 點，已從會員點數扣除）" : null,
+      (d.discount ? "應收金額：NT$ " : "金額：NT$ ") + (Number(d.total) || 0),
       "時間：" + new Date().toLocaleString("zh-TW"), "",
       "— 訂單也已存入試算表 orders 分頁。"
     ].filter(s => s !== null);
@@ -1996,7 +2041,31 @@ function syncOrderPoints(ss, sh, row){
 
   const target = (status === "已完成") ? bags + dripPoints_(dripSets) : 0;
   const delta = target - awarded;
-  if (delta !== 0 && phone) pointsAdjust(ss, phone, delta);
+
+  // 點數折抵（D-047）：訂單沒取消 → 折抵用的點數要扣著；改成「已取消」→ 退回；從已取消改回來 → 再扣一次（點數不夠就扣到 0，並記 admin_log）
+  const usedCol = headers.indexOf(ORDER_REDEEM_PTS_COL) + 1;
+  const doneCol = headers.indexOf(ORDER_REDEEM_DONE_COL) + 1;
+  const used = usedCol ? Math.max(0, Number(sh.getRange(row, usedCol).getValue()) || 0) : 0;
+  const done = doneCol ? Math.max(0, Number(sh.getRange(row, doneCol).getValue()) || 0) : 0;
+  const redeemDelta = (doneCol && phone) ? ((status === "已取消" ? 0 : used) - done) : 0;   // >0 要再扣、<0 要退回
+
+  // 先做「加回」的（退回折抵點數、補加集點），再做「扣掉」的，避免點數先被扣到 0 再加回而少算
+  if (redeemDelta < 0) pointsAdjust(ss, phone, -redeemDelta);
+  if (delta > 0 && phone) pointsAdjust(ss, phone, delta);
+  if (delta < 0 && phone) pointsAdjust(ss, phone, delta);
+  let newDone = done + Math.min(0, redeemDelta);
+  if (redeemDelta > 0){
+    SpreadsheetApp.flush();
+    const have = readPoints(phone).points;
+    const take = Math.min(have, redeemDelta);
+    if (take > 0) pointsAdjust(ss, phone, -take);
+    newDone = done + take;
+    if (take < redeemDelta){
+      const idCol = headers.indexOf(ORDER_ID_COL) + 1;
+      adminLog_(ss, "點數折抵", "訂單恢復時會員點數不足，少扣 " + (redeemDelta - take) + " 點（請自行斟酌補收）", idCol ? String(sh.getRange(row, idCol).getValue()) : "第 " + row + " 列");
+    }
+  }
+  if (redeemDelta !== 0) sh.getRange(row, doneCol).setValue(newDone);
   sh.getRange(row, awardedCol).setValue(phone ? target : awarded);
 }
 
@@ -2543,7 +2612,7 @@ function adminListOrders(ss){
   for (let i = 1; i < rows.length; i++){
     const r = rows[i];
     if (!r[at("訂購內容")] && !r[at("金額")]) continue;
-    out.push({
+    out.push(Object.assign({
       row: i + 1,
       orderId: at(ORDER_ID_COL) > -1 ? String(r[at(ORDER_ID_COL)] || "") : "",
       time: r[at("建立時間")] ? new Date(r[at("建立時間")]).toISOString() : "",
@@ -2556,9 +2625,41 @@ function adminListOrders(ss){
       bags: Number(r[at("包數")]) || 0,
       dripSets: orderDripSets_(r[at(DRIP_ORDER_COL)], r[at("訂購內容")]),
       awarded: Number(r[at("已加點")]) || 0
-    });
+    }, orderMoney_(r, at)));
   }
   return out.reverse();   // 新的在前
+}
+/* 訂單的金額明細（D-047）：原價、點數折抵、使用點數、調整金額與原因。舊訂單沒有「商品金額」時，用 實收 + 折抵 − 調整 推回原價 */
+function orderMoney_(r, at){
+  const num = n => at(n) > -1 ? Number(r[at(n)]) || 0 : 0;
+  const total = num("金額"), discount = num(ORDER_REDEEM_COL), adjust = num(ORDER_ADJ_COL);
+  const gross = num(ORDER_GROSS_COL) || (total + discount - adjust);
+  return { gross:gross, discount:discount, usedPoints:num(ORDER_REDEEM_PTS_COL), adjust:adjust,
+           adjustNote: at(ORDER_ADJ_NOTE_COL) > -1 ? String(r[at(ORDER_ADJ_NOTE_COL)] || "") : "" };
+}
+
+/* 後台調整訂單金額（D-047）：金額 = 商品金額 − 點數折抵 + 調整金額（最低 0）。調整不是 0 時一定要有原因。沒變就不寫。 */
+function applyOrderAdjust_(ss, sh, row, adj, note, orderId){
+  const grossC = ensureCol_(sh, ORDER_GROSS_COL).col;
+  const adjC = ensureCol_(sh, ORDER_ADJ_COL).col;
+  const noteC = ensureCol_(sh, ORDER_ADJ_NOTE_COL).col;
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim());
+  const totalC = headers.indexOf("金額") + 1, redeemC = headers.indexOf(ORDER_REDEEM_COL) + 1;
+  if (!totalC) return;
+  const total = Number(sh.getRange(row, totalC).getValue()) || 0;
+  const oldAdj = Number(sh.getRange(row, adjC).getValue()) || 0;
+  const oldNote = String(sh.getRange(row, noteC).getValue() || "");
+  const discount = redeemC ? Number(sh.getRange(row, redeemC).getValue()) || 0 : 0;
+  let gross = Number(sh.getRange(row, grossC).getValue()) || 0;
+  if (!(gross > 0)){ gross = total + discount - oldAdj; sh.getRange(row, grossC).setValue(gross); }   // 舊訂單第一次調整：先把原價記下來
+  if (!adj) note = "";
+  if (adj === oldAdj && note === oldNote) return;
+  const newTotal = Math.max(0, gross - discount + adj);
+  sh.getRange(row, adjC).setValue(adj || "");
+  sh.getRange(row, noteC).setValue(note);
+  sh.getRange(row, totalC).setValue(newTotal);
+  const sign = n => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
+  adminLog_(ss, "調整訂單金額", "NT$ " + total + " → " + newTotal + "（調整 " + sign(oldAdj) + " → " + sign(adj) + (note ? "，" + note : "") + "）", orderId || ("第 " + row + " 列"));
 }
 
 /* 後台改單（2026-10-17）：以「訂單編號」定位，不再只靠列號（試算表排序或刪列後列號會變，可能改錯單、加錯點）。
@@ -2596,10 +2697,18 @@ function adminUpdateOrder(ss, d){
     ds = Math.floor(Number(d.dripSets));
     if (!(ds >= 0)) return { ok:false, error:"bad dripSets" };
   }
+  let adj, adjNote = "";
+  if (d.adjust !== undefined && d.adjust !== null && d.adjust !== ""){
+    adj = Math.trunc(Number(d.adjust));
+    if (!isFinite(adj) || Math.abs(adj) > 100000) return { ok:false, error:"bad adjust" };
+    adjNote = safeText_(d.adjustNote, 60);
+    if (adj !== 0 && !adjNote) return { ok:false, error:"請填調整原因" };
+  }
   // 檢查都過了才寫入
   if (d.status !== undefined) sh.getRange(row, headers.indexOf("狀態") + 1).setValue(d.status);
   if (d.bags !== undefined) sh.getRange(row, headers.indexOf("包數") + 1).setValue(b);
   if (ds !== undefined) sh.getRange(row, ensureCol_(sh, DRIP_ORDER_COL).col).setValue(ds);
+  if (adj !== undefined) applyOrderAdjust_(ss, sh, row, adj, adjNote, d.orderId ? String(d.orderId) : "");
   syncOrderPoints(ss, sh, row);   // 程式改儲存格不會觸發 onEdit，所以這裡主動對帳
   // 出貨通知：只在「改成已完成」那一刻寄；寄信任何問題都不影響上面已完成的狀態與加點
   let shipNotice = "";
