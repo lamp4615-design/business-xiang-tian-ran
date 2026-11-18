@@ -26,7 +26,7 @@ const adminHtml = read("admin.html", "");
 const SITE = ((indexHtml.match(/<link rel="canonical" href="([^"]+)"/) || [])[1] || "").replace(/\/?$/, "/");
 if (!SITE) throw new Error("index.html 找不到 canonical 網址");
 const BRAND = "翔天然";
-const OG_DEFAULT = SITE + "og-image.png";
+const OG_DEFAULT = SITE + "og-image.jpg";   // 2026-11-19：PNG 394KB → JPG 約 73KB（社群分享預覽載入更快）
 
 const products = readJson("products.json");
 const posts = readJson("posts.json").filter((p) => p.status === "發佈").sort((a, b) => String(b.time).localeCompare(String(a.time)));
