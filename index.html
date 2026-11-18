@@ -1162,13 +1162,21 @@ function redeemInfo(total){
   return {per:r.points,value:r.value,max,units,discount:units*r.value,used:units*r.points};
 }
 function setRedeem(v){redeemChoice=Math.max(0,parseInt(v,10)||0);renderCart();}
-function renderRedeem(total,any){
+function renderRedeem(s,any){
   const box=$("redeemBox");
-  const rd=any?redeemInfo(total):null;
-  const pts=member?(member.points||0):0;
-  if(!rd||(rd.max<1&&!(pts>0&&pts<rd.per))){box.hidden=true;box.innerHTML="";return rd;}
+  if(!any||!member){box.hidden=true;box.innerHTML="";return null;}
+  const rd=redeemInfo(s.total);
+  const pts=member.points||0;
+  if(!rd||rd.max<1){
+    // 還不能折抵：每位會員（包含 0 點的新客人）都看得到這張訂單能拿幾點、集滿可以折多少，結帳才有感
+    const per=rd?rd.per:10,val=rd?rd.value:100;
+    if(pts>=per){box.hidden=true;box.innerHTML="";return rd;}   // 有點數但後端還不支援折抵（舊版）：先不顯示，避免誤會
+    const earn=s.sets?"":`這張訂單完成後${pts>0?"再":"可"}得 ${s.points} 點・`;   // 耳掛訂單下面已經有「可得幾點」，不重複
+    box.hidden=false;box.className="redeem hint";
+    box.textContent=(pts>0?`你有 ${pts} 點，`:"")+earn+`集滿 ${per} 點，結帳時就能折 ${val} 元`;
+    return rd;
+  }
   box.hidden=false;
-  if(rd.max<1){box.className="redeem hint";box.textContent=`你有 ${pts} 點，再集 ${rd.per-pts} 點，結帳時就能折 ${rd.value} 元`;return rd;}
   box.className="redeem";
   let opts=`<option value="0"${rd.units===0?" selected":""}>不使用</option>`;
   for(let k=1;k<=rd.max;k++)opts+=`<option value="${k}"${k===rd.units?" selected":""}>用 ${k*rd.per} 點折 ${(k*rd.value).toLocaleString()} 元</option>`;
@@ -1182,7 +1190,7 @@ function renderCart(){
   const badge=$("cartCount");badge.textContent=s.count;badge.classList.toggle("show",s.count>0);
   const bar=$("cartbar");if(bar){$("cbCount").textContent=s.count+" 件商品";$("cbTotal").textContent="NT$ "+s.total.toLocaleString();bar.classList.toggle("show",s.count>0);}
   const any=cart.length||dripCart.length;
-  const rd=member?renderRedeem(s.total,any):renderRedeem(0,false);
+  const rd=renderRedeem(s,any);
   const disc=rd?rd.discount:0;
   $("cartTotal").textContent="NT$ "+(s.total-disc).toLocaleString();
   $("cartTotalLbl").textContent=disc?"折抵後應付":"小計";
@@ -1203,7 +1211,8 @@ function renderCart(){
     +(s.sets?`<div class="cart-drip"><b>耳掛 ${s.sets} 組（${s.sets*DRIP_SET_BAGS} 包）</b>：${s.sets>=DRIP_BONUS_SETS?`已滿 ${DRIP_BONUS_SETS} 組，多送 ${DRIP_BONUS_POINTS} 點 🎉`:`再 ${DRIP_BONUS_SETS-s.sets} 組就多送 ${DRIP_BONUS_POINTS} 點`}<br>這張訂單完成後可得 <b>${s.points}</b> 點<span class="ship">耳掛是接單後才現磨、填裝，含耳掛的訂單約 5～7 天出貨。</span></div>`:"");
 }
 const overlay=$("overlay");const drawer=$("drawer");
-function openCart(){renderCart();if(member&&API_URL&&(member.points==null||member.canRedeem===undefined))fetchMyStats();overlay.classList.add("open");drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");}
+function openCart(){renderCart();if(member&&API_URL&&(member.points==null||!member.canRedeem||Date.now()-(member.statsAt||0)>60000))fetchMyStats();   // 打開購物袋就重讀點數（1 分鐘內不重複）；之前記成「後端不支援折抵」的也會重新確認
+overlay.classList.add("open");drawer.classList.add("open");drawer.setAttribute("aria-hidden","false");}
 /* 別的分頁（耳掛頁、商品介紹頁）改了購物袋，或從那邊按「上一頁」回來：重讀購物袋 */
 window.addEventListener("storage",e=>{if(e.key===CART_KEY||e.key===DRIP_CART_KEY){loadCart();renderCart();}});
 window.addEventListener("pageshow",e=>{if(e.persisted){loadCart();renderCart();}});
@@ -1953,9 +1962,9 @@ async function fetchMyStats(){
     else if(d&&d.found&&d.needAuth){   // 未驗證：只有點數
       if(d.tokenInvalid)tokenExpired();
       member.statsLimited=true;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
-      member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.canRedeem=d.redeem||null;
+      member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.canRedeem=d.redeem||null;member.statsAt=Date.now();
     }
-    else if(d&&d.found){member.canRedeem=d.redeem||null;member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
+    else if(d&&d.found){member.canRedeem=d.redeem||null;member.statsAt=Date.now();member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
     else{member.statsLimited=false;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){if(member&&!member.statsLimited){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}}
   if(!member)return;
