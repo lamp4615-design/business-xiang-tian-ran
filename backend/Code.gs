@@ -2625,9 +2625,15 @@ function adminMembers(ss){
 
   const pts = {};
   const psh = ss.getSheetByName(POINTS_TAB);
-  if (psh && psh.getLastRow() > 1) psh.getDataRange().getValues().slice(1).forEach(r => {
-    const k = normPhone_(r[0]); if (k) pts[k] = { points:Number(r[1]) || 0, expiry:r[2] ? new Date(r[2]) : null };
-  });
+  if (psh && psh.getLastRow() > 1){
+    const prow = psh.getDataRange().getValues();
+    const remI = prow[0].map(h => String(h).trim()).indexOf(POINT_REMIND_COL);   // 到期提醒寄過的到期日（D-049）
+    prow.slice(1).forEach(r => {
+      const k = normPhone_(r[0]); if (!k) return;
+      const rem = remI > -1 ? r[remI] : "";
+      pts[k] = { points:Number(r[1]) || 0, expiry:r[2] ? new Date(r[2]) : null, reminded: rem instanceof Date ? twDay_(rem) : String(rem || "").trim() };
+    });
+  }
   const rv = {};   // {手機: {count, likedCount, likedSums:{五軸}}}，給「評分次數」與「風味偏好」用
   const rsh = ss.getSheetByName(REVIEWS_TAB);
   if (rsh && rsh.getLastRow() > 1) rsh.getDataRange().getValues().slice(1).forEach(r => {
@@ -2688,6 +2694,7 @@ function adminMembers(ss){
       orders90: done.filter(o => now - o.time <= 90 * 86400000).length,       // 近 90 天已完成訂單數
       firstOrder: first ? first.toISOString() : "", lastOrder: last ? last.toISOString() : "",
       points: expired ? 0 : p.points, pointsExpiry: p.expiry ? p.expiry.toISOString() : "",
+      pointsReminded: !expired && p.reminded && p.expiry && p.reminded === twDay_(p.expiry) ? p.reminded : "",   // 這次到期日的提醒信已寄出
       reviews: rv[key] ? rv[key].count : 0, likedReviews: rv[key] ? rv[key].likedCount : 0,
       flavorPref: rv[key] ? describePref_(rv[key].likedSums, rv[key].likedCount) : "",
       openNotes: openNotes[id] || 0,
