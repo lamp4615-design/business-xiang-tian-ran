@@ -1376,6 +1376,10 @@ async function openMember(i){
       <label class="sub">原因<input id="mdReason" placeholder="必填，例：活動贈點" style="width:200px"></label>
       <button class="sm" onclick="adjustPoints()">調整點數</button>
     </div>
+    ${Array.isArray(det.pointLog)?`<details${det.pointLog.length?"":" open"}><summary class="sub" style="cursor:pointer">點數明細（${det.pointLog.length} 筆，每一筆加扣與原因）</summary>
+    <div class="wrap"><table><thead><tr><th>時間</th><th class="num">異動</th><th class="num">餘額</th><th>原因</th><th>訂單</th><th>操作者</th></tr></thead><tbody>
+      ${det.pointLog.length?det.pointLog.map(p=>`<tr><td>${mDateTime(p.time)}</td><td class="num ${p.delta>0?"pos":"neg"}">${p.delta>0?"+":""}${p.delta}</td><td class="num">${p.balance}</td><td>${esc(p.reason)}</td><td>${esc(p.orderId)}</td><td class="sub">${esc(p.by)}</td></tr>`).join(""):'<tr><td colspan="6" class="empty">還沒有點數異動（明細從新版後端啟用後開始記）</td></tr>'}
+    </tbody></table></div></details>`:""}
 
     <h3>客服／備註紀錄（${det.notes.length}）</h3>
     <div class="tools">
@@ -1463,7 +1467,7 @@ async function doneNote(row){
 }
 function exportMember(){
   const m=MEM_CUR,d=MEM_DETAIL;if(!m||!d)return;
-  const blob=new Blob([JSON.stringify({匯出時間:new Date().toISOString(),會員資料:d.profile,購買紀錄:d.orders,風味評分紀錄:d.reviews,客服紀錄:d.notes.map(n=>({時間:n.time,分類:n.category,內容:n.text,狀態:n.status})),資料異動紀錄:d.log},null,2)],{type:"application/json;charset=utf-8"});
+  const blob=new Blob([JSON.stringify({匯出時間:new Date().toISOString(),會員資料:d.profile,購買紀錄:d.orders,風味評分紀錄:d.reviews,客服紀錄:d.notes.map(n=>({時間:n.time,分類:n.category,內容:n.text,狀態:n.status})),資料異動紀錄:d.log,點數明細:d.pointLog||[]},null,2)],{type:"application/json;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`會員資料_${m.id||"member"}.json`;document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
 }

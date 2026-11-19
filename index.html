@@ -234,6 +234,18 @@
   .pts-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--dawn),var(--dawn-soft));border-radius:100px;transition:width .5s}
   .pts-sub{font-size:.92rem;color:var(--pine);font-weight:500}
   .pts-exp{font-size:.76rem;color:var(--ink-45);margin-top:6px}
+  .pts-log{margin-top:12px;border-top:1px dashed var(--line);padding-top:8px;font-size:.84rem}
+  .pts-log summary{cursor:pointer;color:var(--pine);font-weight:500;padding:4px 0}
+  .pts-log ul{list-style:none;margin:6px 0 0;padding:0;max-height:260px;overflow:auto}
+  .pts-log li{display:grid;grid-template-columns:3.2em 1fr auto 4em;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line)}
+  .pts-log li:last-child{border-bottom:0}
+  .pts-log small{display:block;color:var(--ink-45);font-size:.72rem}
+  .pl-d,.pl-b{color:var(--ink-45);font-size:.78rem}
+  .pl-b{text-align:right}
+  .pl-n{font-weight:600;text-align:right}
+  .pl-n.up{color:var(--pine)}
+  .pl-n.down{color:var(--ink-70)}
+  .pl-empty{color:var(--ink-45);margin:6px 0 0}
 
   /* FOOTER */
   footer{background:var(--espresso);color:rgba(242,240,233,.7);padding:66px 0 40px}
@@ -1280,8 +1292,8 @@ function pointsPanelHtml(){
   if(pts===0){ fill=0; mainLine="目前 0 點"; subLine="還差 10"+u+"可折 100 元"; }
   else if(redeemable>=1 && inCycle===0){ fill=100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元！"; }
   else if(redeemable>=1){ fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="可折 "+(redeemable*100)+" 元；"+(HAS_DRIP?"再集 ":"再買 ")+(10-inCycle)+u+"可再折 100"; }
-  if(redeemable>=1&&member.canRedeem) subLine+="<br>下次結帳時，在購物袋選「用點數折抵」就能直接扣";
   else { fill=inCycle/10*100; mainLine="目前 "+pts+" 點"; subLine="還差 "+(10-inCycle)+u+"可折 100 元"; }
+  if(redeemable>=1&&member.canRedeem) subLine+="<br>下次結帳時，在購物袋選「用點數折抵」就能直接扣";
   let expLine="";
   if(pts>0 && member.pointsExpiry){
     const d=new Date(member.pointsExpiry);
@@ -1292,7 +1304,16 @@ function pointsPanelHtml(){
     <div class="pts-bar"><span style="width:${fill}%"></span></div>
     <div class="pts-sub">${subLine}</div>
     ${expLine}
+    ${pointLogHtml()}
   </div>`;
+}
+/* 點數明細（D-049）：已驗證的會員才拿得到；舊後端沒有這欄就不顯示 */
+let ptsLogOpen=false;
+function pointLogHtml(){
+  const L=member.pointLog;
+  if(!Array.isArray(L)) return "";
+  const rows=L.map(x=>{const d=new Date(x.time);return `<li><span class="pl-d">${isNaN(d)?"":(d.getMonth()+1)+"/"+d.getDate()}</span><span class="pl-r">${esc(x.reason)}${x.orderId?`<small>${esc(x.orderId)}</small>`:""}</span><span class="pl-n ${x.delta>0?"up":"down"}">${x.delta>0?"+":""}${x.delta}</span><span class="pl-b">餘 ${x.balance}</span></li>`;}).join("");
+  return `<details class="pts-log"${ptsLogOpen?" open":""} ontoggle="ptsLogOpen=this.open"><summary>點數明細${L.length?"（最近 "+L.length+" 筆）":""}</summary>${rows?`<ul>${rows}</ul>`:'<p class="pl-empty">還沒有點數異動紀錄</p>'}</details>`;
 }
 
 /* ---------- 會員：登入 / 加入 / 登出 ---------- */
@@ -1579,7 +1600,7 @@ async function secureSave(){
   }catch(e){secureNote("連線失敗，請稍後再試。");}
   btn.disabled=false;
 }
-function secureLock(){tokenExpired();member.statsLimited=true;member.tickets=null;saveSession();renderMember();showToast("已鎖定個人資料");}
+function secureLock(){tokenExpired();member.statsLimited=true;member.pointLog=null;member.tickets=null;saveSession();renderMember();showToast("已鎖定個人資料");}
 function afterAuth(msg){closeWelcome();updateAccountUI();renderMember();renderCart();flavorRefresh();showToast(msg);fetchMyStats();fetchMyReviews();claimPending();}
 function logout(){member=null;saveToken("");resetOrders();clearOrdersCache();try{localStorage.removeItem("xn_member");}catch(e){}updateAccountUI();renderMember();renderCart();flavorRefresh();showToast("已登出");}
 function updateAccountUI(){
@@ -1961,11 +1982,11 @@ async function fetchMyStats(){
     if(d&&d.ok===false&&(d.error==="rate_limited"||d.error==="busy")){/* 查太快：保留畫面上的數字 */}
     else if(d&&d.found&&d.needAuth){   // 未驗證：只有點數
       if(d.tokenInvalid)tokenExpired();
-      member.statsLimited=true;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
+      member.statsLimited=true;member.pointLog=null;member.tickets=null;member.ratedProducts=member.ratedProducts||[];
       member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.canRedeem=d.redeem||null;member.statsAt=Date.now();
     }
-    else if(d&&d.found){member.canRedeem=d.redeem||null;member.statsAt=Date.now();member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
-    else{member.statsLimited=false;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
+    else if(d&&d.found){member.pointLog=Array.isArray(d.pointLog)?d.pointLog:null;member.canRedeem=d.redeem||null;member.statsAt=Date.now();member.statsLimited=false;member.tickets=Number(d.tickets)||0;member.ratedProducts=Array.isArray(d.products)?d.products:[];member.points=Number(d.points)||0;member.pointsExpiry=d.pointsExpiry||"";member.draw=d.draw||null;member.nextDraw=d.nextDraw||null;}
+    else{member.statsLimited=false;member.pointLog=null;member.tickets=0;member.ratedProducts=[];member.points=0;member.pointsExpiry="";}
   }catch(e){if(member&&!member.statsLimited){member.tickets=member.tickets||0;member.ratedProducts=member.ratedProducts||[];}}
   if(!member)return;
   saveSession();renderMember();flavorRefresh();

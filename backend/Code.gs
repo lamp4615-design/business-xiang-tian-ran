@@ -632,7 +632,7 @@ function addOrder(d){
     const r = sh.getLastRow() + 1;
     sh.getRange(r, 3).setNumberFormat("@");   // 手機存成文字，開頭的 0 才不會被吃掉
     sh.getRange(r, 1, 1, width).setValues([row]);
-    if (usedPts) pointsAdjust(ss, phoneText, -usedPts);
+    if (usedPts) pointsAdjust(ss, phoneText, -usedPts, { reason:"結帳折抵 NT$ " + discount, orderId:orderId, by:"會員本人" });
   } finally { lock.releaseLock(); }
   const diff = clientTotal && clientTotal !== finalTotal;
   if (diff) adminLog_(ss, "訂單金額差異", "前端 " + clientTotal + "／後端依價格表 " + finalTotal + "（以後端為準）", orderId);
@@ -834,6 +834,7 @@ function memberStats(d){
   if (!lookupMember_(SpreadsheetApp.openById(SHEET_ID), key)) return { ok:true, found:false };
   const st = getMyStats(key);
   return { ok:true, found:true, tickets:st.tickets, products:st.products, points:st.points, pointsExpiry:st.pointsExpiry, draw:st.draw, nextDraw:st.nextDraw,
+           pointLog: readPointLog_(SpreadsheetApp.openById(SHEET_ID), key, 30),   // 點數明細（最近 30 筆，D-049）
            redeem:{ points:REDEEM_POINTS, value:REDEEM_VALUE } };   // 有這個欄位，前台才會顯示「用點數折抵」（舊後端沒有＝不顯示，避免折了卻沒算到）
 }
 /* 未驗證時的最少資訊：只有點數與效期；加限速，避免被拿來批次比對手機 */
@@ -1660,35 +1661,176 @@ function readPoints(phone){
 }
 
 /* 調整某會員的點數。delta>0 加點（過期舊點數先歸零，效期從今天起算 POINT_EXPIRE_MONTHS 個月）；
-   delta<0 扣點（最低扣到 0，不動效期）。 */
-function pointsAdjust(ss, phone, delta){
+   delta<0 扣點（最低扣到 0，不動效期）。
+   why＝{ reason, orderId, by }：每一筆實際加扣都記進 point_log（D-049 點數明細）；過期歸零也會補記一筆。 */
+function pointsAdjust(ss, phone, delta, why){
   delta = Number(delta) || 0;
   if (delta === 0) return;
+  why = why || {};
   const norm = s => String(s || "").replace(/\D/g, "").replace(/^0+/, "");
   const key = norm(phone);
   if (!key) return;
   let sh = ss.getSheetByName(POINTS_TAB);
   if (!sh){ sh = ss.insertSheet(POINTS_TAB); sh.appendRow(["手機","點數","到期日","最後消費日"]); }
+  pointLogSheet_(ss);   // 第一次用時建立明細分頁，並把大家目前的餘額記成「期初餘額」（要在改餘額之前）
   const now = new Date();
   const expiry = new Date(now.getFullYear(), now.getMonth() + POINT_EXPIRE_MONTHS, now.getDate());
   const rows = sh.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++){
     if (norm(rows[i][0]) === key){
       const oldExp = rows[i][2] ? new Date(rows[i][2]) : null;
-      const cur = (oldExp && now > oldExp) ? 0 : (Number(rows[i][1]) || 0);
-      sh.getRange(i+1, 2).setValue(Math.max(0, cur + delta));
+      const raw = Number(rows[i][1]) || 0;
+      const expired = oldExp && now > oldExp;
+      if (expired && raw > 0) pointLog_(ss, phone, -raw, 0, "點數過期歸零", "", "系統");
+      const cur = expired ? 0 : raw;
+      const next = Math.max(0, cur + delta);
+      sh.getRange(i+1, 2).setValue(next);
       if (delta > 0){
         sh.getRange(i+1, 3).setValue(expiry);
         sh.getRange(i+1, 4).setValue(now);
       }
+      if (next !== cur) pointLog_(ss, phone, next - cur, next, why.reason, why.orderId, why.by);
       return;
     }
   }
   if (delta < 0) return;   // 沒有紀錄的人不用扣
   sh.appendRow(["", delta, expiry, now]);
   setTextCell(sh, sh.getLastRow(), 1, phone);
+  pointLog_(ss, phone, delta, delta, why.reason, why.orderId, why.by);
 }
-function pointsAdd(ss, phone, pts){ pointsAdjust(ss, phone, Math.max(0, Number(pts) || 0)); }
+function pointsAdd(ss, phone, pts, why){ pointsAdjust(ss, phone, Math.max(0, Number(pts) || 0), why); }
+
+/* ========================= 點數明細＋到期提醒（2026-11-19，修正歷程 D-049） =========================
+ * 點數明細：point_log 分頁，每一筆加扣一列（時間／手機／異動／異動後餘額／原因／訂單編號／操作者）。
+ *   ・第一次有點數異動時自動建立，並把當下每位會員的餘額記一筆「期初餘額」，之後的加扣都接著記。
+ *   ・會員中心（已驗證）看得到自己的最近 30 筆；後台會員詳細資料看得到全部。
+ *   ・這是系統記帳用的分頁，請勿手動修改；要補點／扣點請用後台「調整點數」（會自動記一筆）。
+ * 到期提醒：每天跑一次 pointsDaily()（執行一次 setupPointsTrigger() 建立觸發器）
+ *   ・點數到期前 POINT_REMIND_DAYS 天內、還有點數的會員，寄一封提醒信；同一個到期日只寄一次
+ *     （points 分頁的「到期提醒」欄記下已提醒的到期日；之後消費、效期延長，下次到期前會再提醒）。
+ *   ・POINT_REMIND_CONSENT_ONLY = true：只寄給「行銷同意＝是」的會員（信尾附一鍵取消）；改成 false 就是所有有 Email 的會員。
+ *   ・已過期的點數順便歸零並記進明細（「點數過期歸零」），帳才對得起來。 */
+const POINT_LOG_TAB = "point_log";
+const POINT_REMIND_DAYS = 14;              // 到期前幾天提醒
+const POINT_REMIND_CONSENT_ONLY = true;    // true＝只寄給同意收通知的會員
+const POINT_REMIND_COL = "到期提醒";       // points 分頁：已提醒過的到期日（yyyy-MM-dd）
+
+function pointLogSheet_(ss){
+  let sh = ss.getSheetByName(POINT_LOG_TAB);
+  if (sh) return sh;
+  sh = ss.insertSheet(POINT_LOG_TAB);
+  sh.appendRow(["時間","手機","異動","異動後餘額","原因","訂單編號","操作者"]);
+  sh.getRange("B:B").setNumberFormat("@");   // 手機存成文字，開頭的 0 才不會被吃掉
+  sh.setFrozenRows(1);
+  const psh = ss.getSheetByName(POINTS_TAB);
+  if (psh && psh.getLastRow() > 1){
+    const now = new Date();
+    const seed = psh.getDataRange().getValues().slice(1).filter(r => {
+      const exp = r[2] ? new Date(r[2]) : null;
+      return normPhone_(r[0]) && (Number(r[1]) || 0) > 0 && !(exp && now > exp);
+    }).map(r => [now, String(r[0]), Number(r[1]), Number(r[1]), "期初餘額（開始記明細前累積的點數）", "", "系統"]);
+    if (seed.length) sh.getRange(2, 1, seed.length, 7).setValues(seed);
+  }
+  return sh;
+}
+function pointLog_(ss, phone, delta, balance, reason, orderId, by){
+  const sh = pointLogSheet_(ss);
+  sh.appendRow([ new Date(), "", delta, balance, safeText_(reason || (delta > 0 ? "加點" : "扣點"), 60), safeText_(orderId || "", 30), safeText_(by || "系統", 20) ]);
+  setTextCell(sh, sh.getLastRow(), 2, phone);
+}
+/* 某會員的點數明細（新到舊）。limit 省略＝全部 */
+function readPointLog_(ss, phone, limit){
+  const sh = ss.getSheetByName(POINT_LOG_TAB);
+  const key = normPhone_(phone);
+  if (!sh || !key || sh.getLastRow() < 2) return [];
+  const out = [];
+  sh.getDataRange().getValues().slice(1).forEach(r => {
+    if (normPhone_(r[1]) !== key) return;
+    out.push({ time: r[0] ? new Date(r[0]).toISOString() : "", delta:Number(r[2]) || 0, balance:Number(r[3]) || 0,
+               reason:String(r[4] || ""), orderId:String(r[5] || ""), by:String(r[6] || "") });
+  });
+  out.reverse();   // 分頁是依時間往下追加，反過來就是新到舊
+  return limit ? out.slice(0, limit) : out;
+}
+
+/* 每天跑一次（時間觸發器）：過期點數歸零＋到期前提醒信。回傳統計方便手動執行時看結果 */
+function pointsDaily(){
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const lock = LockService.getScriptLock();
+  try{ lock.waitLock(30000); }catch(err){ return "忙碌中，稍後再跑"; }
+  const stat = { expired:0, sent:0, skipped:0, failed:0, quota:false };
+  try{
+    const sh = ss.getSheetByName(POINTS_TAB);
+    if (!sh || sh.getLastRow() < 2) return stat;
+    pointLogSheet_(ss);
+    const rc = ensureCol_(sh, POINT_REMIND_COL).col;
+    const rows = sh.getRange(1, 1, sh.getLastRow(), Math.max(sh.getLastColumn(), rc)).getValues();
+    const now = new Date();
+    const cols = ensureMemberSchema_(ss, false);
+    const msh = ss.getSheetByName(MEMBERS_TAB);
+    const members = {};
+    if (msh && cols) msh.getDataRange().getValues().slice(1).forEach(r => {
+      const k = normPhone_(r[2]);
+      if (!k || String(r[cols["狀態"] - 1]).trim() === "已刪除") return;
+      members[k] = { name:String(r[1] || "").trim(), email:String(r[4] || "").trim(), consent:isTrue_(r[cols["行銷同意"] - 1]) };
+    });
+    for (let i = 1; i < rows.length; i++){
+      const r = rows[i], key = normPhone_(r[0]);
+      const bal = Number(r[1]) || 0;
+      const exp = r[2] ? new Date(r[2]) : null;
+      if (!key || bal <= 0 || !exp || isNaN(exp)) continue;
+      if (now > exp){   // 已過期：歸零並記明細
+        sh.getRange(i + 1, 2).setValue(0);
+        pointLog_(ss, String(r[0]), -bal, 0, "點數過期歸零", "", "系統");
+        stat.expired++;
+        continue;
+      }
+      if (exp - now > POINT_REMIND_DAYS * 86400000) continue;
+      const expDay = twDay_(exp);
+      if (String(r[rc - 1] instanceof Date ? twDay_(r[rc - 1]) : r[rc - 1]).trim() === expDay) continue;   // 這個到期日已經提醒過
+      const m = members[key];
+      if (!m || !EMAIL_RE.test(m.email) || (POINT_REMIND_CONSENT_ONLY && !m.consent)){ stat.skipped++; continue; }
+      let quota = 0;
+      try{ quota = MailApp.getRemainingDailyQuota(); }catch(err){ quota = 0; }
+      if (quota < 1){ stat.quota = true; break; }   // 沒寄的明天會再試（還沒標記已提醒）
+      try{
+        MailApp.sendEmail(m.email, "【翔天然】你的 " + bal + " 點將在 " + expDay.slice(5).replace("-", "/") + " 到期", pointRemindBody_(m, key, bal, exp), { name:"翔天然" });
+        sh.getRange(i + 1, rc).setNumberFormat("@").setValue(expDay);
+        stat.sent++;
+      }catch(err){ stat.failed++; }
+    }
+    if (stat.sent || stat.expired || stat.failed || stat.quota)
+      adminLog_(ss, "點數到期提醒", "寄出 " + stat.sent + " 封、失敗 " + stat.failed + "、過期歸零 " + stat.expired + " 人" + (stat.quota ? "；寄信額度用完，其餘明天補寄" : ""), "");
+  } finally { lock.releaseLock(); }
+  Logger.log(JSON.stringify(stat));
+  return stat;
+}
+
+function pointRemindBody_(m, key, bal, exp){
+  const units = Math.floor(bal / REDEEM_POINTS);
+  const d = Utilities.formatDate(exp, "Asia/Taipei", "yyyy 年 M 月 d 日");
+  const lines = [
+    (m.name ? m.name + " " : "") + "你好：", "",
+    "提醒你，你在翔天然還有 " + bal + " 點，將在 " + d + " 到期。",
+    units ? "這些點數現在可以折抵 NT$ " + (units * REDEEM_VALUE) + "（每 " + REDEEM_POINTS + " 點折 " + REDEEM_VALUE + " 元），下單時在購物袋選「用點數折抵」就會直接扣。"
+          : "再集 " + (REDEEM_POINTS - bal) + " 點就能折 " + REDEEM_VALUE + " 元（每 " + REDEEM_POINTS + " 點折 " + REDEEM_VALUE + " 元）。",
+    "到期前只要再完成一筆訂單，點數效期就會重新延長 " + POINT_EXPIRE_MONTHS + " 個月；沒有消費的話，到期後點數會歸零。", "",
+    "前往訂購：" + SITE_URL + "/?src=mail#products", "",
+    "— 翔天然，翔自在"
+  ];
+  let body = lines.join("\n");
+  if (POINT_REMIND_CONSENT_ONLY) body += "\n\n——\n不想再收到這類通知？一鍵取消：" + unsubUrl_(key) + "\n也可以到網站「會員中心」自行修改。";
+  return body;
+}
+
+/* 手動執行一次：建立每天早上 10 點跑 pointsDaily 的觸發器；重複執行不會重複建立 */
+function setupPointsTrigger(){
+  const exists = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "pointsDaily");
+  if (exists){ Logger.log("點數提醒觸發器已經存在，不用再建立"); return "已存在"; }
+  ScriptApp.newTrigger("pointsDaily").timeBased().everyDays(1).atHour(10).inTimezone("Asia/Taipei").create();
+  Logger.log("已建立點數提醒觸發器（每天上午 10～11 點）");
+  return "已建立";
+}
 
 /* 從訂購內容文字（如「阿里山 x2、緬甸精品 x1」）粗估總包數，作為沒有「包數」欄位時的備援。
    「耳掛 …」開頭的品項不算（耳掛另外記組數，見 parseDripSets_） */
@@ -2050,19 +2192,21 @@ function syncOrderPoints(ss, sh, row){
   const redeemDelta = (doneCol && phone) ? ((status === "已取消" ? 0 : used) - done) : 0;   // >0 要再扣、<0 要退回
 
   // 先做「加回」的（退回折抵點數、補加集點），再做「扣掉」的，避免點數先被扣到 0 再加回而少算
-  if (redeemDelta < 0) pointsAdjust(ss, phone, -redeemDelta);
-  if (delta > 0 && phone) pointsAdjust(ss, phone, delta);
-  if (delta < 0 && phone) pointsAdjust(ss, phone, delta);
+  const idCol = headers.indexOf(ORDER_ID_COL) + 1;
+  const oid = idCol ? String(sh.getRange(row, idCol).getValue() || "") : "";
+  const by = "系統（訂單狀態：" + (status || "空白") + "）";
+  if (redeemDelta < 0) pointsAdjust(ss, phone, -redeemDelta, { reason:"訂單取消，退回折抵點數", orderId:oid, by:by });
+  if (delta > 0 && phone) pointsAdjust(ss, phone, delta, { reason: awarded ? "訂單數量增加，補加集點" : "訂單完成集點", orderId:oid, by:by });
+  if (delta < 0 && phone) pointsAdjust(ss, phone, delta, { reason: target ? "訂單數量減少，扣回集點" : (status === "已取消" ? "訂單取消，扣回集點" : "訂單改回未完成，扣回集點"), orderId:oid, by:by });
   let newDone = done + Math.min(0, redeemDelta);
   if (redeemDelta > 0){
     SpreadsheetApp.flush();
     const have = readPoints(phone).points;
     const take = Math.min(have, redeemDelta);
-    if (take > 0) pointsAdjust(ss, phone, -take);
+    if (take > 0) pointsAdjust(ss, phone, -take, { reason:"訂單恢復，重新扣折抵點數", orderId:oid, by:by });
     newDone = done + take;
     if (take < redeemDelta){
-      const idCol = headers.indexOf(ORDER_ID_COL) + 1;
-      adminLog_(ss, "點數折抵", "訂單恢復時會員點數不足，少扣 " + (redeemDelta - take) + " 點（請自行斟酌補收）", idCol ? String(sh.getRange(row, idCol).getValue()) : "第 " + row + " 列");
+      adminLog_(ss, "點數折抵", "訂單恢復時會員點數不足，少扣 " + (redeemDelta - take) + " 點（請自行斟酌補收）", oid || "第 " + row + " 列");
     }
   }
   if (redeemDelta !== 0) sh.getRange(row, doneCol).setValue(newDone);
@@ -2485,7 +2629,7 @@ function adminMemberDetail(ss, d){
   const profile = { id:m.id, name:m.name, phone:String(v[2]), city:m.city, email:m.email, joined: v[0] ? new Date(v[0]).toISOString() : "",
     consent:m.consent, consentAt: cols["同意時間"] && v[cols["同意時間"] - 1] ? new Date(v[cols["同意時間"] - 1]).toISOString() : "",
     source: cols["來源"] ? String(v[cols["來源"] - 1] || "") : "", status: cols["狀態"] ? String(v[cols["狀態"] - 1] || "正常") : "正常" };
-  return { ok:true, profile:profile, orders:orders, log:log.slice(0, 100), notes:notes, reviews:getMyReviews(d.phone) };
+  return { ok:true, profile:profile, orders:orders, log:log.slice(0, 100), notes:notes, reviews:getMyReviews(d.phone), pointLog:readPointLog_(ss, d.phone) };
 }
 
 function adminNoteAdd(ss, d){
@@ -2545,6 +2689,12 @@ function adminMemberDelete(ss, d){
     const rows = psh.getDataRange().getValues();
     for (let r = rows.length - 1; r >= 1; r--) if (normPhone_(rows[r][0]) === key) psh.deleteRow(r + 1);
   }
+  // 點數明細：保留加扣紀錄（對帳用），去掉手機
+  const plsh = ss.getSheetByName(POINT_LOG_TAB);
+  if (plsh && plsh.getLastRow() > 1){
+    const rows = plsh.getDataRange().getValues();
+    for (let r = 1; r < rows.length; r++) if (normPhone_(rows[r][1]) === key) setTextCell(plsh, r + 1, 2, "");
+  }
   // 評分：保留分數（統計用），去掉手機
   const rsh = ss.getSheetByName(REVIEWS_TAB);
   if (rsh && rsh.getLastRow() > 1){
@@ -2596,7 +2746,7 @@ function adminPointsAdjust(ss, d){
   if (!delta || Math.abs(delta) > 1000) return { ok:false, error:"bad delta" };
   if (!reason) return { ok:false, error:"reason required" };
   const before = readPoints(d.phone).points;
-  pointsAdjust(ss, d.phone, delta);
+  pointsAdjust(ss, d.phone, delta, { reason:"店家調整：" + reason, by:"管理者" });
   const after = readPoints(d.phone).points;
   logChange_(ss, String(d.phone), "點數", String(before), String(after), "管理者", reason);
   return { ok:true, points:after };
