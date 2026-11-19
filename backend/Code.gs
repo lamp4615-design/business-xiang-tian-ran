@@ -745,9 +745,12 @@ function requestCode(d){
     const code = newCode_();
     storeCode_(key, code, 600);
     try{
-      MailApp.sendEmail(m.email, "【翔天然】會員驗證碼 " + code,
-        "你的驗證碼是：" + code + "\n\n10 分鐘內有效。用來查看購買紀錄、修改會員資料。\n" +
-        "如果不是你本人操作，請直接忽略這封信，你的資料不會有任何變動。\n\n— 翔天然，翔自在");
+      sendBrandMail_({ to:m.email, subject:"【翔天然】您的會員驗證碼 " + code, name:m.name,
+        intro:["謝謝您使用翔天然會員中心。這是您這次的驗證碼："],
+        box:{ title:"會員驗證碼", big:code },
+        after:["驗證碼 10 分鐘內有效，輸入後就能查看購買紀錄、修改會員資料。",
+               "如果這不是您本人的操作，請直接忽略這封信，您的資料不會有任何變動。為了您的帳號安全，請不要把驗證碼告訴任何人，翔天然也不會主動向您索取。"],
+        note:"這是會員驗證的系統通知，依您的操作自動寄出。" });
     }catch(err){ /* 寄信失敗：會員會收不到，可改走店家發碼 */ }
   }
   return { ok:true };
@@ -1002,6 +1005,78 @@ function notifyOrder(d){
 }
 
 
+/* ========================= 寄給客人的信：共用品牌版型（2026-11-19，修正歷程 D-050） =========================
+ * 所有寄給會員的信（驗證碼、出貨通知、點數到期提醒、中獎通知、新品／下架通知）都用同一個版型：
+ *   上方翔天然標誌與「翔天然，翔自在」、米白底白卡片、松綠色重點框與按鈕、一致的問候與署名。
+ *   同時附純文字版（收信軟體不顯示圖片／HTML 時看這個）。寄給店主自己的通知信不套用。
+ * 語氣：用「您」、先道謝再說事情、不催促、有問題請 LINE 找我們；署名「翔天然 敬上」。
+ * mail 參數：{ to, subject, name（收件人姓名，可空）, intro:[段落], box:{ title, rows:[[標籤, 值]], big（大字，例如驗證碼） },
+ *             list:[項目], after:[段落], button:{ text, url }, note（灰色小字）, unsubKey（行銷信才給，信尾附一鍵取消） } */
+const MAIL_LOGO = SITE_URL + "/%E7%BF%94%E8%87%AA%E5%9C%A8.png";
+const MAIL_C = { pine:"#294636", pineMid:"#4E6B52", dawn:"#E4892B", paper:"#F5F3EB", ink:"#241C15", ink70:"#5B524A", ink45:"#8C847C", line:"#DCD8CC" };
+function mailEsc_(s){ return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function brandMailParts_(m){
+  const C = MAIL_C, F = "'PingFang TC','Noto Sans TC','Microsoft JhengHei',sans-serif";
+  const hello = (m.name ? m.name + " " : "") + "您好：";
+  const p = s => '<p style="margin:0 0 14px;font-size:15px;line-height:1.85;color:' + C.ink + '">' + mailEsc_(s) + '</p>';
+  let h = '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+    '<body style="margin:0;padding:0;background:' + C.paper + '"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:' + C.paper + ';font-family:' + F + '"><tr><td align="center" style="padding:28px 14px">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px">' +
+    '<tr><td align="center" style="padding:0 0 18px"><img src="' + MAIL_LOGO + '" width="56" alt="翔天然" style="display:block;width:56px;height:auto;border:0">' +
+    '<div style="margin-top:8px;font-size:18px;letter-spacing:4px;color:' + C.pine + ';font-weight:600">翔天然</div>' +
+    '<div style="margin-top:2px;font-size:12px;letter-spacing:3px;color:' + C.ink45 + '">翔天然，翔自在</div></td></tr>' +
+    '<tr><td style="background:#ffffff;border-radius:14px;border:1px solid ' + C.line + ';padding:30px 28px">' + p(hello);
+  (m.intro || []).forEach(s => { h += p(s); });
+  if (m.box){
+    h += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 18px;background:' + C.paper + ';border-left:4px solid ' + C.pine + ';border-radius:8px"><tr><td style="padding:16px 18px">';
+    if (m.box.title) h += '<div style="font-size:13px;letter-spacing:1px;color:' + C.pineMid + ';margin-bottom:6px">' + mailEsc_(m.box.title) + '</div>';
+    if (m.box.big) h += '<div style="font-size:32px;letter-spacing:8px;font-weight:700;color:' + C.pine + ';font-family:Menlo,Consolas,monospace">' + mailEsc_(m.box.big) + '</div>';
+    (m.box.rows || []).forEach(r => {
+      h += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:4px 0;font-size:14px;color:' + C.ink70 + ';width:88px;vertical-align:top">' + mailEsc_(r[0]) +
+           '</td><td style="padding:4px 0;font-size:15px;color:' + C.ink + ';font-weight:600">' + mailEsc_(r[1]) + '</td></tr></table>';
+    });
+    h += '</td></tr></table>';
+  }
+  if (m.list && m.list.length){
+    h += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">';
+    m.list.forEach(s => { h += '<tr><td style="padding:8px 0;border-bottom:1px solid ' + C.line + ';font-size:15px;color:' + C.ink + '"><span style="color:' + C.dawn + '">●</span>&nbsp; ' + mailEsc_(s) + '</td></tr>'; });
+    h += '</table>';
+  }
+  (m.after || []).forEach(s => { h += p(s); });
+  if (m.button) h += '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 20px"><tr><td style="background:' + C.pine + ';border-radius:999px">' +
+    '<a href="' + mailEsc_(m.button.url) + '" style="display:inline-block;padding:12px 28px;font-size:15px;color:#ffffff;text-decoration:none;letter-spacing:1px">' + mailEsc_(m.button.text) + '</a></td></tr></table>';
+  h += '<p style="margin:22px 0 0;font-size:15px;line-height:1.85;color:' + C.ink + '">敬祝 順心自在<br><span style="color:' + C.pine + ';font-weight:600">翔天然 敬上</span></p></td></tr>' +
+    '<tr><td style="padding:18px 8px 0;font-size:12px;line-height:1.8;color:' + C.ink45 + ';text-align:center">' +
+    (m.note ? mailEsc_(m.note) + '<br>' : '') +
+    '有任何問題，歡迎透過 <a href="' + LINE_CONTACT_URL + '" style="color:' + C.pineMid + '">LINE</a> 與我們聯繫。<br>' +
+    '<a href="' + SITE_URL + '/" style="color:' + C.pineMid + '">翔天然官網</a>・自家烘焙精品咖啡豆，逐批手挑瑕疵豆' +
+    (m.unsubKey ? '<br>不想再收到這類通知？<a href="' + unsubUrl_(m.unsubKey) + '" style="color:' + C.ink45 + '">一鍵取消</a>，也可以到網站「會員中心」修改。' : '') +
+    '</td></tr></table></td></tr></table></body></html>';
+  // 純文字版
+  const t = [hello, ""];
+  (m.intro || []).forEach(s => t.push(s, ""));
+  if (m.box){
+    if (m.box.title) t.push("【" + m.box.title + "】");
+    if (m.box.big) t.push(m.box.big);
+    (m.box.rows || []).forEach(r => t.push(r[0] + "：" + r[1]));
+    t.push("");
+  }
+  if (m.list && m.list.length){ m.list.forEach(s => t.push("・" + s)); t.push(""); }
+  (m.after || []).forEach(s => t.push(s, ""));
+  if (m.button) t.push(m.button.text + "：" + m.button.url, "");
+  t.push("敬祝 順心自在", "翔天然 敬上", "", "——");
+  if (m.note) t.push(m.note);
+  t.push("有任何問題，歡迎透過 LINE 與我們聯繫：" + LINE_CONTACT_URL, "翔天然官網：" + SITE_URL + "/");
+  if (m.unsubKey) t.push("不想再收到這類通知？一鍵取消：" + unsubUrl_(m.unsubKey) + "（也可以到網站「會員中心」修改）");
+  return { html:h, text:t.join("\n") };
+}
+/* 寄出（失敗會丟錯，由呼叫端決定怎麼處理） */
+function sendBrandMail_(m){
+  const parts = brandMailParts_(m);
+  MailApp.sendEmail(m.to, m.subject, parts.text, { htmlBody:parts.html, name:"翔天然" });
+}
+const twDate_ = (d, withYear) => Utilities.formatDate(new Date(d), "Asia/Taipei", withYear === false ? "M/d" : "yyyy 年 M 月 d 日");
+
 /* ========================= 新品上架通知 ========================= */
 /* 用法：在 products 分頁新增/上架商品後，執行這個函式（或設定時間觸發器自動跑），
    就會把「尚未通知過」的上架商品，寄信給所有「有填 Email」的會員。
@@ -1039,10 +1114,12 @@ function notifyNewProducts(){
   // 只寄給「同意收行銷通知」的會員
   const emails = memberEmails_(ss);
   if (emails.length){
-    const lines = ["翔天然又有新豆子上架了：", ""];
-    newOnes.forEach(p => lines.push(productLine_(p)));
-    lines.push("", "去看看：" + SITE_URL + "/#products", "", "— 翔天然，翔自在");
-    sendToMembers_(emails, "【翔天然】新品上架囉 ☕", lines);
+    sendToMembers_(emails, { subject:"【翔天然】新豆子上架了，想先和您分享",
+      intro:["謝謝您一直以來對翔天然的支持。這次有新的豆子烘好上架了，想第一時間和您分享："],
+      list:newOnes.map(productLine_),
+      after:["每一支都是我們親自挑選、自家烘焙，並逐批手挑瑕疵豆；產地、處理法與風味都寫在網站上，歡迎您慢慢挑選。"],
+      button:{ text:"看看新上架的豆子", url:SITE_URL + "/?src=mail#products" },
+      note:"您收到這封信，是因為您加入翔天然會員時同意接收新品通知。" });
   }
 
   // 標記這些商品為「已通知」，避免下次重複寄信
@@ -1084,21 +1161,21 @@ function memberEmails_(ss){
     if (!isTrue_(r[cols["行銷同意"] - 1])) return;
     if (String(r[cols["狀態"] - 1]).trim() === "已刪除") return;
     seen[email.toLowerCase()] = 1;
-    out.push({ email:email, key:normPhone_(r[2]) });
+    out.push({ email:email, key:normPhone_(r[2]), name:String(r[1] || "").trim() });
   });
   return out;
 }
 
-/* 每位收件人各寄一封，信尾附「一鍵取消訂閱」（個資法：拒絕行銷後須停止利用） */
-function sendToMembers_(recipients, subject, lines){
+/* 每位收件人各寄一封（品牌版型），信尾附「一鍵取消訂閱」（個資法：拒絕行銷後須停止利用）。
+   mail＝sendBrandMail_ 的內容（不含 to／name／unsubKey，這三個每人不同） */
+function sendToMembers_(recipients, mail){
   recipients.forEach(r => {
-    const body = lines.join("\n") + "\n\n——\n不想再收到這類通知？一鍵取消：" + unsubUrl_(r.key) + "\n也可以到網站「會員中心」自行修改。";
-    try{ MailApp.sendEmail(r.email, subject, body); }catch(err){ /* 單一信箱失敗不影響其他人 */ }
+    try{ sendBrandMail_(Object.assign({}, mail, { to:r.email, name:r.name, unsubKey:r.key })); }catch(err){ /* 單一信箱失敗不影響其他人 */ }
   });
 }
 
 function productLine_(p){
-  return "・" + p.name + (p.subtitle ? "（" + p.subtitle + "）" : "") + (p.price ? " — NT$ " + p.price + (p.unit ? "/" + p.unit : "") : "");
+  return p.name + (p.subtitle ? "（" + p.subtitle + "）" : "") + (p.price ? " — NT$ " + p.price + (p.unit ? "/" + p.unit : "") : "");
 }
 
 /* 最後預購通知：已停用（改成只在網站上標示，見 getProducts 的 lastCall）。保留空函式是為了舊觸發器不報錯。 */
@@ -1124,10 +1201,12 @@ function notifyLastCall(){
   if (!list.length) return;
   const emails = memberEmails_(ss);
   if (emails.length){
-    const lines = ["這款豆子即將下架，想喝的話請把握最後預購機會：", ""];
-    list.forEach(p => lines.push(productLine_(p)));
-    lines.push("", "現在去訂購：" + SITE_URL + "/#products", "", "— 翔天然，翔自在");
-    sendToMembers_(emails, "【翔天然】最後預購 ⏳ 即將下架", lines);
+    sendToMembers_(emails, { subject:"【翔天然】這幾支豆子即將完售",
+      intro:["想和您說一聲，以下這幾支豆子的生豆快用完了："],
+      list:list.map(productLine_),
+      after:["如果您喜歡它們，可以趁還有的時候帶一包回家。"],
+      button:{ text:"前往選豆", url:SITE_URL + "/?src=mail#products" },
+      note:"您收到這封信，是因為您加入翔天然會員時同意接收新品通知。" });
   }
   list.forEach(p => psh.getRange(p.sheetRow, lcn).setValue(true));
 }
@@ -1159,10 +1238,12 @@ function notifyDiscontinued(){
   if (!list.length) return;
   const emails = memberEmails_(ss);
   if (emails.length){
-    const lines = ["以下豆子已經下架，謝謝你的支持：", ""];
-    list.forEach(p => lines.push(productLine_(p)));
-    lines.push("", "看看目前還有哪些豆子：" + SITE_URL + "/#products", "", "— 翔天然，翔自在");
-    sendToMembers_(emails, "【翔天然】豆子下架通知", lines);
+    sendToMembers_(emails, { subject:"【翔天然】謝謝您陪這幾支豆子走過這一季",
+      intro:["謝謝您一路以來的支持。以下這幾支豆子，這一季已經告一段落："],
+      list:list.map(productLine_),
+      after:["生豆有它的季節，我們會繼續用同一把尺，尋找值得推薦給您的好豆子。目前還有哪些豆子，歡迎到網站看看。"],
+      button:{ text:"看看目前的豆子", url:SITE_URL + "/?src=mail#products" },
+      note:"您收到這封信，是因為您加入翔天然會員時同意接收新品通知。" });
   }
   list.forEach(p => psh.getRange(p.sheetRow, off.col).setValue(true));
 }
@@ -1794,7 +1875,7 @@ function pointsDaily(){
       try{ quota = MailApp.getRemainingDailyQuota(); }catch(err){ quota = 0; }
       if (quota < 1){ stat.quota = true; break; }   // 沒寄的明天會再試（還沒標記已提醒）
       try{
-        MailApp.sendEmail(m.email, "【翔天然】你的 " + bal + " 點將在 " + expDay.slice(5).replace("-", "/") + " 到期", pointRemindBody_(m, key, bal, exp), { name:"翔天然" });
+        sendBrandMail_(pointRemindMail_(m, key, bal, exp));
         sh.getRange(i + 1, rc).setNumberFormat("@").setValue(expDay);
         stat.sent++;
       }catch(err){ stat.failed++; }
@@ -1806,21 +1887,26 @@ function pointsDaily(){
   return stat;
 }
 
-function pointRemindBody_(m, key, bal, exp){
+/* 點數到期提醒信的內容（品牌版型）。不到 10 點時改成「再累積幾點就能折抵」 */
+function pointRemindMail_(m, key, bal, exp){
   const units = Math.floor(bal / REDEEM_POINTS);
-  const d = Utilities.formatDate(exp, "Asia/Taipei", "yyyy 年 M 月 d 日");
-  const lines = [
-    (m.name ? m.name + " " : "") + "你好：", "",
-    "提醒你，你在翔天然還有 " + bal + " 點，將在 " + d + " 到期。",
-    units ? "這些點數現在可以折抵 NT$ " + (units * REDEEM_VALUE) + "（每 " + REDEEM_POINTS + " 點折 " + REDEEM_VALUE + " 元），下單時在購物袋選「用點數折抵」就會直接扣。"
-          : "再集 " + (REDEEM_POINTS - bal) + " 點就能折 " + REDEEM_VALUE + " 元（每 " + REDEEM_POINTS + " 點折 " + REDEEM_VALUE + " 元）。",
-    "到期前只要再完成一筆訂單，點數效期就會重新延長 " + POINT_EXPIRE_MONTHS + " 個月；沒有消費的話，到期後點數會歸零。", "",
-    "前往訂購：" + SITE_URL + "/?src=mail#products", "",
-    "— 翔天然，翔自在"
-  ];
-  let body = lines.join("\n");
-  if (POINT_REMIND_CONSENT_ONLY) body += "\n\n——\n不想再收到這類通知？一鍵取消：" + unsubUrl_(key) + "\n也可以到網站「會員中心」自行修改。";
-  return body;
+  const rows = [["目前點數", bal + " 點"]];
+  if (units) rows.push(["可以折抵", "NT$ " + (units * REDEEM_VALUE)]);
+  rows.push(["到期日", twDate_(exp)]);
+  return {
+    to:m.email, name:m.name, unsubKey: POINT_REMIND_CONSENT_ONLY ? key : "",
+    subject:"【翔天然】提醒您，" + bal + " 點會員點數將於 " + twDate_(exp, false) + " 到期",
+    intro:["謝謝您一直以來選擇翔天然。", "這些點數是您每一次訂購累積下來的心意，我們不希望它悄悄過期，所以寫信提醒您："],
+    box:{ title:"您的會員點數", rows:rows },
+    after:[
+      units ? "下次訂購時，在購物袋選「用點數折抵」，就能直接折抵（每 " + REDEEM_POINTS + " 點折 " + REDEEM_VALUE + " 元）。"
+            : "再累積 " + (REDEEM_POINTS - bal) + " 點，就能折抵 NT$ " + REDEEM_VALUE + "（每 " + REDEEM_POINTS + " 點折 " + REDEEM_VALUE + " 元）。",
+      "到期前只要再完成一筆訂單，所有點數的效期都會重新延長 " + POINT_EXPIRE_MONTHS + " 個月。",
+      "如果最近還不需要補豆，也完全沒關係，這封信只是一個小小的提醒。"
+    ],
+    button:{ text:"前往選豆", url:SITE_URL + "/?src=mail#products" },
+    note:"您收到這封信，是因為您是翔天然會員並同意接收通知；點數規則可在官網「會員」頁查看。"
+  };
 }
 
 /* 手動執行一次：建立每天早上 10 點跑 pointsDaily 的觸發器；重複執行不會重複建立 */
@@ -2140,11 +2226,17 @@ function adminDrawNotify(ss, d){
     const w = drawWinnerView_(ss, list[no - 1]);
     if (!w) return;
     if (!EMAIL_RE.test(w.email)){ noEmail.push({ name:w.realName, phone:w.phone, no:w.no }); return; }
-    const body = (w.realName || "你") + " 你好：\n\n恭喜你在翔天然「" + dr.name + "」評分抽獎中獎！\n" +
-      "獎品：" + dr.prize + "\n中獎券號：#" + w.no + "（評分的豆子：" + w.product + "）\n\n" +
-      "抽獎過程與完整名單都公開在網站上，可以自己驗算：\n" + SITE_URL + "/draw/\n\n" +
-      "請在 " + DRAW_CLAIM_DAYS + " 天內回覆這封信，或在 LINE 告訴我們怎麼寄給你（宅配地址，或跟下一張訂單一起寄）：\n" + LINE_CONTACT_URL + "\n\n— 翔天然，翔自在";
-    try{ MailApp.sendEmail(w.email, "【翔天然】恭喜中獎！" + dr.name, body); sent++; }
+    try{
+      sendBrandMail_({ to:w.email, name: w.realName && w.realName !== "（會員已刪除）" ? w.realName : "",
+        subject:"【翔天然】恭喜您中獎了！" + dr.name,
+        intro:["謝謝您在「" + dr.name + "」期間為咖啡留下評分，您的每一則回饋，我們都有認真看。", "很開心通知您，您在這一期的評分抽獎中獎了："],
+        box:{ title:"中獎資訊", rows:[["獎品", dr.prize], ["中獎券號", "#" + w.no], ["評分的豆子", w.product]] },
+        after:["請在 " + DRAW_CLAIM_DAYS + " 天內回覆這封信，或透過 LINE 告訴我們方便的寄送方式（宅配地址，或和下一張訂單一起寄）。",
+               "抽獎的過程與完整名單都公開在網站上，任何人都可以自己驗算：" + SITE_URL + "/draw/"],
+        button:{ text:"用 LINE 告訴我們寄送方式", url:LINE_CONTACT_URL },
+        note:"這是翔天然評分抽獎的中獎通知。" });
+      sent++;
+    }
     catch(err){ noEmail.push({ name:w.realName, phone:w.phone, no:w.no }); }
   });
   setDrawCells_(ss, dr, { "通知時間":new Date() });
@@ -2258,19 +2350,21 @@ function sendShipNotice_(ss, sh, row){
   if (quota < 1){ adminLog_(ss, "出貨通知信", "未寄：今天的寄信額度已用完（明天把狀態改回待處理、再改成已完成即可補寄）", target); return "quota"; }
   const bags = Number(v[at("包數")]) || parseBags(v[at("訂購內容")]);
   const dripSets = orderDripSets_(at(DRIP_ORDER_COL) > -1 ? v[at(DRIP_ORDER_COL)] : "", v[at("訂購內容")]);
-  const lines = [
-    "你好：", "",
-    "你的訂單已經出貨了，謝謝你的訂購！", "",
-    orderId ? "訂單編號：" + orderId : "",
-    "品項：" + String(v[at("訂購內容")] || ""),
-    (dripSets ? "數量：" : "包數：") + qtyText_(bags, dripSets), "",
-    "收到商品後如果有任何問題，請透過 LINE 聯繫我們：",
-    LINE_CONTACT_URL, "",
-    "（這是訂單出貨的交易通知，依你的訂單自動寄出。）", "",
-    "— 翔天然，翔自在"
-  ].filter((s, i, a) => s !== "" || (i > 0 && a[i - 1] !== ""));
+  const earned = at("已加點") > -1 ? Number(v[at("已加點")]) || 0 : 0;
+  const rows = [];
+  if (orderId) rows.push(["訂單編號", orderId]);
+  rows.push(["品項", String(v[at("訂購內容")] || "")]);
+  rows.push([dripSets ? "數量" : "包數", qtyText_(bags, dripSets)]);
+  if (earned > 0) rows.push(["本次集點", earned + " 點（已存入您的會員帳戶）"]);
   try{
-    MailApp.sendEmail(String(m.email).trim(), "【翔天然】你的訂單已出貨" + (orderId ? "（" + orderId + "）" : ""), lines.join("\n"), { name:"翔天然" });
+    sendBrandMail_({ to:String(m.email).trim(), name:m.name,
+      subject:"【翔天然】您的咖啡豆已經出發了" + (orderId ? "（" + orderId + "）" : ""),
+      intro:["謝謝您的訂購。您的咖啡豆已經包裝完成、寄出了。"],
+      box:{ title:"訂單資訊", rows:rows },
+      after:["每一批豆子都經過我們逐批手挑、用心烘焙，希望它能陪您度過許多自在的時刻。",
+             "收到後如果有任何問題，或想聊聊怎麼沖比較好喝，都歡迎透過 LINE 告訴我們，我們會盡快回覆您。"],
+      button:{ text:"用 LINE 聯繫我們", url:LINE_CONTACT_URL },
+      note:"這是訂單出貨的交易通知，依您的訂單自動寄出。" });
   }catch(err){
     adminLog_(ss, "出貨通知信", "失敗：" + String(err).slice(0, 100), target);
     return "failed";

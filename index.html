@@ -192,6 +192,13 @@
   .perks{list-style:none;margin:32px 0 0;display:flex;flex-direction:column;gap:16px}
   .perks li{display:flex;gap:14px;align-items:flex-start;color:rgba(242,240,233,.9);font-size:1rem}
   .perks svg{flex:none;width:22px;height:22px;color:var(--dawn-soft);margin-top:2px}
+  /* 點數規則（D-050） */
+  .pts-rules{scroll-margin-top:84px;margin-top:26px;border:1px solid rgba(242,240,233,.22);border-radius:14px;padding:4px 18px;color:rgba(242,240,233,.88);font-size:.92rem}
+  .pts-rules summary{cursor:pointer;padding:12px 0;font-weight:500;color:var(--dawn-soft);list-style-position:inside}
+  .pts-rules h4{margin:14px 0 4px;font-size:.95rem;color:#F2F0E9;font-weight:600}
+  .pts-rules ul{margin:0 0 6px;padding-left:1.2em}
+  .pts-rules li{margin:3px 0;line-height:1.7}
+  .pts-rules .upd{margin:12px 0 14px;font-size:.78rem;color:rgba(242,240,233,.6)}
   .member-card{background:var(--card);color:var(--espresso);border-radius:24px;padding:38px;box-shadow:0 30px 70px rgba(0,0,0,.28)}
   .member-card h3{color:var(--pine);font-size:1.45rem;margin-bottom:6px;letter-spacing:.06em}
   .member-card .sub{color:var(--ink-45);font-size:.92rem;margin-bottom:22px}
@@ -246,6 +253,7 @@
   .pl-n.up{color:var(--pine)}
   .pl-n.down{color:var(--ink-70)}
   .pl-empty{color:var(--ink-45);margin:6px 0 0}
+  .pts-rule-link{display:inline-block;margin-top:10px;font-size:.8rem;color:var(--pine-mid);text-decoration:underline;cursor:pointer}
 
   /* FOOTER */
   footer{background:var(--espresso);color:rgba(242,240,233,.7);padding:66px 0 40px}
@@ -746,6 +754,36 @@
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>留 Email 並勾選同意，新品上架寄信通知你</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>幫喝過的豆子評分，會員中心推薦風味相近的豆子</li>
         </ul>
+        <details class="pts-rules" id="pointsRules">
+          <summary>點數規則</summary>
+          <h4>集點</h4>
+          <ul>
+            <li>半磅一包 1 點<span data-drip-only hidden>；耳掛一組 1 點，同一張訂單滿 5 組再送 5 點</span>。</li>
+            <li>訂單完成出貨後，點數才會入帳。</li>
+          </ul>
+          <h4>折抵</h4>
+          <ul>
+            <li>每 10 點折 100 元，結帳時在購物袋選「用點數折抵」。一次可以折多份，但折抵金額不能超過訂單金額。</li>
+            <li>用點數折抵的訂單，一樣可以集點。</li>
+          </ul>
+          <h4>效期</h4>
+          <ul>
+            <li>每次有新點數入帳，全部點數的效期都會重新延長為 3 個月；3 個月內沒有新的訂單完成，點數就會歸零。</li>
+            <li>只用點數折抵、沒有新點數入帳時，效期不會延長。</li>
+            <li>到期前 14 天，我們會寄 Email 提醒你（需登記 Email 並同意收通知）。</li>
+          </ul>
+          <h4>取消訂單</h4>
+          <ul>
+            <li>訂單取消時，折抵用掉的點數會退回；這張訂單得到的點數也會扣回。</li>
+          </ul>
+          <h4>其他</h4>
+          <ul>
+            <li>點數不能換成現金、不能找零，也不能轉讓或合併給其他會員。</li>
+            <li>會員資料刪除後，點數一併失效。</li>
+            <li>如果系統出錯造成點數不正確，我們會主動與你聯繫並協助更正。規則有調整時，會先在網站公告。</li>
+          </ul>
+          <p class="upd">每一筆點數的加扣，都可以在會員中心的「點數明細」查看。　2026 年 11 月 19 日起適用</p>
+        </details>
       </div>
       <div class="member-card" id="memberCard"><!-- rendered by JS --></div>
     </div>
@@ -1305,6 +1343,7 @@ function pointsPanelHtml(){
     <div class="pts-sub">${subLine}</div>
     ${expLine}
     ${pointLogHtml()}
+    <a class="pts-rule-link" href="#pointsRules" onclick="const r=document.getElementById('pointsRules');if(r){r.open=true;r.scrollIntoView({behavior:'smooth',block:'start'});}return false;">點數規則</a>
   </div>`;
 }
 /* 點數明細（D-049）：已驗證的會員才拿得到；舊後端沒有這欄就不顯示 */
